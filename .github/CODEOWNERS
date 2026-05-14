@@ -1,0 +1,8 @@
+# Global owner — review requested on every PR
+* @marieliesse
+
+# CI/CD, packaging, and security-sensitive files
+.github/ @marieliesse
+pyproject.toml @marieliesse
+uv.lock @marieliesse
+SECURITY.md @marieliesse
