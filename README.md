@@ -8,6 +8,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/autoplay-sdk)](https://pypi.org/project/autoplay-sdk)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/autoplay-sdk)
+[![CI](https://github.com/Autoplay-AI/autoplay-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/Autoplay-AI/autoplay-sdk/actions/workflows/ci.yml)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/jCbR2tQA5)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -129,8 +130,18 @@ This drops a `.cursor/skills/` folder into your project. Open Cursor or Claude a
 |---|---|
 | **Discord** | [discord.gg/jCbR2tQA5](https://discord.gg/jCbR2tQA5) — share what you're building, get help, stay updated |
 | **GitHub Issues** | Best for bug reports and feature requests |
+| **Support policy** | See [SUPPORT.md](SUPPORT.md) for support channels and response expectations |
 | **Docs** | [developers.autoplay.ai](https://developers.autoplay.ai) |
 | **PyPI** | [pypi.org/project/autoplay-sdk](https://pypi.org/project/autoplay-sdk) |
+
+---
+
+## Project governance
+
+- Contributor expectations: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Security reporting policy: [SECURITY.md](SECURITY.md)
+- Maintainer model and release governance: [GOVERNANCE.md](GOVERNANCE.md)
+- Open-source maintainer checklist (GitHub settings): [.github/OPEN_SOURCE_MAINTAINER_CHECKLIST.md](.github/OPEN_SOURCE_MAINTAINER_CHECKLIST.md)
 
 ---
 
