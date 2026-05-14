@@ -16,6 +16,8 @@ disable-model-invocation: true
 
 ```bash
 pip install autoplay-sdk
+# Optional: one-line FastAPI bridge
+# pip install "autoplay-sdk[serve]"
 # Plus your preferred LLM client, e.g.:
 #   pip install openai        # OpenAI / Azure OpenAI
 #   pip install anthropic     # Anthropic Claude
@@ -38,8 +40,10 @@ Every `ActionsPayload` carries a `session_id`. This is the per-user bucket key.
 
 - `session_id` may be `None` before identity linking — always guard: `if not payload.session_id: return`
 - Buffer and deliver events keyed **only** by `session_id` — never mix events from different users
-- Pick one key (`session_id` or `email`) and use it **end-to-end**: store with it, retrieve with it, pass it to the chatbot
+- Pick one user key (`user_id` preferred, fallback to `session_id`) and use it **end-to-end** in your chatbot layer
 - If you use `email`, fall back to `session_id` for anonymous users
+- For widget-based bots, explicitly map PostHog `distinct_id`/`user_id` to widget metadata and chatbot `sender_id`
+- If payloads include `product_id` (common), preserve it and pass it on retrieval (`context_store.get(..., product_id=...)`)
 
 ### Conversation scoping
 
@@ -65,12 +69,12 @@ Rules:
 
 ---
 
-## Core wiring pattern
+## Fastest SDK-native path (recommended)
 
 ```python
 import asyncio
-from autoplay_sdk import AsyncConnectorClient, AsyncSessionSummarizer
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
+from autoplay_sdk import AsyncConnectorClient, compose_chat_pipeline
+from autoplay_sdk.user_index import UserSessionIndex
 
 CONNECTOR_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
 API_TOKEN = "your-api-token"
@@ -89,51 +93,84 @@ async def llm(prompt: str) -> str:
     """
     raise NotImplementedError("Replace with your LLM client")
 
-# --- implement these two callbacks for your chatbot platform ---
-
-async def write_actions_cb(session_id: str, text: str) -> None:
-    # Called ~every 3s with formatted action list
-    # Guard on conv_map.get(session_id) if your platform needs a conversation_id
-    ...
-
-async def overwrite_cb(session_id: str, summary: str) -> None:
-    # Called after threshold actions with LLM summary
-    # Post summary first, then redact old action notes
-    ...
-
-# --- wire it together ---
-
-agent_writer = AsyncAgentContextWriter(
-    summarizer=AsyncSessionSummarizer(llm=llm, threshold=20),
-    write_actions=write_actions_cb,
-    overwrite_with_summary=overwrite_cb,
-    debounce_ms=0,
+# Compose summarizer + context store + writer safely (no callback clobbering)
+pipeline = compose_chat_pipeline(
+    llm=llm,
+    threshold=20,
+    lookback_seconds=300,
+    max_actions=20,
+    write_actions=None,           # optional push callback for chatbot notes
+    overwrite_with_summary=None,  # optional summary overwrite callback
 )
+user_index = UserSessionIndex(pipeline.context_store, lookback_seconds=300)
 
 async def run():
     async with AsyncConnectorClient(url=CONNECTOR_URL, token=API_TOKEN) as client:
-        client.on_actions(agent_writer.add)
+        async def on_actions(payload):
+            await pipeline.on_actions(payload)
+            user_index.add(payload)
+
+        client.on_actions(on_actions)
         await client.run()
 
 asyncio.run(run())
 ```
 
+When your chatbot gets a `user_id`, call:
+
+```python
+activity = user_index.get_user_activity(user_id)
+```
+
+This avoids hand-rolled `user_id -> session_id` indexing and keeps `product_id`-aware lookups correct.
+
+---
+
+## Optional one-line HTTP bridge
+
+If your chatbot runtime is in another process (Rasa/Botpress/Twilio/custom webhook), prefer the built-in FastAPI factory:
+
+```python
+from autoplay_sdk.serve import build_copilot_app
+
+app = build_copilot_app(
+    stream_url=CONNECTOR_URL,
+    token=API_TOKEN,
+    llm=llm,
+    summary_threshold=20,
+    lookback_seconds=300,
+)
+```
+
+Default endpoints:
+- `GET /healthz`
+- `GET /context/{user_id}?query=...`
+- `GET /reply/{user_id}?query=...`
+- `POST /admin/reset/{user_id}`
+
 ---
 
 ## LLM guardrails
 
-All LLM calls must go through `call_llm` with `prompt_meta` — never inline strings or raw provider calls without versioning:
+Use versioned prompt metadata with your provider client. The SDK does not currently ship a `call_llm(...)` helper.
 
 ```python
-# GOOD — provider-agnostic, versioned
-content, meta = call_llm(
-    model=LLM_MODEL,          # any model string your provider accepts
-    messages=[{"role": "system", "content": prompt_text}],
-    prompt_meta=MY_PROMPT,    # has name, version
+# GOOD — use prompt metadata alongside your provider call
+MY_PROMPT = {
+    "name": "Support Answer Prompt",
+    "version": "0.1",
+    "description": "Answer user questions with product-aware context",
+    "content": "You are a helpful assistant...\n\n{context}",
+}
+
+messages = [{"role": "system", "content": MY_PROMPT["content"].format(context=context_text)}]
+response = await openai_client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=messages,
 )
 
-# BAD — hardcoded provider, inline prompt, no versioning
-response = openai.chat.completions.create(
+# BAD — inline prompt string with no version metadata
+response = await openai_client.chat.completions.create(
     model="gpt-4o-mini",
     messages=[{"role": "system", "content": "You are a helpful assistant..."}],
 )

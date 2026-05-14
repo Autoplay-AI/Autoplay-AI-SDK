@@ -18,14 +18,27 @@ pip install autoplay-sdk
 
 ---
 
+## Components (state models)
+
+```text
+agent_states      — session FSM (v1, 5 states, deprecated)
+agent_state_v2    — session FSM (v2, 3 states, recommended for new code)
+```
+
+---
+
 ## Two RAG surfaces (don’t confuse them)
+
+Most chatbot integrations use both surfaces in sequence:
+1. `ContextStore.enrich(...)` to build retrieval text for embeddings/vector search.
+2. `assemble_rag_chat_context(...)` to build structured chat prompts for the reply model.
 
 | Module | Purpose |
 |--------|--------|
 | **`autoplay_sdk.rag`** — `RagPipeline` / `AsyncRagPipeline` | **Ingestion:** embed events + upsert into a **vector store** from the live stream. |
 | **`autoplay_sdk.rag_query`** — `assemble_rag_chat_context`, formatters, `prompts`, **`rag_query.watermark`** | **Query-time chat:** build the **user message block** and **system prompt text** for an LLM from **user query**, **real-time activity**, **conversation history**, and **optional** KB — swap memory/KB via **`ChatMemoryProvider`** / **`KnowledgeBaseRetriever`**. Use **`InboundWatermarkStore`** + **`cutoff_for_delta_activity`** to drive **activity since last user message** on follow-up turns. |
 
-Use **`ContextStore.enrich()`** for a quick retrieval query string; use **`rag_query`** when you want the same structured assembly pattern as Autoplay’s Adoption Copilot (Intercom / in-app).
+Use **`ContextStore.enrich()`** for retrieval-query text and **`rag_query`** for final chat prompt assembly.
 
 For **which loggers to tune** and **safe structured `extra` fields** when debugging `rag_query` in production, see **`docs/sdk/logging.mdx`**.
 
@@ -62,6 +75,9 @@ context_store = AsyncContextStore(
     max_actions=20,
 )
 
+# IMPORTANT: if events are ingested with product_id (default in connector payloads),
+# pass the same product_id to get()/enrich()/reset() calls.
+
 # Wire the client — one line each
 client = AsyncConnectorClient(url=STREAM_URL, token=API_TOKEN)
 client.on_actions(context_store.add)
@@ -71,8 +87,8 @@ task = client.run_in_background()
 ### In your chatbot handler
 
 ```python
-async def chat(session_id: str, user_message: str) -> str:
-    enriched = context_store.enrich(session_id, user_message)
+async def chat(session_id: str, product_id: str, user_message: str) -> str:
+    enriched = context_store.enrich(session_id, user_message, product_id=product_id)
     results  = await vector_db.query(await embed(enriched))
     return await llm(results, user_message)
 ```
@@ -127,8 +143,8 @@ client = ConnectorClient(url=STREAM_URL, token=API_TOKEN)
 client.on_actions(context_store.add)
 client.run_in_background()
 
-def chat(session_id: str, query: str) -> str:
-    enriched = context_store.enrich(session_id, query)
+def chat(session_id: str, product_id: str, query: str) -> str:
+    enriched = context_store.enrich(session_id, query, product_id=product_id)
     results  = vector_db.query(embed(enriched))
     return llm(results, query)
 ```
@@ -142,6 +158,7 @@ from autoplay_sdk import ConnectorClient, ActionsPayload
 
 STREAM_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
 API_TOKEN  = "uk_live_..."
+# Or set AUTOPLAY_APP_UNKEY_TOKEN and leave token="".
 
 def on_actions(payload: ActionsPayload):
     print(payload.to_text())
@@ -323,6 +340,12 @@ print(client.queue_size)      # events waiting in the queue right now
 
 ## Payload schemas
 
+Known stream event types:
+- `actions` → parsed as `ActionsPayload` and delivered to `on_actions`
+- `summary` → parsed as `SummaryPayload` and delivered to `on_summary`
+- `heartbeat` (SSE event frame) → ignored as keep-alive
+- `usertour_trigger` may appear on connector streams but is currently ignored by SDK clients
+
 ### `actions` event
 
 ```json
@@ -401,9 +424,9 @@ above for a full walkthrough.
 |---|---|
 | `.add(payload)` | Store an `ActionsPayload`; wire to `client.on_actions()` |
 | `.on_summary(session_id, text)` | Store a summary; auto-wired when `summarizer` is provided |
-| `.get(session_id, **overrides)` | Return the formatted context string |
-| `.enrich(session_id, query, **overrides)` | `get()` + append the user query; **primary entry point** |
-| `.reset(session_id)` | Clear all context for a session |
+| `.get(session_id, product_id=..., **overrides)` | Return the formatted context string (`product_id` strongly recommended) |
+| `.enrich(session_id, query, product_id=..., **overrides)` | `get()` + append the user query; **primary entry point** |
+| `.reset(session_id, product_id=...)` | Clear all context for a session/product bucket |
 | `.active_sessions` | Property — list of sessions with stored context |
 
 `AsyncContextStore` has the same interface; `add` and `on_summary` are
@@ -502,6 +525,46 @@ log lines (constants and URL helpers only).
 For counters (drops, latency, queue depth), implement **`SdkMetricsHook`**
 (`autoplay_sdk.metrics`) and pass `metrics=` into the clients, summarizer, or
 `RedisEventBuffer` as documented in the [Changelog](CHANGELOG.md).
+
+---
+
+## Compatibility
+
+- `autoplay-sdk` currently depends on `unkey.py>=3.0.1`, which requires pydantic v2.
+- Frameworks pinned to pydantic v1 (for example, Rasa 3.x stacks) cannot coexist in the same environment.
+- Recommended workaround: run the SDK in a separate process and bridge to your chatbot runtime over HTTP or Redis.
+
+---
+
+## Self-hosted chatbot helpers
+
+Use these when your chatbot backend is user-keyed and runs in a different process:
+
+- **`UserSessionIndex`** (`autoplay_sdk.user_index`) — choose this when your reply endpoint receives `user_id` and you need multi-session context joins.
+- **`compose_chat_pipeline(...)`** (`autoplay_sdk.chat_pipeline`) — choose this when you want safe callback wiring for summarizer + context store + agent writer in one on-actions hook.
+- **`build_copilot_app(...)`** (`autoplay_sdk.serve`) — choose this when you want an out-of-the-box HTTP bridge (`/healthz`, `/context/{user_id}`, `/reply/{user_id}`, `/admin/reset/{user_id}`).
+
+Install optional serve extras:
+
+```bash
+pip install "autoplay-sdk[serve]"
+```
+
+Reference guide: [Self-hosted chatbot bridge](docs/sdk/self-hosted-bridge.mdx).
+
+### Self-hosted troubleshooting
+
+1. **`/context` or `/reply` returns 404 (no activity)**
+   - User has no recent indexed actions, or lookback eviction removed old sessions.
+   - Verify stream ingest is active and `user_id` is present on incoming actions.
+
+2. **User appears active but chatbot says no recent activity**
+   - Identity mismatch across event source (`distinct_id`/`user_id`), widget metadata, and chatbot sender id.
+   - Ensure the same user key flows end-to-end.
+
+3. **Context missing for known sessions in multi-product setups**
+   - Product-scoped retrieval requires matching `product_id`.
+   - Preserve `product_id` through indexing/retrieval and pass it into context lookups.
 
 ---
 

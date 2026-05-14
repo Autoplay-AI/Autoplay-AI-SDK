@@ -4,11 +4,20 @@ sidebarTitle: "📐 Payload schema"
 description: Full JSON wire format for actions and summary events from the SSE stream.
 ---
 
-The Autoplay connector emits two JSON event types over the SSE stream (and the
+The Autoplay connector emits JSON events over the SSE stream (and the
 same `actions` object shape is POSTed to customer webhooks in push mode).
 The SDK parses these automatically into typed Python objects — you rarely need
 to work with the raw JSON directly, but this reference is useful when debugging
 or building your own client.
+
+## Event type reference
+
+| SSE frame/event type | Description | SDK handling |
+|---|---|---|
+| `actions` | Batch of UI actions for one session | Parsed as `ActionsPayload`; dispatched via `on_actions` |
+| `summary` | LLM summary replacing many actions | Parsed as `SummaryPayload`; dispatched via `on_summary` |
+| `usertour_trigger` | Trigger metadata for user-tour flows | Not parsed into SDK payload models yet; ignored by default stream clients |
+| `heartbeat` (SSE `event` field) | Keep-alive ping frame | Ignored by SDK clients |
 
 ---
 

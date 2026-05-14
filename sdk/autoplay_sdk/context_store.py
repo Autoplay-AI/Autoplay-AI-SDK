@@ -152,6 +152,8 @@ class _ContextStoreBase:
         # session_id → ordered list of ActionsPayload (newest last); OrderedDict
         # used for LRU tracking when max_sessions is set.
         self._actions: OrderedDict[str, list[ActionsPayload]] = OrderedDict()
+        # Tracks sessions we have already warned about to avoid log spam.
+        self._warned_missing_product_id: set[str] = set()
         self._lock = threading.Lock()
 
         if summarizer is not None:
@@ -236,6 +238,39 @@ class _ContextStoreBase:
             actions_list = (
                 list(self._actions.get(action_key, [])) if inc_actions else []
             )
+            fallback_key: str | None = None
+            if inc_actions and not actions_list and not (product_id or "").strip():
+                scoped = [
+                    key
+                    for key, payloads in self._actions.items()
+                    if key.endswith(f"\x1f{session_id}") and payloads
+                ]
+                if len(scoped) == 1:
+                    fallback_key = scoped[0]
+                    actions_list = list(self._actions.get(fallback_key, []))
+                    if session_id not in self._warned_missing_product_id:
+                        logger.warning(
+                            "context_store: get(session_id=%s) fell back to product-scoped "
+                            "actions bucket=%s; pass product_id explicitly to avoid empty reads",
+                            session_id,
+                            fallback_key,
+                            extra={
+                                "session_id": session_id,
+                                "bucket": fallback_key,
+                            },
+                        )
+                        self._warned_missing_product_id.add(session_id)
+                elif (
+                    len(scoped) > 1
+                    and session_id not in self._warned_missing_product_id
+                ):
+                    logger.warning(
+                        "context_store: get(session_id=%s) found multiple product-scoped "
+                        "buckets; pass product_id explicitly to disambiguate reads",
+                        session_id,
+                        extra={"session_id": session_id, "bucket_count": len(scoped)},
+                    )
+                    self._warned_missing_product_id.add(session_id)
 
         # Apply time filter (for per-call overrides that differ from the stored default)
         if actions_list and lb_seconds is not None:
