@@ -16,6 +16,7 @@ jobs:
   analyze:
     name: Analyze (Python)
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -29,5 +30,4 @@ jobs:
         uses: github/codeql-action/autobuild@f35333b910470a5408cb081b68f0701254a7d27b  # v3.28.18
 
       - name: Perform CodeQL Analysis
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/analyze@f35333b910470a5408cb081b68f0701254a7d27b  # v3.28.18

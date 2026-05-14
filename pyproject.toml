@@ -41,9 +41,9 @@ dev = [
 autoplay-install-skills = "autoplay_sdk.install_skills:main"
 
 [project.urls]
-Homepage = "https://github.com/Autoplay-AI/autoplay-sdk"
-Documentation = "https://autoplay-sdk.mintlify.app"
-"Bug Tracker" = "https://github.com/Autoplay-AI/autoplay-sdk/issues"
+Homepage = "https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support"
+Documentation = "https://developers.autoplay.ai"
+"Bug Tracker" = "https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["autoplay_sdk"]
