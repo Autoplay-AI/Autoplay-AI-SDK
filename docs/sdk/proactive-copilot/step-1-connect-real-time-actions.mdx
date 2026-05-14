@@ -1,0 +1,55 @@
+---
+title: "Step 1 — Connect real-time actions"
+sidebarTitle: "Step 1 — Connect real-time actions"
+description: Ingest structured ActionsPayload streams so your copilot sees what the user is doing right now.
+---
+
+<Info>Available now.</Info>
+
+### What you get
+
+Every action a user takes in your product — page views, clicks, form inputs — is captured and delivered to your agent as a structured, LLM-ready payload.
+
+This is not raw browser telemetry. Before events reach your agent, Autoplay's pipeline processes them:
+
+1. **Extraction** — raw DOM events are extracted and normalised into typed actions
+2. **Labelling** — each action is given a human-readable description with inferred intent
+3. **Grouping** — actions are collected into a session with an inferred goal
+4. **Summarisation** *(optional)* — the connector can run an LLM pass to produce a compact prose summary of the full session
+
+The result is an `ActionsPayload` that your agent can read and reason over directly.
+
+### What your copilot can do at this stage
+
+Your agent can see exactly what the user is doing right now — which page they're on, what they just clicked, and what their inferred intent is. It can respond contextually to any action without waiting for the user to describe the situation in chat.
+
+### Limitation
+
+Every session still looks like a first session. Your agent has no memory of what this user has done before, which workflows they've already completed, or where they typically get stuck — and without a workflow ontology it cannot compare live behaviour to an ideal journey.
+
+### Code
+
+```python
+from autoplay_sdk import AsyncConnectorClient, ActionsPayload
+
+async def on_actions(payload: ActionsPayload) -> None:
+    # payload.to_text() is ready to inject directly into your LLM context
+    current_context = payload.to_text()
+
+    suggestion = await your_llm(
+        system="You are a product copilot. Based on what the user is doing, "
+               "suggest one helpful next step. Be brief.",
+        user=f"## What the user is doing\n{current_context}",
+    )
+
+    if suggestion:
+        await push_to_ui(payload.session_id, suggestion)
+
+
+client = AsyncConnectorClient(url=CONNECTOR_URL, token=API_KEY)
+client.on_actions(on_actions)
+```
+
+See [Async client](../async-client) and [Webhook receiver](../webhook-receiver) for setup details.
+
+**Next:** [Step 2 — Add actions to LLM context](./step-2-add-actions-to-llm-context)

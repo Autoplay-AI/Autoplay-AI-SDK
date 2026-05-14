@@ -1,0 +1,353 @@
+---
+title: Changelog
+sidebarTitle: "📜 Changelog"
+description: Version history and release notes for the autoplay-sdk Python package.
+---
+
+The canonical changelog for releases and PyPI sdists also lives in the repository as [`CHANGELOG.md`](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/CHANGELOG.md). This page mirrors that file for the documentation site, with links pointed at these docs.
+
+---
+
+## [0.7.2] — 2026-05-14
+
+### Removed
+
+- **`TourDefinition.label`** and **`TourDefinition.user_tour_exists`** — these fields belong to `proactive_intercom.messages`, not the tour registry. Removed from the dataclass, `to_dict`, and `from_dict`. Legacy configs that still include these keys are silently ignored on parse.
+
+### Added
+
+- **`TOUR_OFFER_QUICK_REPLY_BODY`** — constant (`"Would you like me to show you?"`); default body for the tour-offer Yes/No quick reply.
+- **`tour_offer_quick_reply_body(integration_config)`** — single SDK source-of-truth for the tour-offer message body; reads `integration_config.tour_offer_body` for product-level overrides, falls back to the constant. Call this after `resolve_tour_offer_for_inbound` returns a non-`None` flow id. Both symbols exported from `autoplay_sdk.proactive_triggers`.
+
+---
+
+## [0.7.1] — 2026-05-13
+
+### Added
+
+- **`autoplay_sdk.install_skills`** — CLI command `autoplay-install-skills` that copies bundled Cursor/Claude agent skills into the current project. Supports `--chatbot` and `--user-activity` flags.
+- **`autoplay_sdk/skills/`** — 10 agent skill files shipped inside the wheel: `autoplay-core`, `chatbot-ada`, `chatbot-intercom`, `chatbot-botpress`, `chatbot-dify`, `chatbot-crisp`, `chatbot-landbot`, `chatbot-tidio`, `activity-fullstory`, `activity-posthog`.
+
+### Documentation
+
+- Ada tutorial (`docs/recipes/ada/`), FullStory Streams tutorial (`docs/recipes/fullstory/how-to-setup.mdx`), and quickstart `autoplay-install-skills` tip block.
+
+---
+
+## [0.7.0] — 2026-05-12
+
+### Added
+
+- **`autoplay_sdk.agent_state_v2`** — `SessionState` FSM with `THINKING` / `PROACTIVE` / `REACTIVE` states, timeout-only exit rules, and `InvalidTransitionError`. Coexists with v1 `AgentStateMachine`.
+- **`autoplay_sdk.proactive_triggers.trigger_config`** — `ProactiveTriggerConfig`, `TriggerMessage`, and recursive `ProactiveCriteria` for config-driven proactive triggers.
+- **`autoplay_sdk.proactive_triggers.tour_registry`** — `TourDefinition` and `TourRegistry`; per-tour `interaction_timeout_s` / `cooldown_period_s` overrides; `get_by_user_tour_id()`.
+- **`SessionState.record_tour_step()`**, **`SessionState.set_visual_guidance()`**, **`SessionState.tick(tour_registry=None)`**.
+- **`parse_tour_registry(integration_config, product_id)`** helper in `proactive_intercom_config`.
+
+### Changed
+
+- **`integration_config.proactive_intercom`** — now a **list** of `ProactiveTriggerConfig` objects (was a single dict).
+- **`TriggerMessage`** — renamed `offers_tour` → `user_tour_exists`, `flow_id` → `user_tour_id`; backward-compatible properties retained.
+
+### Documentation
+
+- [Intercom proactive triggers step 2](/recipes/intercom-tutorial/step-2-define-proactive-triggers), [Agent session states](/sdk/agent-states) — agent state v2 accordion.
+
+---
+
+## [0.6.8] — 2026-05-05
+
+- SDK branch release tag/version for current branch cut.
+- `AgentStateMachine.enter_reactive_from_user_message` docs + behavior notes now include rejection logging and preserved `InvalidTransitionError` semantics.
+
+---
+
+## [0.6.7] — 2026-04-30
+
+Agent FSM, Intercom proactive **`quick_reply`**, **`autoplay_sdk.proactive_triggers`** (replaces **`integrations.proactive`**), registry timings/entity, context builders, scope validation, product-scoped context-store buckets, and proactive idle teardown for chat: **`run_proactive_idle_expiry`**, **`ProactiveIdleExpiryHooks`**, **`ProactiveIdleExpiryResult`**, Intercom **`DELETE /conversations/{id}`** helpers (**`build_intercom_delete_conversation_request`**, etc.).
+
+For full **Added** / **Changed** / **Breaking** detail, see the same version in the repository [`CHANGELOG.md`](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/CHANGELOG.md).
+
+### Removed
+
+- **`autoplay_sdk.integrations.proactive`** — use **`autoplay_sdk.proactive_triggers`** (`import` paths and submodules mirror the old layout).
+
+### Added
+
+- **`autoplay_sdk.agent_states`** — **`AgentState`**, **`AgentStateMachine`**, **`TaskProgress`**, **`SessionMetrics`**, **`InvalidTransitionError`**, **`InvalidSnapshotError`**; five-state FSM; **`transition_on_disengagement()`**; **`to_snapshot()`** / **`from_snapshot()`**; **`can_show_proactive_with_reason()`**.
+- **`autoplay_sdk.agent_states.AgentStateMachine`** — **`expire_proactive_to_thinking_if_idle`**.
+- **`autoplay_sdk.integrations.intercom`** — **`quick_reply`** helpers, **`INTERCOM_PROACTIVE_QUICK_REPLY_DEFAULT_BODY`**, **`proactive_trigger_canonical_url_ping_pong`**, connector helpers for **`POST /intercom/proactive/{product_id}`**, **`IntercomProactivePolicyConfig`**.
+- **`autoplay_sdk.proactive_triggers`** — **`ProactiveTriggerContext`**, **`ProactiveTriggerResult`**, registry, **`CanonicalPingPongTrigger`**, **`default_proactive_trigger_registry`**, timings (**`ProactiveTriggerTimings`**, **`ProactiveTriggerEntity`**, **`interaction_timeout_s`**, **`cooldown_s`**).
+- **`autoplay_sdk.proactive_triggers.defaults`** — **`ProactiveTriggerIds`**, **`get_proactive_trigger_ids()`**, **`DEFAULT_PROACTIVE_QUICK_REPLY_BODY`**.
+- **`PredicateProactiveTrigger`**; **`from_actions_payloads`** / **`from_slim_actions`**; **`DEFAULT_PROACTIVE_CONTEXT_*`** exports; **`scope`** (**`ScopePolicy`**, validation helpers); **`validate_scope`** (**`require_conversation`**).
+- **`autoplay_sdk.context_store`** — **`actions_bucket_id`**, optional **`product_id`** on **`get`**, **`enrich`**, **`reset`**; composite **`_actions`** keys when **`ActionsPayload.product_id`** is set.
+
+### Changed
+
+- **`autoplay_sdk.integrations.intercom`** — **`INTERCOM_PROACTIVE_QUICK_REPLY_DEFAULT_BODY`** aliases **`proactive_triggers.defaults`**.
+- **`ProactiveTriggerContext`** — optional **`recent_actions`**, summaries, **`context_extra`**.
+- **`from_slim_actions` / `from_actions_payloads`** — default **`scope_policy=STRICT`** (use **`LENIENT`** to relax).
+- **`POST /intercom/proactive/{product_id}`** documented as always-on when authenticated (**`ENABLE_INTERCOM_PROACTIVE_PROMPTS`** removed).
+
+### Documentation
+
+- [Agent session states](/sdk/agent-states), [Intercom integration](/integrations/intercom), [Proactive triggers](/sdk/proactive-triggers), [Authoring proactive triggers](/sdk/proactive-triggers-authoring).
+
+### Breaking changes
+
+- **`expire_proactive_to_thinking_if_idle`** — returns **`ProactiveIdleExpiryResult`** (use **`if result:`** / **`result.transitioned`**, not **`is True`** on the return value). See [`CHANGELOG.md`](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/CHANGELOG.md#067--2026-04-30).
+- Migrate imports from **`autoplay_sdk.integrations.proactive`** to **`autoplay_sdk.proactive_triggers`**.
+- Strict scope defaults; **`LENIENT`** for old permissive behaviour.
+- Match **`product_id`** on context-store reads when payloads carry **`product_id`**.
+
+---
+
+## [0.6.6] — 2026-04-23
+
+### Added
+
+- **`SlimAction`** / **`ActionsPayload`** — optional **`conversation_id`** (Intercom thread when linked); merge semantics unchanged at batch level.
+
+- **`autoplay_sdk.rag_query`** — query-time RAG assembly (**`assemble_rag_chat_context`**, providers, **`ChatContextAssembly`**, formatters).
+
+- **`autoplay_sdk.prompts`** — versioned Adoption Copilot defaults (**`RAG_SYSTEM_PROMPT`**, **`REASONING_PROMPT`**, **`RESPONSE_PROMPT`**).
+
+- **`autoplay_sdk.rag_query.watermark`** — delta activity watermarks for Intercom / connector chat.
+
+- **`autoplay_sdk.prompts.intercom_readability`** — shared **`INTERCOM_READABILITY_RULES`** fragment for Messenger replies.
+
+### Changed
+
+- Root **`__all__`** documents query-time RAG vs ingestion **`RagPipeline`**.
+
+- **`RAG_SYSTEM_PROMPT`** / **`RESPONSE_PROMPT`** (1.2) and connector **`INTERCOM_CHAT_PROMPT`** (5) — readability + guidance framing for product how-to questions.
+
+- **`assemble_rag_chat_context`** — structured DEBUG / WARNING logging.
+
+### Documentation
+
+- [Chatbot context assembly](/sdk/chatbot-context-assembly) — delta activity and observability cross-links.
+
+### Breaking changes
+
+None for JSON consumers — new fields remain optional.
+
+---
+
+## [0.6.4] — 2026-04-23
+
+### Added
+
+- **`SlimAction`** — optional per-action `session_id`, `user_id`, and `email` (aligned with batch-level payload identity). Present on each entry in `actions` for SSE, push webhooks, and typed parsing.
+
+- **`RedisEventBuffer`** — serialized JSON now includes those fields per action so buffered events round-trip cleanly.
+
+### Documentation
+
+- [Payload schema](/sdk/payload-schema) and [Typed payloads](/sdk/typed-payloads) — document per-action identity fields; payload schema clarifies shared shape for SSE and push webhooks.
+
+### Breaking changes
+
+None — new fields are optional (`None` when omitted).
+
+---
+
+## [0.6.2] — 2026-04-16
+
+### Added
+
+- **`POST /products` terminal feedback** — TTY-only Rich stderr spinner and stdout success/failure lines in `post_register_product_payload`; no output when stdout is not a TTY.
+
+### Changed
+
+- **`run_product_onboarding`** — single `POST /products`; connector performs Redis + Render when configured. `render_sync_performed` reflects connector `dual_write` in the JSON response.
+- **`unkey.py` is now a default dependency** — plain `pip install autoplay-sdk` includes operator onboarding (`autoplay_sdk.admin` / Unkey).
+
+### Removed
+
+- **`autoplay-sdk[admin]` extra** — install `autoplay-sdk` only.
+
+---
+
+## [0.6.1] — 2026-04-14
+
+### Added
+
+- **`ConversationEvent`** (`autoplay_sdk.chatbot`) — dataclass for chatbot session-link webhooks.
+- **`BaseChatbotWriter` session-link webhook flow** — `SESSION_LINK_WEBHOOK_TOPICS`, `extract_conversation_event()`, `_parse_session_link_webhook_payload()` (subclasses override parse only).
+- **`autoplay_sdk.integrations.intercom`** — webhook topic constants, `intercom_chatbot_webhook_url()`, optional `format_reactive_session_link_script` (no logging from this subpackage).
+
+### Removed
+
+- **`format_proactive_session_start_script`** and the proactive **`/sessions/start`** snippet — use Intercom webhooks to `POST /chatbot-webhook/{product_id}`; optional **`format_reactive_session_link_script`** remains for `POST /sessions/link`.
+
+### Documentation
+
+- [Logging](/sdk/logging) — logger hierarchy, app-owned `logging` configuration, third-party subclass guidance, changelog cross-link.
+- README — logging section aligned with the above; metrics pointer (`SdkMetricsHook`).
+- [Intercom integration](/integrations/intercom) — SDK helpers and connector mapping (webhooks, optional snippet, inbox UX).
+
+### Breaking changes
+
+- **`format_proactive_session_start_script`** removed from `autoplay_sdk.integrations.intercom`.
+
+### Deprecations
+
+None.
+
+---
+
+## [0.6.0] — 2026-04-13
+
+### Documentation
+
+- **BaseChatbotWriter — Note body format** — [BaseChatbotWriter](/sdk/chatbot-writer) now documents the full plain-text contract for `_post_note` bodies (header via `format_chatbot_note_header`, sorted 1-based action lines, binning vs post-link, empty list, summary notes). `_format_note` docstring points to that page as the single source of truth.
+
+- **Logging** — New [Logging](/sdk/logging) reference page (module loggers, `%` formatting, `exc_info`, structured `extra`, secrets guidance including HTTP bodies, common logging mistakes). [Quickstart](/quickstart) links to it for discoverability.
+
+### Bug fixes / observability
+
+- `BaseChatbotWriter` — pre-link flush failure `warning` now includes structured `extra` (`session_id`, `product_id`, `conversation_id`).
+
+- `BaseChatbotWriter` — post-link debounced flush: if `_post_note` returns no part id after the debounce buffer was popped, logs a `warning` with the same `extra` shape and explains that this flush is not retried automatically.
+
+### Breaking changes
+
+None.
+
+### Deprecations
+
+None.
+
+---
+
+## [0.5.0] — 2026-04-10
+
+### New features
+
+- **`ActionsPayload.merge(payloads)`** — class method that merges a non-empty list of `ActionsPayload` objects for the same session into one. Actions are concatenated and re-indexed from `0`; `user_id`/`email` resolved from the first non-`None` value; `forwarded_at` set to the latest timestamp. Raises `ValueError` on empty input.
+
+- **`AsyncAgentContextWriter(debounce_ms=N)`** — new optional constructor parameter for a per-session trailing-edge accumulation window. When `> 0`, multiple `add()` calls arriving within the window are merged via `ActionsPayload.merge()` before `write_actions` is called, reducing destination API calls during event bursts. Default is `0` (no debounce — existing behaviour unchanged).
+
+- **`BaseChatbotWriter`** (`autoplay_sdk.chatbot`) — new public base class providing the complete pre-link/post-link delivery policy for building chatbot destinations. Subclass it and implement `_post_note` and `_redact_part`; pre-link buffering (sliding window), at-link flush (binned note), and post-link debouncing are all included. `IntercomChatbot` in the event connector already extends this class.
+
+### Breaking changes
+
+None. All changes are additive:
+
+- `AsyncAgentContextWriter.__init__` gains `debounce_ms: int = 0` — existing code passing positional or keyword arguments is unaffected.
+- `ActionsPayload.merge()` is a new class method; no existing method is renamed or removed.
+- `BaseChatbotWriter` is a new public export; no existing symbols are removed.
+
+### Deprecations
+
+None.
+
+### Bug fixes / error handling improvements
+
+- `BaseChatbotWriter.on_session_linked` — now no-ops when the same `conversation_id` is passed again (idempotent guard). The product worker includes the conv_id on every batch for already-linked sessions; without this guard, each batch would cancel the in-flight 150ms post-link debounce task and restart the window, causing notes to be delayed indefinitely during fast user interactions.
+
+- `BaseChatbotWriter.on_session_linked` — pre-link buffer (`_pending`) is now only cleared after `_post_note` confirms success (returns a non-`None` part id). Previously the buffer was popped before the API call; a transient Intercom failure would permanently lose those events. On failure the buffer is now preserved and the `_conv_map` entry is rolled back so the next `on_session_linked` call retries automatically.
+
+- `BaseChatbotWriter.write_actions`: the post-link debounce `asyncio.Task` now has a `done_callback` that logs any unhandled exception at `ERROR` level with structured `extra` (previously silent — Python only emitted a `DEBUG`-level "Task exception was never retrieved").
+
+- `AsyncAgentContextWriter._flush_session` done-callback: now includes `product_id` in the log message and `extra` dict for structured log filtering.
+
+### Migration notes
+
+**`AsyncAgentContextWriter` + `BaseChatbotWriter` — avoid double-debouncing**
+
+`BaseChatbotWriter` already coalesces rapid `write_actions()` calls via its `post_link_debounce_s` window (default 150 ms). When wiring an `AsyncAgentContextWriter` to a `BaseChatbotWriter` subclass, keep `debounce_ms=0` (the default):
+
+```python
+# CORRECT — BaseChatbotWriter handles debouncing; no stacking needed
+writer = AsyncAgentContextWriter(
+    summarizer=summarizer,
+    write_actions=chatbot_subclass.write_actions_cb,
+    overwrite_with_summary=overwrite_cb,
+    debounce_ms=0,   # ← default, explicit for clarity
+)
+
+# AVOID — stacks two debounce windows, adds latency without benefit
+writer = AsyncAgentContextWriter(..., debounce_ms=200)
+```
+
+Use `debounce_ms > 0` only when `write_actions` points to a raw destination with no internal coalescing (e.g. a direct Zendesk or Salesforce API call).
+
+---
+
+## [0.4.0] — 2026-04-09
+
+### Bug fixes
+
+- Fixed TOCTOU race in `RedisEventBuffer._get_redis()`: concurrent callers could each create their own connection pool; now serialised with `asyncio.Lock` and double-checked locking.
+- Fixed `AsyncSessionSummarizer.flush()` cancellation safety: replaced sequential `for q in queues: await q.join()` with `asyncio.gather(*[asyncio.shield(q.join()) for q in queues])` so all queues are drained even when the caller is cancelled.
+
+### Other
+
+- Added `CHANGELOG.md` to document breaking changes and new features going forward.
+
+---
+
+## [0.3.0] — 2026-04-09
+
+### Breaking changes
+
+- **`AsyncSessionSummarizer.get_context(session_id)` is now `async`** — callers must `await` it.
+- **`AsyncSessionSummarizer.reset(session_id)` is now `async`** — callers must `await` it.
+- **`AsyncSessionSummarizer.active_sessions` is now an `async` property** — callers must `await` it.
+- **`AsyncSessionSummarizer.add()` now returns immediately** — the LLM call is dispatched to a background worker queue rather than awaited inline. Code that relied on the LLM having completed by the time `await add()` returned must call `await summarizer.flush()` before inspecting state.
+
+### New features
+
+- **`AsyncSessionSummarizer.flush()`** — waits for all queued payloads to be fully processed; cancellation-safe via `asyncio.gather` + `asyncio.shield`.
+- **`SdkMetricsHook` protocol** (`autoplay_sdk.metrics`) — a `@runtime_checkable Protocol` that customers can implement to receive Prometheus / Datadog / OTEL counters for: dropped events, summarizer latency, Redis operation latency, queue depth, and semaphore timeouts.
+- **`metrics=` constructor parameter** on `ConnectorClient`, `AsyncConnectorClient`, `AsyncSessionSummarizer`, and `RedisEventBuffer`.
+- **`initial_backoff_s`, `max_backoff_s`, `max_retries` constructor parameters** on both SSE clients — exposes and documents the reconnect policy with configurable jitter-backed exponential backoff.
+- **Per-session ordering guarantee in `AsyncSessionSummarizer`** — each session now has its own `asyncio.Queue` + background `asyncio.Task` worker, ensuring that concurrent `add()` calls for the same session are always processed in arrival order, even if an earlier LLM call fails.
+- **`py.typed` marker** — the package is now PEP 561-compliant; static type-checkers will find type stubs automatically.
+
+### Bug fixes (v0.2.x → v0.3.0)
+
+The following 24 items were addressed across two audit passes:
+
+**Concurrency & correctness**
+- Fixed `AsyncSessionSummarizer` ordering bug: concurrent adds during an LLM failure could produce out-of-order `on_summary` callbacks (replaced single lock with per-session queue).
+- Fixed TOCTOU race in `RedisEventBuffer._get_redis()`: concurrent callers could each create their own connection pool; now serialised with `asyncio.Lock` and double-checked locking.
+- Replaced `asyncio.Semaphore._value` (private API, breaks across CPython minor versions) with an explicit `_TrackedSemaphore` counter.
+- Replaced `asyncio.get_event_loop()` (deprecated) with `asyncio.get_running_loop()` in `app.py` and `async_client.py`.
+- Replaced `asyncio.ensure_future()` with `loop.create_task()` in `async_client.py`.
+- Added `done_callback` on fire-and-forget `asyncio.Task`s to log unhandled exceptions instead of silently swallowing them.
+
+**Error handling**
+- `RedisEventBuffer._payload_from_json()` now wraps `json.loads` in `try/except json.JSONDecodeError`; corrupt ZSET members no longer crash the drain loop.
+- `ConnectorClient` now sets `self._running = False` on `KeyboardInterrupt` so callers can inspect the state after shutdown.
+- All `except` clauses that were swallowing exceptions now pass `exc_info=True` to the logger so tracebacks appear in structured logs.
+
+**Data structures**
+- `RedisEventBuffer` ZSET members now carry a unique UUID prefix, preventing silent deduplication when two events arrive at the same millisecond timestamp.
+- `SessionSummarizer` now deletes `_history[session_id]` and `_counts[session_id]` after summarisation to prevent unbounded memory growth.
+- `AsyncConnectorClient._session_semaphores` changed from plain `dict` to `collections.OrderedDict` with LRU eviction to cap memory when many short-lived sessions are processed.
+
+**Redis connection management**
+- Extracted `LazyRedisClient` helper (`storage/_redis.py`) so all storage modules share one lazily-initialised, thread-safe Redis client instead of each implementing the same racy pattern.
+- `session_store` now uses `LazyRedisClient` and exposes a `SessionState.from_redis_link()` classmethod that owns the full reconstruction logic (preventing silent field omissions on restore).
+- `SessionState` gains an `error: Optional[str]` field to surface last-known error reason through the API.
+
+**Logging & observability**
+- Replaced custom `_JsonFormatter` in `app.py` that ignored `extra={}` fields with a correct implementation that merges them into the JSON line.
+- All structured log calls now use `extra={}` dicts consistently.
+- Metrics instrumentation added at every observability-relevant site: event drops, queue depth, semaphore timeouts, summarizer latency, Redis add/drain latency.
+
+**Package hygiene**
+- Added `__all__` exports to `__init__.py` so `from autoplay_sdk import *` is well-defined.
+- Added `__version__ = "0.3.0"` to `__init__.py`.
+- Added `py.typed` marker for PEP 561 compliance.
+- Removed dead `_dropped_count` / `_total_count` metrics fields that were incremented but never surfaced.
+- Standardised public API: `on_drop` callback signature is now consistent across `ConnectorClient`, `AsyncConnectorClient`, and `RedisEventBuffer`.
+
+---
+
+## [0.2.0] — prior
+
+Initial internal release. No changelog maintained at this version.

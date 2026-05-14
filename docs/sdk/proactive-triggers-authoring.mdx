@@ -1,0 +1,345 @@
+---
+title: Authoring proactive triggers
+sidebarTitle: "✏️ Authoring proactive triggers"
+description: Build your first proactive trigger from scratch — context, predicates, registry, timings, and delivery.
+---
+
+This guide walks you through building a proactive trigger end-to-end: assembling context from your event buffer, writing a trigger, registering it, evaluating it on each tick, and handing the result to your delivery layer.
+
+> See [Proactive triggers](/sdk/proactive-triggers) for the module reference (types, constants, built-in IDs).
+
+---
+
+## Overview: the full flow
+
+```
+Your event buffer (actions, summaries)
+           │
+           ▼
+  ProactiveTriggerContext   ← built on each tick
+           │
+           ▼
+  ProactiveTriggerRegistry.evaluate_first(ctx)
+           │
+     ┌─────┴──────┐
+   None        ProactiveTriggerResult
+                    │  trigger_id, body,
+                    │  reply_option_labels,
+                    │  interaction_timeout_s,
+                    │  cooldown_s
+                    ▼
+          can_show_proactive_with_reason(fsm_state)?
+                    │
+                    ▼
+           Deliver to user
+        (Intercom quick_reply,
+         modal, toast, etc.)
+```
+
+---
+
+## Step 1 — Choose how to build your trigger
+
+There are three paths. Pick the one that fits your situation:
+
+### Path A: Code-defined trigger (most common)
+
+Write your trigger in Python — no JSON config required. Use this for custom business logic, multi-condition rules, or anything the built-in catalog doesn't cover.
+
+**Use `PredicateProactiveTrigger` when the rule is a single boolean on `ctx`** (covers most cases):
+
+```python
+from autoplay_sdk.proactive_triggers import PredicateProactiveTrigger
+
+trigger = PredicateProactiveTrigger(
+    trigger_id="high_action_volume",          # stable key for analytics & cooldown
+    body="Looks like you've been busy — need a hand?",
+    predicate=lambda ctx: ctx.action_count >= 12,
+    reply_option_labels=["Yes please", "I'm good"],   # optional quick-reply labels
+    metadata={"reason": "volume"},            # static dict attached to result
+)
+```
+
+**Use a full `ProactiveTrigger` subclass** when you need stateful logic, multiple branches, or side-effect-free setup:
+
+```python
+from autoplay_sdk.proactive_triggers import ProactiveTrigger, ProactiveTriggerContext, ProactiveTriggerResult
+
+class LongPauseOnCheckoutTrigger(ProactiveTrigger):
+    trigger_id = "long_pause_on_checkout"
+
+    def evaluate(self, ctx: ProactiveTriggerContext) -> ProactiveTriggerResult | None:
+        on_checkout = any(
+            "/checkout" in (url or "") for url in ctx.canonical_urls[-5:]
+        )
+        if on_checkout and ctx.action_count == 0:
+            return ProactiveTriggerResult(
+                trigger_id=self.trigger_id,
+                body="Having trouble checking out? I can help.",
+                reply_option_labels=["Yes, help me", "No thanks"],
+            )
+        return None
+```
+
+### Path B: Add a built-in to the catalog (for connector-configurable triggers)
+
+Use this when you want operators to enable/disable the trigger via `integration_config.proactive_triggers.builtins` JSON, without deploying code changes.
+
+Add a `BuiltinTriggerCatalogEntry` to `BUILTIN_TRIGGER_CATALOG` in `builtin_catalog.py`:
+
+```python
+BuiltinTriggerCatalogEntry(
+    id="long_pause_on_checkout",
+    name="Long pause on checkout",
+    description="Fires when the user has been on /checkout with no recent actions",
+    default_interaction_timeout_s=10,
+    default_cooldown_s=60,
+    inner_factory=lambda config: LongPauseOnCheckoutTrigger(),
+)
+```
+
+Every catalog entry **must** define `id`, `name`, and `description` as non-empty strings. After release, operators enable it with:
+
+```json
+{
+  "proactive_triggers": {
+    "builtins": [
+      {
+        "id": "long_pause_on_checkout",
+        "name": "Long pause on checkout",
+        "description": "Fires when the user has been on /checkout with no recent actions"
+      }
+    ]
+  }
+}
+```
+
+### Path C: Use the built-in URL ping-pong (zero code)
+
+The SDK ships `CanonicalPingPongTrigger` out of the box — it fires when a user bounces between the same URLs, signalling hesitation. To use it, either:
+
+- Call `default_proactive_trigger_registry()` to get a registry pre-loaded with it, or
+- Include `"canonical_url_ping_pong"` in your `builtins` JSON config (see [Intercom integration](/integrations/intercom)).
+
+Tune `min_cycles` to control how many back-and-forth URL repeats count as hesitation.
+
+---
+
+## Step 2 — Build context on each tick
+
+`ProactiveTriggerContext` is a snapshot of session state. Build it from your event buffer on every evaluation tick.
+
+```python
+from autoplay_sdk.models import SlimAction
+from autoplay_sdk.proactive_triggers import ProactiveTriggerContext
+
+def build_context(
+    *,
+    merged_actions: list[SlimAction],
+    session_id: str,
+    product_id: str,
+    conversation_id: str,
+    latest_summary: str,
+) -> ProactiveTriggerContext:
+    return ProactiveTriggerContext(
+        session_id=session_id,
+        product_id=product_id,
+        conversation_id=conversation_id,           # aligns cooldown keys with the chat thread
+        action_count=len(merged_actions),
+        canonical_urls=[a.canonical_url for a in merged_actions],
+        recent_actions=tuple(merged_actions[-50:]),  # last 50 actions
+        latest_summary_text=latest_summary,
+    )
+```
+
+**Where each field comes from:**
+
+| Field | Typical source |
+|---|---|
+| `session_id`, `product_id` | Your session / tenant identifiers — **required**, must be non-empty |
+| `conversation_id` | Intercom (or other) thread ID — set when the user has an active chat |
+| `canonical_urls` | `[a.canonical_url for a in actions]` — chronological page URL list |
+| `recent_actions` | Last N `SlimAction` objects from your merged `ActionsPayload.actions` |
+| `latest_summary_text` | Output of your `SessionSummarizer` or latest `SummaryPayload` |
+| `prior_session_summaries` | Past session narratives from Redis, DB, etc. |
+| `context_extra` | Arbitrary connector-specific blob; don't share mutable dicts across ticks |
+
+**Factory shortcut:** `ProactiveTriggerContext.from_actions_payloads(payloads, session_id=..., product_id=...)` builds context automatically, applying a 120 s lookback window and a 50-action cap by default. Pass `lookback_seconds=None` or `max_actions=None` to disable those filters.
+
+---
+
+## Step 3 — Register and evaluate
+
+Wrap your triggers in a `ProactiveTriggerRegistry`. Order matters — `evaluate_first` returns the **first** matching trigger.
+
+```python
+from autoplay_sdk.proactive_triggers import (
+    ProactiveTriggerEntity,
+    ProactiveTriggerRegistry,
+    ProactiveTriggerTimings,
+    default_proactive_trigger_registry,
+)
+
+# Option A: start from the default registry (includes CanonicalPingPongTrigger)
+# and prepend your own higher-priority triggers
+registry = ProactiveTriggerRegistry([
+    ProactiveTriggerEntity(
+        inner=LongPauseOnCheckoutTrigger(),
+        timings=ProactiveTriggerTimings(
+            interaction_timeout_s=15,
+            cooldown_s=60,
+        ),
+    ),
+    *default_proactive_trigger_registry().triggers,
+])
+
+# Option B: build from scratch with only your triggers
+registry = ProactiveTriggerRegistry([
+    PredicateProactiveTrigger(
+        trigger_id="high_action_volume",
+        body="Need a hand?",
+        predicate=lambda ctx: ctx.action_count >= 12,
+    ),
+])
+
+# Evaluate
+ctx = build_context(...)
+result = registry.evaluate_first(ctx)
+```
+
+**`ProactiveTriggerEntity`** merges explicit timings onto the inner trigger's result via `dataclasses.replace`. If you skip it, the result uses `DEFAULT_INTERACTION_TIMEOUT_S` (10 s) and `DEFAULT_COOLDOWN_S` (30 s).
+
+---
+
+## Step 4 — Gate on FSM state and deliver
+
+Before firing, check that the FSM allows proactive assistance:
+
+```python
+from autoplay_sdk.agent_states import can_show_proactive_with_reason
+
+allowed, reason = can_show_proactive_with_reason(fsm_state)
+if result and allowed:
+    deliver(result)   # your delivery layer
+```
+
+**Delivery options:**
+
+- **Intercom `quick_reply`**: use `build_intercom_quick_reply_reply_payload(result)` — see [Intercom integration](/integrations/intercom) for headers and HTTP shape.
+- **Modal / toast / other UI**: use `result.body` and `result.reply_option_labels` directly.
+
+**Idle expiry** — after the proactive message is shown, start an idle timer using `result.interaction_timeout_s`:
+
+```python
+# With a remote Intercom thread:
+run_proactive_idle_expiry(
+    hooks=ProactiveIdleExpiryHooks(
+        delete_remote_chat_thread=lambda: build_intercom_delete_conversation_request(...),
+        expire_proactive_to_thinking=lambda: expire_proactive_to_thinking_if_idle(fsm_state),
+    ),
+    interaction_timeout_s=result.interaction_timeout_s,
+)
+
+# FSM-only (no remote thread):
+expiry_result = expire_proactive_to_thinking_if_idle(
+    fsm_state,
+    interaction_timeout_s=result.interaction_timeout_s,
+)
+```
+
+See [Agent session states](/sdk/agent-states) for `run_proactive_idle_expiry`, `ProactiveIdleExpiryHooks`, and `ProactiveIdleExpiryResult`.
+
+---
+
+## Default values reference
+
+| What | Constant | Default |
+|---|---|---|
+| Idle window for proactive UI | `DEFAULT_INTERACTION_TIMEOUT_S` | **10 s** |
+| Min gap before same trigger re-fires | `DEFAULT_COOLDOWN_S` | **30 s** |
+| Action lookback window (factory) | `DEFAULT_PROACTIVE_CONTEXT_LOOKBACK_S` | **120 s** |
+| Max actions loaded (factory) | `DEFAULT_PROACTIVE_CONTEXT_MAX_ACTIONS` | **50** |
+
+All four constants live in `autoplay_sdk.proactive_triggers.types` — the single source of truth. Catalog entries and `ProactiveTriggerTimings()` use them as fallbacks.
+
+---
+
+## Stable `trigger_id` values
+
+`trigger_id` strings are used as analytics keys and cooldown identifiers — they must be **stable across deployments**.
+
+- For built-ins, use the constants from `ProactiveTriggerIds` / `defaults.py` (e.g. `TRIGGER_ID_CANONICAL_URL_PING_PONG`).
+- For custom triggers, define your own string constants and don't rename them after launch.
+- When adding a first-party built-in to the connector: add `id`/`name`/`description` to `BUILTIN_TRIGGER_CATALOG`, extend `ProactiveTriggerIds`, bump the SDK version, and note it in the changelog.
+
+---
+
+## Complete example
+
+```python
+from autoplay_sdk.models import SlimAction
+from autoplay_sdk.proactive_triggers import (
+    PredicateProactiveTrigger,
+    ProactiveTriggerContext,
+    ProactiveTriggerEntity,
+    ProactiveTriggerRegistry,
+    ProactiveTriggerTimings,
+    default_proactive_trigger_registry,
+)
+from autoplay_sdk.agent_states import can_show_proactive_with_reason
+
+# --- Define triggers ---
+
+checkout_trigger = ProactiveTriggerEntity(
+    inner=PredicateProactiveTrigger(
+        trigger_id="checkout_hesitation",
+        body="Having trouble at checkout? I can walk you through it.",
+        predicate=lambda ctx: (
+            any("/checkout" in (u or "") for u in ctx.canonical_urls[-3:])
+            and ctx.action_count < 3
+        ),
+        reply_option_labels=["Yes, help me", "I'm fine"],
+    ),
+    timings=ProactiveTriggerTimings(interaction_timeout_s=15, cooldown_s=60),
+)
+
+registry = ProactiveTriggerRegistry([
+    checkout_trigger,
+    *default_proactive_trigger_registry().triggers,  # fallback: URL ping-pong
+])
+
+# --- On each tick ---
+
+def on_tick(
+    merged_actions: list[SlimAction],
+    session_id: str,
+    product_id: str,
+    conversation_id: str,
+    latest_summary: str,
+    fsm_state,
+):
+    ctx = ProactiveTriggerContext(
+        session_id=session_id,
+        product_id=product_id,
+        conversation_id=conversation_id,
+        action_count=len(merged_actions),
+        canonical_urls=[a.canonical_url for a in merged_actions],
+        recent_actions=tuple(merged_actions[-50:]),
+        latest_summary_text=latest_summary,
+    )
+
+    result = registry.evaluate_first(ctx)
+
+    allowed, reason = can_show_proactive_with_reason(fsm_state)
+    if result and allowed:
+        deliver_to_user(result)   # your delivery layer
+```
+
+---
+
+## Related pages
+
+- **[Proactive triggers](/sdk/proactive-triggers)** — Module reference: types, constants, built-in IDs, connector JSON schema.
+- **[Agent session states](/sdk/agent-states)** — `can_show_proactive_with_reason`, `run_proactive_idle_expiry`, FSM gating.
+- **[Intercom integration](/integrations/intercom)** — `quick_reply` HTTP shape, delete-conversation helpers, connector LLM labels.
+- **[Typed payloads](/sdk/typed-payloads)** — `SlimAction`, `ActionsPayload`, `SummaryPayload`.
