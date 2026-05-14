@@ -507,7 +507,7 @@ For counters (drops, latency, queue depth), implement **`SdkMetricsHook`**
 
 ## Operator onboarding (`autoplay_sdk.admin`)
 
-**Trusted operators only** — call [`onboard_product`](autoplay_sdk/admin/onboard.py) with **`product_id`** and **`contact_email`** (plus optional URL / flags). **`POST /products`** is **open registration** (no admin header / no registration env vars on the client). **`connector_url`** defaults to **`DEFAULT_CONNECTOR_URL`** (`https://your-connector.example.com`).
+**Trusted operators only** — call [`onboard_product`](autoplay_sdk/admin/onboard.py) with **`product_id`** and **`contact_email`** (plus optional URL / flags). **`POST /products`** is **open registration** (no admin header / no registration env vars on the client). **`connector_url`** defaults to **`DEFAULT_CONNECTOR_URL`** (`https://event-connector-luda.onrender.com`).
 
 **Render**, **Unkey**, and related secrets exist **only** on the connector host — not in application code.
 

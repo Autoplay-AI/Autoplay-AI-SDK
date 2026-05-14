@@ -142,8 +142,8 @@ asyncio.run(main())
 This will print the following fields:
 
 - **product_id:** `{product_id_entered}`
-- **webhook_url:** `https://your-connector.example.com/webhook/{product_id}`  
-  **stream_url:** `https://your-connector.example.com/stream/{product_id}`
+- **webhook_url:** `https://event-connector-luda.onrender.com/webhook/{product_id}`  
+  **stream_url:** `https://event-connector-luda.onrender.com/stream/{product_id}`
 - **webhook_secret:** `{secret}`  
   **unkey_key:** `{secret}`
 
@@ -292,7 +292,7 @@ let req := {
     'method': 'POST'
 }
 
-let url := 'https://your-connector.example.com/webhook/{product_id}'
+let url := 'https://event-connector-luda.onrender.com/webhook/{product_id}'
 
 if (inputs.debug) {
     print('Request payload', payload)

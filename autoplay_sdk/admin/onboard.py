@@ -32,7 +32,9 @@ from autoplay_sdk.admin.product_onboarding import (
     run_product_onboarding,
 )
 
-DEFAULT_CONNECTOR_URL = "https://your-connector.example.com"
+# The hosted Autoplay connector. All products register against this URL by default.
+# Pass connector_url= to onboard_product() to target a self-hosted connector instead.
+DEFAULT_CONNECTOR_URL = "https://event-connector-luda.onrender.com"
 
 __all__ = [
     "DEFAULT_CONNECTOR_URL",
