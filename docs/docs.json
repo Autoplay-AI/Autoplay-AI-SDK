@@ -164,55 +164,14 @@
       {
         "group": "User Tour Tutorials",
         "pages": [
-          {
-            "group": "Userpilot tutorial",
-            "icon": "/images/recipes/userpilot/logo.png",
-            "root": "recipes/userpilot",
-            "badge": "Coming Soon",
-            "pages": ["recipes/userpilot/how-to-setup"]
-          },
-          {
-            "group": "Chameleon tutorial",
-            "icon": "/images/recipes/chameleon/logo.png",
-            "root": "recipes/chameleon",
-            "badge": "Coming Soon",
-            "pages": ["recipes/chameleon/how-to-setup"]
-          },
-          {
-            "group": "Userflow tutorial",
-            "icon": "/images/recipes/userflow/logo.png",
-            "root": "recipes/userflow",
-            "badge": "Coming Soon",
-            "pages": ["recipes/userflow/how-to-setup"]
-          },
-          {
-            "group": "Pendo tutorial",
-            "icon": "/images/recipes/pendo/logo.png",
-            "root": "recipes/pendo",
-            "badge": "Coming Soon",
-            "pages": ["recipes/pendo/how-to-setup"]
-          },
-          {
-            "group": "Jimo tutorial",
-            "icon": "/images/recipes/jimo/logo.png",
-            "root": "recipes/jimo",
-            "badge": "Coming Soon",
-            "pages": ["recipes/jimo/how-to-setup"]
-          },
-          {
-            "group": "UserGuiding tutorial",
-            "icon": "/images/recipes/userguiding/logo.png",
-            "root": "recipes/userguiding",
-            "badge": "Coming Soon",
-            "pages": ["recipes/userguiding/how-to-setup"]
-          },
-          {
-            "group": "Told tutorial",
-            "icon": "/images/recipes/told/logo.png",
-            "root": "recipes/told",
-            "badge": "Coming Soon",
-            "pages": ["recipes/told/how-to-setup"]
-          }
+          "recipes/user-tour/overview",
+          "recipes/userpilot/how-to-setup",
+          "recipes/chameleon/how-to-setup",
+          "recipes/userflow/how-to-setup",
+          "recipes/pendo/how-to-setup",
+          "recipes/jimo/how-to-setup",
+          "recipes/userguiding/how-to-setup",
+          "recipes/told/how-to-setup"
         ]
       },
       {

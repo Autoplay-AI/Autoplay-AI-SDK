@@ -259,9 +259,9 @@ None.
 
 ### Documentation
 
-- **BaseChatbotWriter — Note body format** — Mintlify [chatbot-writer](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/docs/sdk/chatbot-writer.mdx) now documents the full plain-text contract for `_post_note` bodies (header via `format_chatbot_note_header`, sorted 1-based action lines, binning vs post-link, empty list, summary notes). `_format_note` docstring points to that page as the single source of truth.
+- **BaseChatbotWriter — Note body format** — Mintlify [chatbot-writer](https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/blob/main/./docs/sdk/chatbot-writer.mdx) now documents the full plain-text contract for `_post_note` bodies (header via `format_chatbot_note_header`, sorted 1-based action lines, binning vs post-link, empty list, summary notes). `_format_note` docstring points to that page as the single source of truth.
 
-- **Logging** — New [logging](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/docs/sdk/logging.mdx) reference page (module loggers, `%` formatting, `exc_info`, structured `extra`, secrets guidance including HTTP bodies, common logging mistakes). Quickstart links to it for discoverability.
+- **Logging** — New [logging](https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/blob/main/./docs/sdk/logging.mdx) reference page (module loggers, `%` formatting, `exc_info`, structured `extra`, secrets guidance including HTTP bodies, common logging mistakes). Quickstart links to it for discoverability.
 
 ### Bug fixes / observability
 

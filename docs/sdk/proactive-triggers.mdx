@@ -25,6 +25,13 @@ User actions → ProactiveTriggerContext → ProactiveTriggerRegistry.evaluate_f
 2. **Evaluate** — Call `registry.evaluate_first(ctx)`. The registry walks its triggers in priority order and returns the first `ProactiveTriggerResult` whose predicate matches, or `None`.
 3. **Deliver** — Pass the result's `body` and optional `reply_option_labels` to your delivery layer. Gate on FSM state via `can_show_proactive_with_reason` before sending.
 
+<Note>
+  **Two ways to act on a trigger**
+
+  - **Visual guidance (available now)** — surface a chat message, quick reply, modal, or in-app tour via your delivery layer (Intercom, a custom UI, etc.)
+  - **Browser agent triggering (coming soon)** — fire an autonomous browser agent that completes the task on the user's behalf — no manual steps required.
+</Note>
+
 ---
 
 ## Quickstart

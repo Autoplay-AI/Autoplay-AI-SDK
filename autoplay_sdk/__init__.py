@@ -55,7 +55,7 @@ Observability:
 
 See the project README on PyPI or GitHub for the full architecture diagram,
 quickstart examples, sync-vs-async decision guide, and performance/locking
-reference: https://github.com/Autoplay-AI/autoplay-sdk#readme
+reference: https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/tree/main/.#readme
 """
 
 from autoplay_sdk.async_client import AsyncConnectorClient

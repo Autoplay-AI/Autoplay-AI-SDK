@@ -1,4 +1,4 @@
-# Tests — autoplay-sdk
+# Tests — autoplay-sdk / event-connector
 
 This directory contains both unit tests (run via pytest) and the standalone
 stress test script.
@@ -7,10 +7,11 @@ stress test script.
 
 ## Unit tests
 
-Run from the repo root:
+Run from the `.` directory:
 
 ```bash
-uv sync
+cd .
+source ../../.venv/bin/activate
 pytest tests/ -v
 ```
 
@@ -35,6 +36,8 @@ On macOS the default file descriptor limit is 256, which is exhausted by
 see connection failures above `--concurrency 30`:
 
 ```bash
+cd 
+source .venv/bin/activate
 ulimit -n 65536          # raise fd limit — macOS only, not needed on Linux
 uvicorn event_connector.api.app:app --host 0.0.0.0 --port 8080 --workers 1
 ```

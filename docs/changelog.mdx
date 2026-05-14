@@ -4,7 +4,7 @@ sidebarTitle: "📜 Changelog"
 description: Version history and release notes for the autoplay-sdk Python package.
 ---
 
-The canonical changelog for releases and PyPI sdists also lives in the repository as [`CHANGELOG.md`](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/CHANGELOG.md). This page mirrors that file for the documentation site, with links pointed at these docs.
+The canonical changelog for releases and PyPI sdists also lives in the repository as [`CHANGELOG.md`](https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/blob/main/./CHANGELOG.md). This page mirrors that file for the documentation site, with links pointed at these docs.
 
 ---
 
@@ -66,7 +66,7 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 Agent FSM, Intercom proactive **`quick_reply`**, **`autoplay_sdk.proactive_triggers`** (replaces **`integrations.proactive`**), registry timings/entity, context builders, scope validation, product-scoped context-store buckets, and proactive idle teardown for chat: **`run_proactive_idle_expiry`**, **`ProactiveIdleExpiryHooks`**, **`ProactiveIdleExpiryResult`**, Intercom **`DELETE /conversations/{id}`** helpers (**`build_intercom_delete_conversation_request`**, etc.).
 
-For full **Added** / **Changed** / **Breaking** detail, see the same version in the repository [`CHANGELOG.md`](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/CHANGELOG.md).
+For full **Added** / **Changed** / **Breaking** detail, see the same version in the repository [`CHANGELOG.md`](https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/blob/main/./CHANGELOG.md).
 
 ### Removed
 
@@ -95,7 +95,7 @@ For full **Added** / **Changed** / **Breaking** detail, see the same version in 
 
 ### Breaking changes
 
-- **`expire_proactive_to_thinking_if_idle`** — returns **`ProactiveIdleExpiryResult`** (use **`if result:`** / **`result.transitioned`**, not **`is True`** on the return value). See [`CHANGELOG.md`](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/CHANGELOG.md#067--2026-04-30).
+- **`expire_proactive_to_thinking_if_idle`** — returns **`ProactiveIdleExpiryResult`** (use **`if result:`** / **`result.transitioned`**, not **`is True`** on the return value). See [`CHANGELOG.md`](https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/blob/main/./CHANGELOG.md#067--2026-04-30).
 - Migrate imports from **`autoplay_sdk.integrations.proactive`** to **`autoplay_sdk.proactive_triggers`**.
 - Strict scope defaults; **`LENIENT`** for old permissive behaviour.
 - Match **`product_id`** on context-store reads when payloads carry **`product_id`**.
