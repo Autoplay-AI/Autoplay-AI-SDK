@@ -26,6 +26,9 @@ All package loggers sit under the **`autoplay_sdk`** namespace (one logger per m
 | `autoplay_sdk.agent_context` | `AsyncAgentContextWriter` |
 | `autoplay_sdk.webhook_receiver` | `WebhookReceiver` verification and dispatch |
 | `autoplay_sdk.rag` | `RagPipeline` / `AsyncRagPipeline` |
+| `autoplay_sdk.chat_pipeline` | Composition helper (`compose_chat_pipeline`) — currently minimal/no routine logs; rely on downstream module loggers for runtime behavior |
+| `autoplay_sdk.user_index` | User-session index helper — currently minimal/no routine logs; use integration logs around cache misses and identity mapping |
+| `autoplay_sdk.serve.fastapi` | Optional bridge factory (`build_copilot_app`) — currently minimal/no routine logs; endpoint errors surfaced via HTTP status (`404` for no activity) |
 | `autoplay_sdk.rag_query.pipeline` | `assemble_rag_chat_context` — debug summary on success (lengths/flags only); **warning** + traceback if assembly fails (then exception is re-raised) |
 | `autoplay_sdk.agent_states.state_machine` | `AgentStateMachine` — **debug** on successful transitions and rejected transitions; **debug** when `complete_task` moves guidance to ``thinking``; **warning** + traceback on malformed snapshots (`from_snapshot`), skipped corrupt task rows |
 | `autoplay_sdk.agent_states.proactive_idle_expiry` | `run_proactive_idle_expiry` — **error** + ``extra`` (``event_type``, ``from_state``) if FSM does not transition after a successful remote delete (unexpected); otherwise no routine logs |
@@ -70,6 +73,17 @@ logging.getLogger("autoplay_sdk.chatbot").setLevel(logging.DEBUG)
 Transient retry loops may log **`logger.warning(..., exc)`** without `exc_info` to avoid log volume; use `exc_info=True` on the final failure or at `DEBUG` if you need full stacks for noise.
 
 In-repo examples: `autoplay_sdk.client` (`ConnectorClient`), `autoplay_sdk.rag` (`RagPipeline`), `autoplay_sdk.rag_query.pipeline` (`assemble_rag_chat_context`), `autoplay_sdk.webhook_receiver` (`WebhookReceiver`), and `autoplay_sdk.agent_context` (`AsyncAgentContextWriter`).
+
+### Recommended log points for self-hosted bridges
+
+For integrations built on `UserSessionIndex`, `compose_chat_pipeline`, and `build_copilot_app`, add app-layer logs at:
+
+- stream lifecycle boundaries (startup, reconnect, shutdown),
+- endpoint misses (`/context` or `/reply` returning `404` for no activity),
+- identity resolution failures (missing/mismatched `user_id`),
+- LLM callback failures in reply handlers or summary overwrite callbacks.
+
+Use consistent `extra` keys (`user_id`, `session_id`, `product_id`, `conversation_id`, `endpoint`) so these lines correlate with SDK module logs.
 
 ### Subclassing `BaseChatbotWriter`
 

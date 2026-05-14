@@ -6,6 +6,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.7.3] — 2026-05-14
+
+### Documentation
+
+- Expanded [`docs/sdk/self-hosted-bridge.mdx`](docs/sdk/self-hosted-bridge.mdx) from a quickstart-style guide into reference documentation for `UserSessionIndex`, `compose_chat_pipeline(...)`, and `build_copilot_app(...)`, including lifecycle, endpoint status semantics, and failure/troubleshooting notes.
+- Updated [`docs/sdk/logging.mdx`](docs/sdk/logging.mdx) with explicit observability guidance for `autoplay_sdk.chat_pipeline`, `autoplay_sdk.user_index`, and `autoplay_sdk.serve.fastapi`, plus recommended app-layer log points for self-hosted bridges.
+- Added a clearer self-hosted quick-reference and troubleshooting section to [`README.md`](README.md), including when to use each primitive and common `404`/identity/product-scope failure modes.
+
+---
+
 ## [0.7.2] — 2026-05-14
 
 ### Removed

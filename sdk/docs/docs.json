@@ -196,6 +196,7 @@
           "sdk/summarizer",
           "sdk/agent-context",
           "sdk/chatbot-writer",
+          "sdk/self-hosted-bridge",
           "sdk/rag-example"
         ]
       },

@@ -28,6 +28,13 @@ Weaving these together — rather than only querying a knowledge base in isolati
   This is **not** [`RagPipeline`](/sdk/rag-pipeline) (ingestion → vector store). `rag_query` is specifically for **answering a user message** using structured, multi-signal context at query time.
 </Note>
 
+<Tip>
+  **When to use `ContextStore.enrich` vs `assemble_rag_chat_context`:**
+
+  - `ContextStore.enrich(session_id, query)` returns one enriched string. Use it as retrieval input for embedding/vector search.
+  - `assemble_rag_chat_context(...)` returns structured prompt parts (`user_block`, `assembly`). Use it to build chat LLM `messages`.
+</Tip>
+
 ---
 
 ## What it optimizes for

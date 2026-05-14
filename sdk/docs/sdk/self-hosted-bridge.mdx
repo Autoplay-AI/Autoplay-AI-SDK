@@ -1,0 +1,199 @@
+---
+title: Self-hosted chatbot bridge
+sidebarTitle: "🧩 Self-hosted bridge"
+description: Build user-keyed chatbot bridges with UserSessionIndex, compose_chat_pipeline, and the optional autoplay_sdk.serve FastAPI factory.
+---
+
+Use this guide when your chatbot runtime is in a separate process (Rasa, Botpress on-prem, Twilio webhooks, custom FastAPI service).
+
+## What ships in the SDK
+
+- `UserSessionIndex` (`autoplay_sdk.user_index`) tracks `user_id -> session_id/product_id` and joins activity across sessions.
+- `compose_chat_pipeline()` (`autoplay_sdk.chat_pipeline`) wires `AsyncSessionSummarizer` + `AsyncContextStore` + `AsyncAgentContextWriter` safely.
+- `build_copilot_app()` (`autoplay_sdk.serve`) creates a minimal FastAPI bridge.
+
+## 1) User-keyed session index
+
+```python
+from autoplay_sdk import AsyncContextStore
+from autoplay_sdk.user_index import UserSessionIndex
+
+context_store = AsyncContextStore()
+index = UserSessionIndex(context_store, lookback_seconds=300, max_sessions_per_user=20)
+
+async def on_actions(payload):
+    await context_store.add(payload)
+    index.add(payload)
+```
+
+### API reference: `UserSessionIndex`
+
+#### Constructor
+
+```python
+UserSessionIndex(
+    context_store,
+    lookback_seconds=300.0,
+    max_sessions_per_user=20,
+)
+```
+
+- `context_store`: `ContextStore` or `AsyncContextStore` used for per-session retrieval.
+- `lookback_seconds`: max age of tracked sessions before eviction.
+- `max_sessions_per_user`: hard cap of session refs retained per user.
+
+#### Methods
+
+- `add(payload)` — update index from one `ActionsPayload`.
+- `add_async(payload)` — async alias useful for async callback wiring.
+- `get_recent_sessions(user_id)` — returns newest-first `SessionRef` rows.
+- `get_email(user_id)` — returns last known email cached from action payloads.
+- `get_user_activity(user_id)` — joins context across recent sessions by calling `context_store.get(session_id, product_id=...)` for each.
+- `reset_user(user_id)` — clears user session refs and cached email.
+
+### Behavior guarantees
+
+- Missing `user_id` or `session_id` payloads are ignored.
+- Session refs are de-duplicated per user and sorted by `last_seen_at` (newest first).
+- Expired refs are evicted on read/update; memory remains bounded.
+- Product-scoped retrieval is preserved by storing `product_id` in each `SessionRef`.
+
+## 2) Compose the chat pipeline safely
+
+```python
+from autoplay_sdk import compose_chat_pipeline
+
+pipeline = compose_chat_pipeline(
+    llm=my_async_llm,
+    threshold=10,
+    lookback_seconds=300,
+    max_actions=20,
+    write_actions=my_write_actions_cb,
+    overwrite_with_summary=my_overwrite_cb,
+)
+
+client.on_actions(pipeline.on_actions)
+```
+
+`pipeline.on_actions` always writes to `AsyncContextStore` first, then `AsyncAgentContextWriter`, and avoids summarizer callback overwrite issues.
+
+### API reference: `compose_chat_pipeline(...)`
+
+```python
+compose_chat_pipeline(
+    *,
+    llm,
+    threshold=10,
+    lookback_seconds=300.0,
+    max_actions=20,
+    write_actions=None,
+    overwrite_with_summary=None,
+    debounce_ms=0,
+)
+```
+
+- `llm`: async callable `(prompt: str) -> str`.
+- `threshold`: summarizer trigger (action count).
+- `lookback_seconds`, `max_actions`: `AsyncContextStore` bounds.
+- `write_actions`: optional push callback for raw action text.
+- `overwrite_with_summary`: optional callback when summary is emitted.
+- `debounce_ms`: forwarded to `AsyncAgentContextWriter`.
+
+### Callback ordering guarantee
+
+`pipeline.on_actions(payload)` executes in canonical order:
+
+1. `context_store.add(payload)` updates retrieval state.
+2. `agent_writer.add(payload)` handles push + summary path.
+
+Summary callbacks are fanned out so both context store and writer-side overwrite logic receive summary updates. This prevents accidental callback clobbering.
+
+## 3) Optional FastAPI bridge (`autoplay-sdk[serve]`)
+
+```bash
+pip install "autoplay-sdk[serve]"
+```
+
+```python
+from autoplay_sdk.serve import build_copilot_app
+
+app = build_copilot_app(
+    stream_url=STREAM_URL,
+    token=API_TOKEN,
+    llm=my_async_llm,
+    summary_threshold=10,
+    lookback_seconds=300,
+)
+```
+
+Exposed endpoints:
+
+- `GET /healthz`
+- `GET /context/{user_id}?query=...`
+- `GET /reply/{user_id}?query=...`
+- `POST /admin/reset/{user_id}`
+
+### API reference: `build_copilot_app(...)`
+
+```python
+build_copilot_app(
+    *,
+    stream_url,
+    token,
+    llm,
+    summary_threshold=10,
+    lookback_seconds=300.0,
+    system_prompt=None,
+)
+```
+
+- `stream_url`, `token`: connector stream auth.
+- `llm`: async reply callable used by `/reply`.
+- `summary_threshold`, `lookback_seconds`: pipeline tuning knobs.
+- `system_prompt`: override default prompt scaffold (`RAG_SYSTEM_PROMPT["content"]`).
+
+### Lifecycle behavior
+
+- Startup: registers stream callback and starts `AsyncConnectorClient.run_in_background()`.
+- Shutdown: calls `client.stop()` and awaits task completion.
+- Requests are user-keyed; event ingestion remains session-keyed under the hood via `UserSessionIndex`.
+
+### Endpoint behavior and status codes
+
+- `GET /healthz` → `200` with `{"status":"ok"}`.
+- `GET /context/{user_id}`:
+  - `200` when activity exists,
+  - `404` when no recent indexed activity exists.
+- `GET /reply/{user_id}`:
+  - `200` with `{reply, context, ...}` when activity exists,
+  - `404` when no recent indexed activity exists.
+- `POST /admin/reset/{user_id}` → `200` after clearing index/session state.
+
+## Failure semantics and troubleshooting
+
+### No activity for user (`404`)
+
+Likely causes:
+
+- user has not generated any stream actions yet,
+- user identity was not propagated into action payloads (`payload.user_id` missing),
+- lookback eviction removed old sessions.
+
+### Missing identity linkage
+
+Keep identity consistent across:
+
+- event source (`distinct_id` / `user_id`),
+- widget metadata/session bootstrap,
+- chatbot sender identifier/backend user key.
+
+If these diverge, activity stores under one key and reads under another.
+
+### Product-scoped retrieval misses
+
+When actions are product-scoped, retrieval must include matching `product_id`. `UserSessionIndex` stores this automatically per session ref; custom integrations should preserve this discipline.
+
+## Notes
+
+- For product-scoped storage, always pass `product_id` when calling context retrieval APIs.
+- Keep chatbot identity plumbing consistent across event source, widget metadata, and backend sender ids.

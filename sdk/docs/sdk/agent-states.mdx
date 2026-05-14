@@ -6,6 +6,16 @@ description: Two FSM models for reactive chat, proactive offers, guidance execut
 
 The **`autoplay_sdk.agent_states`** package (v1) is deprecated — use **`autoplay_sdk.agent_state_v2`** (`SessionState`) for all new integrations. Use the accordions below to read about each model separately.
 
+## Picking v1 vs v2
+
+| If you are... | Recommended model | Why |
+| --- | --- | --- |
+| Building a new copilot integration | `autoplay_sdk.agent_state_v2.SessionState` | Simpler 3-state model, stricter transitions, timeout-only exits. |
+| Running an existing deployment on v1 | `autoplay_sdk.agent_states.AgentStateMachine` (temporary) | Avoid forced migration during active rollout; migrate on your schedule. |
+| Needing v1-specific capabilities right now (task progress + conservative gating controls) | `AgentStateMachine` | v1 still exposes richer task/cooldown controls while supported. |
+
+For new integrations, start with v2 unless you have a specific v1 requirement.
+
 <AccordionGroup>
 
 <Accordion title="Agent state v1 — AgentStateMachine (5 states) — DEPRECATED">

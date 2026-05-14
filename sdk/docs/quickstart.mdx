@@ -28,24 +28,25 @@ Note: Save your product ID as this will be important for product registration wi
 
 ### 💻 Step 2 — Add the front end snippet to capture events
 
-Next, we are going to add a tiny piece of tracking code (powereed by PostHog) to your website. This acts as the "eyes" that see what users are clicking on.
+Next, we are going to add a tiny piece of tracking code (powered by PostHog) to your website. This acts as the "eyes" that see what users are clicking on.
 
+Use your **PostHog Project API Key** (starts with `phc_`) here. Personal keys (`phx_...`) are admin keys and `posthog.init()` rejects them with `personal_api_key`.
 
-Copy the code snippet below into your website's frontend. Make sure to replace `YOUR_API_KEY` and `YOUR_PRODUCT_ID` with the badges you found in Step 1.
+Copy the code snippet below into your website's frontend. Make sure to replace `YOUR_POSTHOG_PROJECT_API_KEY` and `YOUR_PRODUCT_ID` with your real values.
 
 JavaScript
 
 ```javascript
 import posthog from 'posthog-js'
 
-posthog.init('YOUR_AUTOPLAY_API_KEY', {
+posthog.init('YOUR_POSTHOG_PROJECT_API_KEY', {
     api_host: 'https://us.i.posthog.com',
     person_profiles: 'identified_only',
     // This stops recording if a user walks away for 2 minutes, keeping your data clean:
     session_idle_timeout_seconds: 120, 
     loaded: (posthog) => {
         posthog.identify(posthog.get_distinct_id(), {
-            // Tells Autoplay where to send your events:
+            // Autoplay-specific field. Must match onboard_product(product_id=...).
             product_id: 'YOUR_PRODUCT_ID', 
         });
     },
@@ -57,13 +58,20 @@ posthog.init('YOUR_AUTOPLAY_API_KEY', {
 ```javascript
 posthog.identify(user.id, {
     product_id: 'YOUR_AUTOPLAY_PRODUCT_ID',
-    email: user.email, // Passing the email is optional, but it makes tracking much smarter!
+    email: user.email, // Added to the person profile and the $identify event.
 })
+
+// If you want payload.email on ongoing autocapture events, also register email as a super-property.
+posthog.register({ email: user.email })
 ```
 
-_(Note: If you don't provide an email,anonymous users will still be tracked.)_
+_(Note: If you don't provide an email, anonymous users will still be tracked.)_
 
 > **👋 Quick Tip:** Once you add this code to your site, jump into our [Slack workspace](https://join.slack.com/t/autoplay-ai-dev/shared_invite/zt-3uslbaddx-UT2Cl18BGiLkeMwJ439ppg) and drop a message in `#just-integrated`. We will check to make sure your data is flowing properly and help you get fully set up!
+
+<Note>
+  **Identity plumbing for widget-based chatbots:** make sure the same user identity flows across all three layers: PostHog `distinct_id` / `user_id`, your chat widget session metadata, and the chatbot backend sender identifier. If those do not match, chat replies will look like "no recent activity" because events are stored under one key and fetched with another.
+</Note>
 
 ---
 
@@ -72,6 +80,8 @@ _(Note: If you don't provide an email,anonymous users will still be tracked.)_
 Now that your website is tracking clicks, we need to create a secure "mailing address" (**Webhook URL**) and a shared **secret** (`X-PostHog-Secret`) so that data can be safely sent to Autoplay.
 
 Registration requires a valid **contact email** (stored on your connector product row) in addition to your **product id**. Existing deployments may still have older product rows **without** email until you re-register.
+
+Your stream consumer can pass the bearer token directly to `AsyncConnectorClient(token=...)` or via `AUTOPLAY_APP_UNKEY_TOKEN`.
 
 <Tip>
   If you **already use PostHog**, register using your PostHog project id as the **`product_id`**
@@ -104,6 +114,8 @@ uv add autoplay-sdk
   ```bash
   autoplay-install-skills
   ```
+
+  Existing skill directories are preserved by default. Pass `--force` only if you intentionally want to overwrite local changes.
 
   Or target your specific stack:
 
@@ -179,6 +191,8 @@ Now we must tell the website tracker (Step 2) to send its data to the secure add
 - In PostHog, add a **Webhook** destination.
 - **Webhook URL:** paste **`result.webhook_url`** from Step 3.
 - **`X-PostHog-Secret` header:** paste **`result.webhook_secret`** from Step 3. Do **not** create a new secret.
+
+PostHog still requires the form-level **Webhook URL** field even if your Hog source code also sets `let url := ...`.
 
 **PostHog webhook setup walkthrough**
 
@@ -268,6 +282,7 @@ try {
 let payload := {
     'event': event.event,
     'referrer': event.properties?.$referrer ?? '',
+    'email': event.properties?.email ?? event.person?.properties?.email ?? '',
     'timestamp': event.timestamp ?? '',
     'element_id': element_id,
     'event_type': event.properties?.$event_type ?? '',
@@ -283,7 +298,7 @@ let payload := {
 
 let headers := {
     'Content-Type': 'application/json',
-    'x-posthog-secret': 'YOUR_POSTHOG_SECRET'
+    'x-posthog-secret': '{webhook_secret_from_step_3}'
 }
 
 let req := {
@@ -292,7 +307,7 @@ let req := {
     'method': 'POST'
 }
 
-let url := 'https://event-connector-luda.onrender.com/webhook/{product_id}'
+let url := '{webhook_url_from_step_3}'
 
 if (inputs.debug) {
     print('Request payload', payload)
@@ -330,6 +345,7 @@ from autoplay_sdk import AsyncConnectorClient
 # Paste your Stream URL and Token here!
 STREAM_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
 API_TOKEN  = "unkey_xxxx..."
+# You can also set AUTOPLAY_APP_UNKEY_TOKEN in your environment.
 
 def on_actions(p):
     print("\n=== LIVE USER ACTIONS ===")
@@ -390,6 +406,8 @@ Plaintext
   forwarded_at : 1736940750.881
   summary      : User explored the Dashboard, exported a CSV, and navigated to billing settings.
 ```
+
+This output comes from the example script's `print(...)` statements. SDK callbacks still receive typed dataclasses (`ActionsPayload` / `SummaryPayload`).
 
 ---
 
