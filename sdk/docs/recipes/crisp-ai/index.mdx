@@ -1,0 +1,68 @@
+---
+title: "Crisp AI tutorial"
+sidebarTitle: "Crisp AI tutorial"
+description: "Pipe live user behavior from the Autoplay SDK directly into your Crisp AI chatbot for real-time, context-aware support."
+icon: "/images/recipes/crisp/logo.png"
+---
+
+Pipe live user behavior from the Autoplay SDK directly into your Crisp AI chatbot for real-time, context-aware support.
+
+## ✨ Final result
+
+A new user is exploring the app for the first time. They've clicked through the Dashboard, opened the Reports tab, and hovered over a few chart elements — but haven't created anything yet. Then they open the chat widget and ask a question.
+
+<Tabs sync={false}>
+  <Tab title="Without real-time context">
+    ```text
+    User: How do I get started?
+
+    Bot: Welcome! You can create projects, view reports, and manage your
+    team from the main menu. Let me know if you need help with anything!
+
+    (Generic onboarding reply. No idea where the user is or what they've
+    already tried. Doesn't move them forward.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    User: How do I get started?
+
+    Bot: Great question! I can see you've already explored the Dashboard
+    and had a look at Reports — nice start!
+
+    The next step most users take is creating their first project:
+
+    1. Click "My Projects" in the left sidebar
+    2. Hit the "Add Project" button at the top right
+    3. Choose a template or start from scratch
+    4. Fill in the name and settings, then click "Create"
+
+    Once your project is set up, the Reports tab you were just on will
+    start showing real data for it. Want me to walk you through what
+    each report tracks?
+
+    (Acknowledges what they've already seen, gives them a concrete next
+    step, and connects it back to a feature they showed interest in.)
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## 📋 Prerequisites
+
+Complete the [Quickstart](https://developers.autoplay.ai/quickstart). You should have:
+
+- **PostHog in the browser** — snippet, API key, `product_id` on `identify` (and email after login if you use it)
+- **Connector credentials** — URL, API token, stream URL (e.g. `https://your-connector.onrender.com/stream/` plus your product id from the dashboard)
+- **`autoplay-sdk` installed** — and a successful test stream from the Quickstart
+- **A Crisp account** — with Plugin-tier API access enabled
+
+---
+
+## The building blocks
+
+Follow the steps in order — each page stands alone so you can ship incrementally.
+
+1. **[Connect real-time events](./step-1-connect-real-time-events)** — Set up the webhook server and event listener so Crisp replies with real-time context.
+2. **[Define proactive triggers](./step-2-define-proactive-triggers)** — Proactively message users in Crisp based on what they're doing in your product. *(Coming soon)*

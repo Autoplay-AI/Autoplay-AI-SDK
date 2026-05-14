@@ -1,0 +1,40 @@
+---
+title: "Tidio tutorial"
+sidebarTitle: "Tidio tutorial"
+description: "Pipe live user data from the Autoplay SDK directly into Tidio's Lyro AI Agent for real-time context-aware conversations."
+icon: "/images/recipes/tidio/logo.png"
+---
+
+Discover how to pipe live user data from the **Autoplay SDK** directly into your **Tidio Lyro AI Agent**. This guide covers building an async listener to capture real-time events, process the incoming data stream, and persist everything locally.
+
+## ✨ Final result
+
+<iframe
+  width="100%"
+  height="400"
+  src="https://www.youtube.com/embed/9cf5BhQydCI"
+  title="Tidio Lyro AI Agent responding with real-time user context"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+/>
+
+---
+
+## 📋 Prerequisites
+
+Complete the [Quickstart](/quickstart). You should have:
+
+- **PostHog in the browser** — snippet, API key, `product_id` on `identify` (and email after login if you use it)
+- **Connector credentials** — URL, API token, stream URL (e.g. `https://your-connector.onrender.com/stream/` plus your product id from the dashboard) — used in Step 2 only for the Autoplay stream
+- **`autoplay-sdk` installed** — and a successful test stream from the Quickstart
+- **A [Tidio](https://tidio.com) account**
+
+---
+
+## The building blocks
+
+Follow the steps in order — each page stands alone so you can ship incrementally.
+
+1. **[Connect real-time events](./step-1-connect-real-time-events)** — Set up the Tidio Lyro AI Agent, wire the backend server and listener, and embed the chat widget in your frontend app.
+2. **[Define proactive triggers](./step-2-define-proactive-triggers)** — Proactively message users in Tidio based on what they're doing in your product. *(Coming soon)*

@@ -1,0 +1,194 @@
+---
+title: WebhookReceiver
+sidebarTitle: "🪝 WebhookReceiver"
+description: Typed push webhook receiver — HMAC verification and typed payload parsing for push-mode integrations.
+---
+
+`WebhookReceiver` is for customers using **push mode**: when your product is configured with a `forward_url`, the connector POSTs events to your endpoint as JSON. `WebhookReceiver` handles signature verification, JSON parsing, and dispatching to typed callbacks — giving you the same `ActionsPayload` / `SummaryPayload` interface that SSE users get from `AsyncConnectorClient`.
+
+**Use it when** you want the connector to push events to your server rather than your server pulling from the SSE stream.
+
+---
+
+## How push mode works
+
+```
+Autoplay connector  ──HTTP POST──►  your endpoint
+                                        ↓
+                               WebhookReceiver.handle()
+                                        ↓
+                              ActionsPayload / SummaryPayload
+                                        ↓
+                               your callback
+```
+
+Every POST includes an `X-Connector-Signature` header for verification:
+
+```
+X-Connector-Signature: sha256=<HMAC-SHA256(key=secret, message=raw_body)>
+```
+
+---
+
+## Setup (FastAPI)
+
+```python
+import os
+from fastapi import FastAPI, Header, HTTPException, Request
+from autoplay_sdk import WebhookReceiver, ActionsPayload, SummaryPayload
+
+app = FastAPI()
+
+async def handle_actions(payload: ActionsPayload) -> None:
+    for action in payload.actions:
+        embedding = await embed(action.to_text())
+        await vector_store.upsert(id=payload.session_id, vector=embedding)
+
+async def handle_summary(payload: SummaryPayload) -> None:
+    await vector_store.upsert(id=payload.session_id, vector=await embed(payload.summary))
+
+receiver = WebhookReceiver(
+    secret=os.getenv("CONNECTOR_SECRET", ""),
+    on_actions=handle_actions,
+    on_summary=handle_summary,
+)
+
+@app.post("/events")
+async def events(
+    request: Request,
+    x_connector_signature: str | None = Header(default=None),
+):
+    body = await request.body()
+    try:
+        await receiver.handle(body, x_connector_signature)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    return {"status": "ok"}
+```
+
+---
+
+## Setup (Flask / sync)
+
+```python
+import os
+from flask import Flask, request, abort
+from autoplay_sdk import WebhookReceiver, ActionsPayload
+
+app = Flask(__name__)
+
+def handle_actions(payload: ActionsPayload) -> None:
+    for action in payload.actions:
+        print(action.title, action.description)
+
+receiver = WebhookReceiver(
+    secret=os.getenv("CONNECTOR_SECRET", ""),
+    on_actions=handle_actions,
+)
+
+@app.post("/events")
+def events():
+    body = request.get_data()
+    sig  = request.headers.get("X-Connector-Signature")
+    try:
+        receiver.handle_sync(body, sig)
+    except ValueError:
+        abort(401)
+    return {"status": "ok"}
+```
+
+---
+
+## Constructor
+
+```python
+WebhookReceiver(
+    secret="",
+    on_actions=None,
+    on_summary=None,
+)
+```
+
+<ParamField path="secret" type="string" default='""'>
+  HMAC-SHA256 signing secret configured on the connector (`integration_config.secret`).
+  Pass an empty string to skip verification — useful in development but not recommended
+  in production.
+</ParamField>
+
+<ParamField path="on_actions" type="Callable[[ActionsPayload], None]" default="None">
+  Sync or async callback called for every `actions` event. Can also be registered
+  via `.on_actions(fn)` after construction.
+</ParamField>
+
+<ParamField path="on_summary" type="Callable[[SummaryPayload], None]" default="None">
+  Sync or async callback called for every `summary` event. Can also be registered
+  via `.on_summary(fn)` after construction.
+</ParamField>
+
+---
+
+## Builder interface
+
+Both callback registration methods return `self` for chaining:
+
+```python
+receiver = (
+    WebhookReceiver(secret=SECRET)
+    .on_actions(handle_actions)
+    .on_summary(handle_summary)
+)
+```
+
+---
+
+## Core methods
+
+### `await .handle(body, signature_header)` — async
+
+Verify, parse, and dispatch. Use with FastAPI, Starlette, aiohttp, or any async framework.
+
+```python
+payload = await receiver.handle(body, x_connector_signature)
+```
+
+Raises `ValueError` if the signature is invalid. Returns the parsed `ActionsPayload` or `SummaryPayload`, or `None` if the event type is unrecognised.
+
+### `.handle_sync(body, signature_header)` — sync
+
+Same behaviour but synchronous. Use with Flask, Django, or any sync framework. Callbacks must be synchronous.
+
+```python
+payload = receiver.handle_sync(body, sig)
+```
+
+### `.verify(body, signature_header)` → `bool`
+
+Check the HMAC-SHA256 signature without parsing or dispatching.
+
+```python
+if not receiver.verify(body, sig):
+    return 401
+```
+
+### `.parse(body)` → `ActionsPayload | SummaryPayload | None`
+
+Parse raw bytes into a typed payload without verifying the signature or dispatching callbacks.
+
+```python
+payload = receiver.parse(body)
+if isinstance(payload, ActionsPayload):
+    print(payload.session_id, payload.count)
+```
+
+---
+
+## API reference
+
+| Method | Returns | Description |
+|---|---|---|
+| `.on_actions(fn)` | `self` | Register actions callback (sync or async) |
+| `.on_summary(fn)` | `self` | Register summary callback (sync or async) |
+| `await .handle(body, sig)` | `AnyPayload \| None` | Verify + parse + dispatch (async) |
+| `.handle_sync(body, sig)` | `AnyPayload \| None` | Verify + parse + dispatch (sync) |
+| `.verify(body, sig)` | `bool` | HMAC signature check only |
+| `.parse(body)` | `AnyPayload \| None` | Parse bytes to typed payload, no verification |
