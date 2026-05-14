@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python < 3.11
+    from enum import Enum
+
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        pass
 from typing import Any
 
 
