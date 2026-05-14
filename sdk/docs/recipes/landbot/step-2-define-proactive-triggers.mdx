@@ -1,0 +1,26 @@
+---
+title: "Step 2 — Define proactive triggers"
+sidebarTitle: "Step 2 — Define proactive triggers"
+description: "Proactively message users in Landbot based on what they're doing in your product — coming soon."
+tag: "Coming soon"
+---
+
+<Info>
+  **Coming soon.** This step is currently in progress. Check back shortly.
+</Info>
+
+Once you've connected real-time events in [Step 1](./step-1-connect-real-time-events), the next layer is proactive triggers — letting your Landbot agent reach out to users **before** they ask, based on what they're doing in your product.
+
+## What this step will cover
+
+- Defining trigger conditions on your `ActionsPayload` stream (e.g. user stuck on the same page, first visit to a key feature, repeated failure signals)
+- Routing a firing trigger to Landbot as an outbound message
+- Gating triggers with the Autoplay FSM (`can_show_proactive_with_reason`) to avoid noise and respect cooldowns
+
+## Why proactive triggers matter here
+
+With only Step 1, your Landbot agent is context-aware but still **reactive** — it waits for the user to open chat. Proactive triggers let the bot send the first message at exactly the right moment: when the user is visibly stuck, exploring a new feature for the first time, or resuming an incomplete workflow.
+
+---
+
+**Back to overview:** [Landbot tutorial](./)

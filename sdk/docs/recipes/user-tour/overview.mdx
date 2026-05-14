@@ -1,0 +1,117 @@
+---
+title: "How to trigger a User Tour"
+sidebarTitle: "Overview"
+description: "Learn how to trigger any user tour provider from your backend using the Autoplay event stream."
+---
+
+This tutorial shows how to trigger a user tour flow in a user's active browser session from your backend. The flow is:
+
+1. Register your product with Autoplay.
+2. Subscribe your frontend to the product event stream with `EventSource`.
+3. Create a server endpoint that publishes a `usertour_trigger` event for a specific user session and flow.
+
+The final step — calling the tour SDK — differs per provider. See the individual tutorials in this section for that one line.
+
+## Prerequisites
+
+- An Autoplay product ID.
+- A registered Autoplay product with stream credentials.
+- Your chosen user tour provider installed and initialized in your frontend.
+- A way to identify the active browser session. Autoplay uses the PostHog session ID in the examples below.
+- The flow ID you want to start (from your tour provider's dashboard).
+
+For Registration of product, run the Registration Script. Create a Python file with the code below. Paste your Product ID from into the script and run it
+
+```python
+import asyncio
+from autoplay_sdk.admin import onboard_product
+
+async def main() -> None:
+    result = await onboard_product(
+        "YOUR_AUTOPLAY_PRODUCT_ID",
+        contact_email="you@yourcompany.com",
+        print_operator_summary=True,
+    )
+    # result still has the same full fields if you need them in code
+
+asyncio.run(main())
+```
+
+This will print the following fields:
+- product_id: `{product_id_entered}`
+- webhook_url: `https://{connecter-url}/webhook/{product_id}`
+- stream_url: `https://{connecter-url}/stream/{product_id}`
+- webhook_secret: `{secret}`
+- unkey_key: `{secret}`
+
+---
+
+## 2. Proxy the Stream (Security)
+
+To keep your `unkey_key` hidden from users, do not connect the browser directly to Autoplay.
+
+Instead, create a server-side route. This acts as the bridge between Autoplay and your frontend while keeping your credentials secure.
+
+```jsx
+export async function GET() {
+  const upstream = await fetch(
+    `https://event-connector-luda.onrender.com/stream/${PRODUCT_ID}`,
+    {
+      headers: {
+        Authorization: `Bearer ${PROCESS_ENV_TOKEN}`,
+        Accept: "text/event-stream",
+      },
+    }
+  );
+
+  return new Response(upstream.body, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
+```
+
+---
+
+## 3. Connect the Event Stream
+
+Use the standard `EventSource` API to listen to your proxy route.
+
+```jsx
+const events = new EventSource(`/api/your-proxy-path/${productId}`);
+
+events.onmessage = (event) => {
+  const payload = JSON.parse(event.data);
+  // Handle the trigger here — see Step 4
+};
+```
+
+---
+
+## 4. Understanding the Payload
+
+The "last mile" is handling the data that arrives through the stream. When a tour is triggered, your frontend receives a JSON object. You need to verify the `session_id` to ensure the tour starts for the correct user.
+
+### Payload structure
+
+When a `usertour_trigger` event hits your stream, `event.data` looks like this:
+
+```jsx
+{
+  "type": "usertour_trigger",
+  "product_id": "prod_123...",
+  "session_id": "posthog_session_888...",
+  "flow_id": "tour_abc_789"
+}
+```
+
+**What to do with it:**
+
+- **Check the type** — ensure `type === "usertour_trigger"`.
+- **Match the session** — compare `payload.session_id` with the current user's session ID (e.g. from PostHog).
+- **Trigger the tour** — if they match, pass `flow_id` to your tour provider's SDK.
+
+The tour provider SDK call is the only thing that differs between providers. Each tutorial in this section covers exactly that one step.
