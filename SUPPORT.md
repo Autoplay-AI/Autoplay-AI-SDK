@@ -4,9 +4,9 @@ Thanks for using `autoplay-sdk`.
 
 ## Where to get help
 
-- `GitHub Issues` for reproducible bugs and feature requests
-- `Discord` for setup help, troubleshooting questions, and integration guidance
-- `Security issues` must be reported privately via the process in `SECURITY.md`
+- [GitHub Issues](https://github.com/Autoplay-AI/autoplay-sdk/issues) for reproducible bugs and feature requests
+- [Discord](https://discord.gg/jCbR2tQA5) for setup help, troubleshooting questions, and integration guidance
+- Security issues must be reported privately via the process in `SECURITY.md`
 
 ## Before opening an issue
 

@@ -1,0 +1,59 @@
+name: Feature request
+description: Suggest a new capability or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea? We'd love to hear it. Please describe the problem you're trying to solve — not just the solution — so we can discuss the best approach together.
+
+        For questions and general discussion, use [Discord](https://discord.gg/jCbR2tQA5) instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case or pain point. What are you trying to do that you can't today?
+      placeholder: "e.g. When my chatbot handler runs in a FastAPI app, I need to share a single AsyncConnectorClient across multiple requests without managing the lifecycle manually."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to see? Include example API or config if you have one in mind.
+      placeholder: |
+        A FastAPI lifespan helper, e.g.:
+
+        from autoplay_sdk.integrations.fastapi import lifespan_client
+
+        app = FastAPI(lifespan=lifespan_client(url=STREAM_URL, token=TOKEN))
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the SDK does this touch?
+      multiple: true
+      options:
+        - ConnectorClient / AsyncConnectorClient
+        - ContextStore / context enrichment
+        - RAG pipeline
+        - Proactive triggers
+        - Agent session states
+        - Integrations (Intercom, Ada, Botpress, etc.)
+        - Admin / onboarding
+        - Docs / examples
+        - Other
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you've tried, or other approaches that could work.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, prior art, related issues, or anything else relevant.
