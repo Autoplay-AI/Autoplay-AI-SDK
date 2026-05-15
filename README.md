@@ -34,7 +34,10 @@
 
 ## ⚙️ How it works
 
-You probably already have all the tools — you just need to orchestrate them correctly:
+You have all the tools in your tech stack — you just need to orchestrate them correctly:
+1) session replay provider
+2) chatbot provider
+3) visual guidance provider
 
 ![Autoplay SDK architecture — session replay feeds into the Autoplay SDK processor, which drives your chatbot and visual guidance tools](docs/images/integrations-diagram.png)
 
