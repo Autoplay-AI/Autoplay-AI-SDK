@@ -1,0 +1,68 @@
+---
+title: UserSessionIndex
+sidebarTitle: "🧭 UserSessionIndex"
+description: User-keyed session stitching for mapping one user to recent product sessions and reading cross-session activity safely.
+---
+
+Use `UserSessionIndex` when your chat layer is keyed by `user_id` but product events arrive keyed by `session_id`.
+
+It tracks recent session refs per user and preserves `product_id` so reads stay product-scoped.
+
+## Import
+
+```python
+from autoplay_sdk.user_index import UserSessionIndex
+```
+
+## Constructor
+
+```python
+UserSessionIndex(
+    context_store,
+    lookback_seconds=300.0,
+    max_sessions_per_user=20,
+)
+```
+
+- `context_store`: `ContextStore` or `AsyncContextStore` used for per-session retrieval.
+- `lookback_seconds`: max age of tracked sessions before eviction.
+- `max_sessions_per_user`: hard cap of session refs retained per user.
+
+## Minimal setup
+
+```python
+from autoplay_sdk import AsyncContextStore
+from autoplay_sdk.user_index import UserSessionIndex
+
+context_store = AsyncContextStore()
+session_index = UserSessionIndex(
+    context_store,
+    lookback_seconds=300,
+    max_sessions_per_user=20,
+)
+
+async def on_actions(payload):
+    await context_store.add(payload)
+    session_index.add(payload)
+```
+
+## Methods
+
+- `add(payload)` — update the index from one `ActionsPayload`.
+- `add_async(payload)` — async alias useful for async callback wiring.
+- `get_recent_sessions(user_id)` — returns newest-first `SessionRef` rows.
+- `get_email(user_id)` — returns the last known email cached from payloads.
+- `get_user_activity(user_id)` — joins activity by calling `context_store.get(session_id, product_id=...)` across recent sessions.
+- `reset_user(user_id)` — clears session refs and cached email for the user.
+
+## Behavior guarantees
+
+- Missing `user_id` or `session_id` payloads are ignored.
+- Session refs are deduplicated per user and sorted by `last_seen_at` (newest first).
+- Expired refs are evicted on read and update; memory usage stays bounded.
+- Product-scoped retrieval is preserved by storing `product_id` in each `SessionRef`.
+
+## Common pitfalls
+
+- Identity drift between event source IDs and chat user IDs causes empty reads.
+- If actions are product-scoped, always preserve `product_id` when retrieving context.

@@ -1,0 +1,66 @@
+---
+title: compose_chat_pipeline(...)
+sidebarTitle: "🤖 compose_chat_pipeline(...)"
+description: Compose chat ingestion primitives in the safe default order so action writes, summarization, and callback fan-out stay consistent.
+---
+
+Use `compose_chat_pipeline(...)` when you want one callback (`pipeline.on_actions`) that wires context storage and agent-context writing without callback clobbering.
+
+## Import
+
+```python
+from autoplay_sdk import compose_chat_pipeline
+```
+
+## Signature
+
+```python
+compose_chat_pipeline(
+    *,
+    llm,
+    threshold=10,
+    lookback_seconds=300.0,
+    max_actions=20,
+    write_actions=None,
+    overwrite_with_summary=None,
+    debounce_ms=0,
+)
+```
+
+- `llm`: async callable `(prompt: str) -> str`.
+- `threshold`: summarizer trigger (action count).
+- `lookback_seconds`, `max_actions`: `AsyncContextStore` bounds.
+- `write_actions`: optional push callback for raw action text.
+- `overwrite_with_summary`: optional callback invoked when summary is emitted.
+- `debounce_ms`: forwarded to `AsyncAgentContextWriter`.
+
+## Minimal setup
+
+```python
+from autoplay_sdk import compose_chat_pipeline
+
+pipeline = compose_chat_pipeline(
+    llm=my_async_llm,
+    threshold=10,
+    lookback_seconds=300,
+    max_actions=20,
+    write_actions=my_write_actions_cb,
+    overwrite_with_summary=my_overwrite_cb,
+)
+
+client.on_actions(pipeline.on_actions)
+```
+
+## Ordering guarantee
+
+`pipeline.on_actions(payload)` runs in canonical order:
+
+1. `context_store.add(payload)` updates retrieval state.
+2. `agent_writer.add(payload)` handles push and summary logic.
+
+Summary callbacks are fanned out so both context-store and writer-side overwrite paths receive updates. This prevents accidental callback overwrite behavior in custom wiring.
+
+## When to use this helper
+
+- You want the default chat ingestion wiring without hand-rolling callback orchestration.
+- You need predictable summary propagation to both storage and UI push callbacks.

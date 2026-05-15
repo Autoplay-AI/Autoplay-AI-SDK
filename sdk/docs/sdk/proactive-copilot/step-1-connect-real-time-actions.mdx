@@ -52,4 +52,10 @@ client.on_actions(on_actions)
 
 See [Async client](../async-client) and [Webhook receiver](../webhook-receiver) for setup details.
 
+### When to use `UserSessionIndex`
+
+As soon as your chat layer is keyed by `user_id` (not only `session_id`), add
+[`UserSessionIndex`](../user-session-index) so one user can be mapped to recent
+session refs and chat retrieval stays aligned with real activity.
+
 **Next:** [Step 2 — Add actions to LLM context](./step-2-add-actions-to-llm-context)
