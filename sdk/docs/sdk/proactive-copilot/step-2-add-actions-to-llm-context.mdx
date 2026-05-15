@@ -8,6 +8,18 @@ After [Step 1](./step-1-connect-real-time-actions), raw `ActionsPayload` text is
 
 The Autoplay SDK models this as **chatbot context assembly** — not the same as [RAG ingestion / vector pipelines](../rag-pipeline) (indexing documents), which happens offline or on write.
 
+This is the core data-linking path to keep stable:
+
+1. Live events are ingested and stored by `session_id`.
+2. On first chat turn, your app creates/assigns `conversation_id` and keeps it stable for the thread.
+3. If identity is available, optionally map session refs to `user_id` via [`UserSessionIndex`](../user-session-index).
+
+The compulsory baseline is stable session -> conversation continuity. This is the
+part that prevents wrong-context replies in all deployments.
+
+When `user_id` is captured, `UserSessionIndex` is the SDK helper for the extra
+session -> user mapping layer (also fiddly to maintain correctly at scale).
+
 ### Entry points
 
 Use `autoplay_sdk.rag_query`:
@@ -16,6 +28,32 @@ Use `autoplay_sdk.rag_query`:
 - **`format_rag_system_prompt`** — combines your system template with that assembly so the model sees a coherent system + user picture.
 
 See **[Chatbot context assembly](../chatbot-context-assembly)** for the full diagram, provider interfaces, and worked example (`RagChatProviders`, `assemble_rag_chat_context`, `format_rag_system_prompt`).
+
+### Session indexing and conversation mapping
+
+This Step 2 guidance assumes **SDK `0.7.3+`**.
+
+- **`session_id`** keys product activity for the current user session (the event stream bucket from Step 1).
+- **`conversation_id`** keys chatbot memory for one chat thread.
+- **`UserSessionIndex`** is an optional helper for deployments that capture `user_id` and need user-keyed cross-session lookup.
+
+Once a user interacts with chat, keep the mapping stable:
+
+1. On the first user message in a new thread, create or assign a `conversation_id`.
+2. Reuse that same `conversation_id` for follow-up turns in the same thread.
+3. Continue passing the current `session_id` so live activity stays aligned to that thread.
+4. If you capture `user_id`, use `UserSessionIndex` to add user-level cross-session correlation.
+
+If `session_id` and `conversation_id` drift out of sync, responses can look stale
+or generic (right docs, wrong live activity) or pull memory from the wrong
+thread. If `user_id` is in play, that mapping must stay consistent too.
+
+### Production wiring helpers
+
+Use these when turning Step 2 into production chat infrastructure:
+
+- [`compose_chat_pipeline(...)`](../compose-chat-pipeline) — safe default composition for context store writes, agent-context writing, and summary callback fan-out.
+- [`build_copilot_app(...)`](../build-copilot-app) — minimal FastAPI bridge when you want ready-to-serve context/reply endpoints.
 
 ### How this fits the recipe
 
@@ -33,6 +71,11 @@ Together, these avoid “RAG in a vacuum” — the answer can cite both docs **
 Context assembly answers **“what should the model say when the user (or system) invokes chat?”** [Step 3](./step-3-define-proactive-triggers) covers **when** to surface proactive messages or tours without a user message — different layer, same underlying events.
 
 ### Code sketch
+
+In this sketch, `conversation_id` is the stable chat-thread key after the user
+starts chatting, while `session_id` keeps live activity aligned to that thread.
+Add `UserSessionIndex` on top when you have reliable `user_id` capture and need
+cross-session user views.
 
 ```python
 from autoplay_sdk.rag_query import (

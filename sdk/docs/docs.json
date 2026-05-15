@@ -24,8 +24,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Get started",
-      "href": "/quickstart"
+      "label": "GitHub",
+      "href": "https://github.com/Autoplay-AI/Autoplay-AI-SDK"
     }
   },
   "footer": {
@@ -42,14 +42,15 @@
           "quickstart",
           "sdk/overview",
           {
-            "group": "✨ The proactive + visual copilot recipe",
+            "group": "✨ The proactive + visual support agent gold standard",
             "root": "sdk/proactive-copilot",
             "expanded": true,
             "pages": [
               "sdk/proactive-copilot/step-1-connect-real-time-actions",
               "sdk/proactive-copilot/step-2-add-actions-to-llm-context",
               "sdk/proactive-copilot/step-3-define-proactive-triggers",
-              "sdk/proactive-copilot/step-4-enhance-with-user-memory"
+              "sdk/proactive-copilot/step-4-enhance-with-user-memory",
+              "sdk/proactive-copilot/step-5-enrich-with-user-memory"
             ]
           }
         ]
@@ -105,6 +106,16 @@
             "pages": [
               "recipes/landbot/step-1-connect-real-time-events",
               "recipes/landbot/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Rasa tutorial",
+            "icon": "/images/recipes/rasa/logo.png",
+            "root": "recipes/rasa",
+            "badge": "New",
+            "pages": [
+              "recipes/rasa/step-1-connect-real-time-events",
+              "recipes/rasa/step-2-define-proactive-triggers"
             ]
           },
           {
@@ -196,7 +207,9 @@
           "sdk/summarizer",
           "sdk/agent-context",
           "sdk/chatbot-writer",
-          "sdk/self-hosted-bridge",
+          "sdk/user-session-index",
+          "sdk/compose-chat-pipeline",
+          "sdk/build-copilot-app",
           "sdk/rag-example"
         ]
       },
@@ -231,6 +244,10 @@
       "destination": "/sdk/chatbot-context-assembly"
     },
     {
+      "source": "/sdk/self-hosted-bridge",
+      "destination": "/sdk/proactive-copilot"
+    },
+    {
       "source": "/sdk/proactive-copilot/step-6-visual-pop-up-tours",
       "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
     },
@@ -244,7 +261,7 @@
     },
     {
       "source": "/sdk/proactive-copilot/step-5-define-workflow-ontology",
-      "destination": "/sdk/proactive-copilot/step-4-enhance-with-user-memory"
+      "destination": "/sdk/proactive-copilot/step-5-enrich-with-user-memory"
     },
     {
       "source": "/sdk/proactive-copilot/step-6-orchestrate-tours-and-ai",

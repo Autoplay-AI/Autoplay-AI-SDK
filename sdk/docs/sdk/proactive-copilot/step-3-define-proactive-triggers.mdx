@@ -1,12 +1,12 @@
 ---
 title: "Step 3 — Define proactive triggers"
 sidebarTitle: "Step 3 — Define proactive triggers"
-description: Decide when to surface proactive help, then deliver it as chat or quick replies (SDK) or as on-screen visual guidance (BYO) — with registry and FSM gating.
+description: Decide when to surface proactive help, then deliver it as chat messages with optional reply options (SDK) or as on-screen visual guidance (BYO) — with registry and FSM gating.
 ---
 
 <Frame caption="Two deliveries after the same proactive trigger: Flow A — textual proactive trigger, user chats, then visual guidance; Flow B — visual guidance directly (no chat step).">
   <img
-    src="/images/sdk/proactive-trigger-two-flows.svg"
+    src="/images/sdk/proactive-copilot/step-3-define-proactive-triggers/proactive-trigger-two-flows.svg"
     alt="Diagram: proactive trigger splits into Flow A (textual proactive trigger, user interacts with chatbot, then visual guidance) and Flow B (visual guidance only, no chatbot step)."
     className="doc-embed"
   />
@@ -14,25 +14,35 @@ description: Decide when to surface proactive help, then deliver it as chat or q
 
 <Info>Available now.</Info>
 
-Proactive help is **not** “run the LLM on every event.” You need **detection** (when the situation warrants an interruption) and **delivery** (what the user actually sees). In practice there are **two common proactive surfaces**:
+<Warning>
+  **Prerequisite for this step:** set up
+  [`autoplay_sdk.agent_state_v2.SessionState`](../agent-states) first. Proactive
+  triggers should be evaluated from `thinking` and delivered only when your v2
+  state + cooldown logic allows it.
+</Warning>
 
-| Surface | What the user gets |
-| -------- | ------------------ |
-| **Proactive chat / Messenger** | A message in your chat or help widget — often a **quick reply** with tappable options. The Autoplay SDK models this with `ProactiveTriggerResult` and the modules below. |
-| **Proactive visual guidance** | A **tour or overlay** in your product (step highlights, tooltips) started from your backend or bridge when rules say the user needs on-screen help, not just copy. |
-
-Both are “proactive” in the product sense: the user did not ask first. The **[Proactive triggers](../proactive-triggers)** and **[Authoring proactive triggers](../proactive-triggers-authoring)** docs describe the **text / quick-reply path** end-to-end. On-screen tours are **not** a separate `ProactiveTrigger` implementation in the SDK today — after the same **when-to-fire** checks, **your** `on_actions` (or equivalent) **orchestration** chooses **chat vs tour vs silence**.
+Proactive help is **not** “run the LLM on every event.” In this step, focus on **detection + state gating** for proactive chat offers with optional reply options. Use these same trigger outputs in [Step 4](./step-4-enhance-with-user-memory) when you want to route into relevant visual guidance.
 
 ### When to fire (shared layer)
 
 1. **Context** — On each tick, build `ProactiveTriggerContext` from your event buffer, session metadata, and any flags you maintain (URLs, workflow hints, etc.).
 2. **Triggers** — Implement `ProactiveTrigger` (predicate-style or custom) that returns a `ProactiveTriggerResult` (`body`, optional `reply_option_labels`, timings, cooldown metadata) or `None`.
 3. **Registry** — Wrap triggers in `ProactiveTriggerRegistry` and call **`evaluate_first`** (or `evaluate_all`) to pick the first firing trigger.
-4. **Gate** — Before sending, use [Agent session states](../agent-states): **`can_show_proactive_with_reason`** so you respect FSM state, cooldowns, and conservative assistance.
+4. **Gate** — Before sending, use [Agent session states](../agent-states): apply v2 state checks + cooldown gating so you keep **one proactive offer at a time** and avoid overlap while reactive chat is active.
+
+### Why agent states are required (v2)
+
+Treat proactive triggers as **state-gated orchestration**, not just predicates:
+
+- **`thinking`** — only state where a new proactive offer may be initiated.
+- **`proactive_assistance`** — a proactive offer is already shown; do not stack another proactive suggestion.
+- **`reactive_assistance`** — user-initiated chat is active; suppress overlapping unsolicited proactive prompts.
+
+This separation is what prevents intrusive behavior and overlapping proactive suggestions.
 
 ### Trigger conditions and heuristics
 
-Not every event should fire help — that becomes **noise**. Encode **intent and workflow** conditions using your payload and memory (when available) — not ad-hoc URL rules alone — before you evaluate triggers, call an LLM, or start a tour.
+Not every event should fire help — that becomes **noise**. Encode **intent and workflow** conditions using your payload and memory (when available) — not ad-hoc URL rules alone — before you evaluate triggers and deliver proactive chat.
 
 **Examples of situations worth detecting:**
 
@@ -51,17 +61,64 @@ Use heuristics like:
 | User has never completed a key workflow | Adoption gap | "You haven't finished exporting a report yet — here's the short path." |
 | User is in `in_progress` on a workflow | Repeat attempt without crossing completion | "You got 85% through this last time — the one remaining step is verifying the success message." |
 
-Put these checks **before** your registry evaluation and delivery — whether that delivery is **chat** ([Delivery A](#delivery-a-proactive-chat-and-quick-replies-sdk)) or a **tour** ([Delivery B](#delivery-b-proactive-visual-guidance-on-screen-tours)). Your handler then **routes** among silence, tour, and LLM once these predicates pass.
+Put these checks **before** your registry evaluation and delivery. In this step, focus on proactive trigger definition plus state-gated **chat / reply-option** delivery. Step 4 covers routing into relevant visual guidance tours.
 
-### Delivery A: Proactive chat and quick replies (SDK)
+### Choose your trigger path: built-in vs custom
 
-The SDK is **transport-agnostic** for *detection*; you wire a firing `ProactiveTriggerResult` into your **delivery** layer (Intercom quick reply, in-app chat, etc.). That is the path fully covered by the reference pages.
+You can implement Step 3 in two ways:
+
+## Use built-in proactive triggers
+
+Use this path when default patterns are enough and you want quick setup with `default_proactive_trigger_registry()`.
+
+1. Start with the built-in registry using `default_proactive_trigger_registry()`.
+2. Evaluate with `evaluate_first(ctx)` on each tick.
+3. State-gate delivery with `can_show_proactive_with_reason` before showing UI.
+
+For built-in IDs, default registry behavior, and tuning options, see [Proactive triggers](../proactive-triggers).
+
+## Build a custom proactive trigger
+
+Use this path when you need product-specific workflow logic, custom copy, or domain-specific metadata.
+
+1. **Define** a `PredicateProactiveTrigger` (or subclass `ProactiveTrigger` for more complex logic).
+2. **Register** it in `ProactiveTriggerRegistry` (optionally prepending it before built-ins).
+3. **Evaluate** with `evaluate_first(ctx)` on each tick.
+4. **State-gate delivery** with `can_show_proactive_with_reason` before showing UI.
+
+```python
+from autoplay_sdk.proactive_triggers import (
+    PredicateProactiveTrigger,
+    ProactiveTriggerRegistry,
+    default_proactive_trigger_registry,
+)
+
+custom_trigger = PredicateProactiveTrigger(
+    trigger_id="stalled_on_checkout",
+    body="Looks like this step is blocking progress — want a quick walkthrough?",
+    predicate=lambda ctx: any("/checkout" in (u or "") for u in ctx.canonical_urls[-3:]),
+    reply_option_labels=["Yes, show me", "Not now"],
+)
+
+registry = ProactiveTriggerRegistry([
+    custom_trigger,
+    *default_proactive_trigger_registry().triggers,
+])
+```
+
+For the full end-to-end authoring flow (context shaping, timings, delivery hooks), see [Authoring proactive triggers](../proactive-triggers-authoring).
+
+### Delivery A: Proactive chat and reply options (SDK)
+
+The SDK is **transport-agnostic** for *detection*; you wire a firing `ProactiveTriggerResult` into your **delivery** layer (chat widget message, in-app chat, toast, etc.). That is the path fully covered by the reference pages.
 
 | Topic | Page |
 | ----- | ---- |
 | Types, built-in IDs, connector JSON, **`user_page_dwell` defaults** (1 minute + sparse actions) | **[Proactive triggers](../proactive-triggers)** |
 | End-to-end authoring walkthrough | **[Authoring proactive triggers](../proactive-triggers-authoring)** |
-| FSM gating, idle expiry, snapshots | **[Agent session states](../agent-states)** |
+| Agent State v2 (`SessionState`), FSM gating, idle expiry, snapshots | **[Agent session states](../agent-states)** |
+
+For v2-first integrations, keep the same flow (`context -> registry -> delivery`) but enforce that proactive delivery happens only from `thinking`, with cooldown-aware state transitions.
 
 ```python
 from autoplay_sdk.proactive_triggers import (
@@ -85,54 +142,4 @@ async def on_tick(ctx: ProactiveTriggerContext, fsm_state) -> None:
 
 Start with **[Authoring proactive triggers](../proactive-triggers-authoring)** if you are building your first trigger from scratch.
 
-### Delivery B: Proactive visual guidance (on-screen tours)
-
-Use this when **chat or quick reply is not enough** — onboarding, strict click order, or recovery after repeated errors. You still apply the **same** gating and noise controls; you simply **route the outcome** to a tour instead of (or before) a chat payload.
-
-<Note>
-  **Event connector — reference SSE mechanism:** `POST /user-tour/trigger` (admin `X-Admin-Key`,
-  body `product_id` + `flow_id` + at least one of `user_id` / `session_id`) fans out
-  `{ type: "usertour_trigger", product_id, flow_id, reason, user_id?, session_id? }` on
-  `GET /stream/{product_id}`. Use it to mirror **`notify_frontend_start_tour`** during testing or ops.
-  The **Flow A** continuation (chat-driven tour after relevance) should call the **same broadcast**
-  from your chat pipeline once intent → `flow_id` mapping exists.
-</Note>
-
-<Note>Parts of the Autoplay bridge below are coming soon.</Note>
-
-**Autoplay bridge (coming soon):** we will turn **golden paths you define with the Chrome extension** into **visual guidance** so you **do not define the same workflow twice** — one definition in [Step 4](./step-4-enhance-with-user-memory) (workflow ontology) becomes on-screen overlays. That productized path is not available yet.
-
-#### What you add (today)
-
-Implement tours with a **library you control in your frontend** that supports **external / programmatic triggering** (start, skip, or advance a run from outside the tour component). You author steps in code or config — **selector**, **action**, **tooltip copy** — and expose a hook your app can call when real-time context says the user needs a walkthrough.
-
-#### External tour libraries
-
-Choose a stack that fits **triggering from your connector path** (`on_actions`, backend events, or a bridge to the browser):
-
-- **[React Joyride](https://github.com/gilbarbara/react-joyride)** — widely used React tours; supports imperative control so your app can drive the run.
-- **[OpenTour](https://opentour.io)** — another option; validate fit for your framework and triggering model.
-
-**Why external triggers matter:** after [trigger conditions](#trigger-conditions-and-heuristics) and registry evaluation, your orchestration code **routes** chat vs tour vs silence; your tour library must accept **signals from outside the overlay** so those decisions actually start or steer the tour.
-
-Today, **notify your frontend** to start the tour (WebSocket, SSE, `postMessage`, or an app-specific channel). Autoplay SDK `show_product_tour`-style helpers arrive with the golden-path → tour bridge.
-
-```python
-async def on_actions(payload: ActionsPayload) -> None:
-    if not should_run_tour(payload):  # align with your orchestration gates above
-        return
-
-    await notify_frontend_start_tour(
-        session_id=payload.session_id,
-        tour_id="onboarding_connect",
-    )
-
-
-async def notify_frontend_start_tour(session_id: str, tour_id: str) -> None:
-    """e.g. publish to your WebSocket, call an internal API the SPA polls, or enqueue for the browser worker."""
-    ...
-```
-
-When the Autoplay bridge ships, you can replace or wrap `notify_frontend_start_tour` with the managed conversion from extension-defined golden paths.
-
-**Next:** [Step 4 — User memory and workflow ontology](./step-4-enhance-with-user-memory)
+**Next:** [Step 4 — Connect relevant visual guidance](./step-4-enhance-with-user-memory)

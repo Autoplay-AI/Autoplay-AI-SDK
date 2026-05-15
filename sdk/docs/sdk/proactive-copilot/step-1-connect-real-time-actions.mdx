@@ -19,6 +19,17 @@ This is not raw browser telemetry. Before events reach your agent, Autoplay's pi
 
 The result is an `ActionsPayload` that your agent can read and reason over directly.
 
+<Warning>
+  `session_id` scoping is the compulsory base in this recipe. Live events are
+  always ingested and stored by session.
+</Warning>
+
+<Note>
+  `user_id` can be optional in some companies depending on what their session
+  replay provider captures. Your pipeline should still work with session-scoped
+  activity even when user identity is absent.
+</Note>
+
 ### What your copilot can do at this stage
 
 Your agent can see exactly what the user is doing right now — which page they're on, what they just clicked, and what their inferred intent is. It can respond contextually to any action without waiting for the user to describe the situation in chat.
@@ -51,5 +62,18 @@ client.on_actions(on_actions)
 ```
 
 See [Async client](../async-client) and [Webhook receiver](../webhook-receiver) for setup details.
+
+### Optional identity enhancement: `UserSessionIndex`
+
+Live events arrive keyed by `session_id` first. The compulsory requirement is to
+keep session-scoped activity stable and then map it to the correct
+`conversation_id` once chat begins.
+
+If your deployment captures reliable `user_id`, wire
+[`UserSessionIndex`](../user-session-index) to map one user to recent
+`session_id` refs so cross-session retrieval can be user-keyed too.
+
+If `user_id` is not captured, keep operating on the session-scoped base path;
+you can add user scoping later without changing the core session mapping model.
 
 **Next:** [Step 2 — Add actions to LLM context](./step-2-add-actions-to-llm-context)
