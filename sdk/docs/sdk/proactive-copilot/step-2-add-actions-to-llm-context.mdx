@@ -17,6 +17,22 @@ Use `autoplay_sdk.rag_query`:
 
 See **[Chatbot context assembly](../chatbot-context-assembly)** for the full diagram, provider interfaces, and worked example (`RagChatProviders`, `assemble_rag_chat_context`, `format_rag_system_prompt`).
 
+### Session indexing and conversation mapping
+
+This Step 2 guidance assumes **SDK `0.7.3+`**, where `session_index` is available.
+
+- **`session_id`** keys product activity for the current user session (the event stream bucket from Step 1).
+- **`session_index`** is the canonical lookup helper for reliably resolving the right activity context per chat interaction.
+- **`conversation_id`** keys chatbot memory for one chat thread.
+
+Once a user interacts with chat, keep the mapping stable:
+
+1. On the first user message in a new thread, create or assign a `conversation_id`.
+2. Reuse that same `conversation_id` for follow-up turns in the same thread.
+3. Continue passing the current `session_id`, and use `session_index` to keep activity-to-thread correlation correct.
+
+If `session_id` and `conversation_id` drift out of sync, responses can look stale or generic (right docs, wrong live activity) or pull memory from the wrong thread.
+
 ### How this fits the recipe
 
 | Signal | Role |
@@ -33,6 +49,8 @@ Together, these avoid “RAG in a vacuum” — the answer can cite both docs **
 Context assembly answers **“what should the model say when the user (or system) invokes chat?”** [Step 3](./step-3-define-proactive-triggers) covers **when** to surface proactive messages or tours without a user message — different layer, same underlying events.
 
 ### Code sketch
+
+In this sketch, `conversation_id` is the stable chat-thread key after the user starts chatting, while `session_id` and `session_index` keep real-time activity resolution aligned to the same user interaction timeline.
 
 ```python
 from autoplay_sdk.rag_query import (

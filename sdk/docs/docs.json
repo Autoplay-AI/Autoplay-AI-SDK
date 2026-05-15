@@ -24,8 +24,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Get started",
-      "href": "/quickstart"
+      "label": "GitHub",
+      "href": "https://github.com/Autoplay-AI/Autoplay-AI-SDK"
     }
   },
   "footer": {
@@ -49,7 +49,8 @@
               "sdk/proactive-copilot/step-1-connect-real-time-actions",
               "sdk/proactive-copilot/step-2-add-actions-to-llm-context",
               "sdk/proactive-copilot/step-3-define-proactive-triggers",
-              "sdk/proactive-copilot/step-4-enhance-with-user-memory"
+              "sdk/proactive-copilot/step-4-enhance-with-user-memory",
+              "sdk/proactive-copilot/step-5-enrich-with-user-memory"
             ]
           }
         ]
@@ -105,6 +106,16 @@
             "pages": [
               "recipes/landbot/step-1-connect-real-time-events",
               "recipes/landbot/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Rasa tutorial",
+            "icon": "/images/recipes/rasa/logo.png",
+            "root": "recipes/rasa",
+            "badge": "New",
+            "pages": [
+              "recipes/rasa/step-1-connect-real-time-events",
+              "recipes/rasa/step-2-define-proactive-triggers"
             ]
           },
           {
@@ -244,7 +255,7 @@
     },
     {
       "source": "/sdk/proactive-copilot/step-5-define-workflow-ontology",
-      "destination": "/sdk/proactive-copilot/step-4-enhance-with-user-memory"
+      "destination": "/sdk/proactive-copilot/step-5-enrich-with-user-memory"
     },
     {
       "source": "/sdk/proactive-copilot/step-6-orchestrate-tours-and-ai",

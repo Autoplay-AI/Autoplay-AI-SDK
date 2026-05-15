@@ -1,0 +1,130 @@
+---
+title: "Rasa tutorial"
+sidebarTitle: "Rasa tutorial"
+description: "Give your Rasa chatbot live awareness of what users are doing in your web app — using Autoplay's open SDK, fully self-hosted."
+icon: "/images/recipes/rasa/logo.png"
+---
+
+Give your Rasa chatbot live awareness of what users are doing in your web app, so it can answer with context instead of generic instructions.
+
+**What this means in practice:** a user is half-way through an upgrade flow. They open the chat bubble and ask "how do I finish this?" Without context, your bot has to ask which page they're on. With Autoplay wired in, your bot already knows — and replies with the specific next click, not a walkthrough of the whole UI.
+
+This tutorial shows you exactly how to wire it together using **Rasa 3.6** (open-source, self-hosted) and the **Autoplay SDK**. Everything stays on your infrastructure — your activity data, prompts, and LLM keys never leave it.
+
+**Who this is for:**
+- You already have (or are building) a Rasa-based chatbot for your product.
+- You want it to give answers that adapt to where the user is in the UI, instead of canned responses.
+- You're comfortable with Python, Docker, and a small FastAPI service.
+
+**Tech you'll use:** Rasa 3.6 (Docker), Python 3.10+ (host), PostHog (free tier), the Autoplay event connector (hosted), and any LLM with an async Python client (OpenAI, Anthropic, Gemini, local — your choice).
+
+**SDK primitives you'll touch:** `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, `agent_state_v2.SessionState`, and `ChatContextAssembly`. Each one is a single import; the SDK handles the heavy lifting (reconnects, backpressure, summarisation, prompt assembly).
+
+## ✨ Final result
+
+<Tabs sync={false}>
+  <Tab title="Without real-time context">
+    ```text
+    User: how do I add a teammate?
+
+    Bot: Go to Settings → Team → Invite member, then enter their email
+    and pick a role.
+
+    (Generic reply — the bot doesn't know the user is already on the
+    Team page with the invite modal half-filled.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    User: how do I add a teammate?
+
+    Bot: You're nearly there — just pick a role from the dropdown and
+    hit Send invite. They'll get the email within a minute.
+
+    (Same question, but the bot infers from recent activity that the
+    user is already in the right modal and skips the steps they've
+    already done. No mention of "I see you clicked…".)
+    ```
+  </Tab>
+</Tabs>
+
+**Video walkthrough** — [Open on Loom](https://www.loom.com/share/d748e02164014d4cbcad568dbc4b3c05) if the player does not load.
+
+<div style={{ position: "relative", paddingBottom: "62.5%", height: 0 }}>
+  <iframe
+    src="https://www.loom.com/embed/d748e02164014d4cbcad568dbc4b3c05"
+    title="Rasa tutorial — finished workflow and final result"
+    frameBorder={0}
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen
+    style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
+  />
+</div>
+
+---
+
+## 📋 Prerequisites
+
+Before you start, you need:
+
+- **A web app you can edit** — anything that can load `posthog-js`. The examples use Next.js but it works with any frontend.
+- **A free [PostHog](https://posthog.com) account** — for click capture. You'll need your **Project API Key** (starts with `phc_`, not `phx_` — the personal one is rejected by `posthog.init()`).
+- **An Autoplay product ID.** If you already use PostHog, you can re-use your PostHog project id (the number after `/project/` in the URL) as your `product_id`. The tutorial covers running `onboard_product` to mint the rest of the credentials.
+- **Docker Desktop** — Rasa runs in a container; this also sidesteps TensorFlow ABI issues on Apple Silicon.
+- **Python 3.10+** on the host — for the small FastAPI bridge service.
+- **An OpenAI API key** (or any LLM provider with an async Python client) — the SDK's `AsyncSessionSummarizer` just takes an async `(str) -> str` callable, so swap in Anthropic, Gemini, Mistral, or a local model if you prefer.
+
+That's all the setup. The rest of this tutorial walks through every code file step by step — copy-paste runnable.
+
+<Note>
+  **Why a separate "bridge" service?** Rasa runs in Docker and can't import Python objects from your host. The bridge is a small FastAPI service that owns the Autoplay SDK pipeline and exposes a tiny HTTP surface (`/reply/{user_id}`) that Rasa's action server calls when a user chats. This same pattern works for any cross-process chatbot — Botpress on-prem, LangChain services, Twilio webhooks — not just Rasa.
+</Note>
+
+---
+
+## Architecture
+
+```
+┌──────────────────┐   ┌──────────┐   ┌──────────┐
+│  Your web app    │──▶│ PostHog  │──▶│ Autoplay │
+│  + posthog-js    │   │ autoclick│   │ connector│
+│  + chat widget   │   │ + HogQL  │   │  (SSE)   │
+└────────▲─────────┘   └──────────┘   └─────┬────┘
+         │                                  │ SSE stream
+         │                                  ▼
+         │             ┌─────────────────────────────────────┐
+         │             │  bridge/  (autoplay-native, FastAPI)│
+         │             │                                     │
+         │             │  AsyncConnectorClient               │
+         │             │       ↓ on_actions                  │
+         │             │  AsyncAgentContextWriter            │
+         │             │       ↓ summarises every N actions  │
+         │             │  AsyncSessionSummarizer (your LLM)  │
+         │             │       ↓                             │
+         │             │  AsyncContextStore                  │
+         │             │       ↓                             │
+         │             │  agent_state_v2.SessionState (FSM)  │
+         │             │                                     │
+         │             │  GET /reply/{user_id}?query=…       │
+         │             │    → build_user_prompt_block        │
+         │             │    → call your LLM                  │
+         │             │    → return reply                   │
+         │             └────────────────┬────────────────────┘
+         │                              │ HTTP
+         │                              │
+┌────────┴──────────────────────────────┴─────────────────────┐
+│  Rasa server (Docker) → Rasa action server (Docker)         │
+│                              └─▶ HTTP GET to bridge /reply  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Four processes: your web app, a small Python bridge, Rasa, Rasa's action server. The bridge owns every SDK primitive; Rasa stays a thin chat surface that calls the bridge over HTTP.
+
+---
+
+## The tutorial
+
+1. **[Connect real-time events](./step-1-connect-real-time-events)** — Stream live user actions into a Rasa-aware bridge using the Autoplay SDK, expose them to Rasa over HTTP, and wire the chat widget to read them. This is what you'll do today.
+
+A follow-up tutorial on proactive triggers — where the bot starts the conversation when the user reaches a key moment, using `agent_state_v2` and Autoplay's proactive trigger registry — is in progress and will land separately.

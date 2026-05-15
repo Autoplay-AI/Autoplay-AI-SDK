@@ -37,10 +37,11 @@ Follow the steps in order — each page stands alone so you can ship incremental
 
 1. **[Connect real-time actions](./step-1-connect-real-time-actions)** — Stream structured `ActionsPayload` events into your stack.
 2. **[Add actions to LLM context](./step-2-add-actions-to-llm-context)** — Combine live actions, chat history, and optional KB into one inference-ready context.
-3. **[Define proactive triggers](./step-3-define-proactive-triggers)** — When to interrupt, then **deliver** as proactive **chat / quick reply** (SDK) or **on-screen visual guidance** (BYO tours); registry, FSM gating, and routing **chat vs tour vs silence** in your handler.
-4. **[User memory and workflow ontology](./step-4-enhance-with-user-memory)** — Define workflows so Atlas and memory expose **completion rates** and mastery; then filter with cross-session **user memory**.
+3. **[Define proactive triggers](./step-3-define-proactive-triggers)** — Define when to interrupt, with Agent State v2 gating so proactive delivery stays non-intrusive and non-overlapping.
+4. **[Connect relevant visual guidance](./step-4-enhance-with-user-memory)** — Route qualifying proactive outcomes into on-screen tours (chat vs tour vs silence) using your delivery channel.
+5. **[Enrich with user memory](./step-5-enrich-with-user-memory)** — Define workflows so Atlas and memory expose **completion rates** and mastery; then filter with cross-session **user memory**.
 
-You can build and ship real-time event ingestion today. **Workflow ontology** (Chrome extension; docs with Autoplay via Slack) is part of [Step 4](./step-4-enhance-with-user-memory); expect an **iterative loop** on **Autoplay Atlas** labelling quality. The in-SDK [knowledge base query](../knowledge-base), full user memory rollout, and visual tours are still rolling out.
+You can build and ship real-time event ingestion today. Visual guidance wiring is covered in [Step 4](./step-4-enhance-with-user-memory). **Workflow ontology + user memory enrichment** (Chrome extension; docs with Autoplay via Slack) is part of [Step 5](./step-5-enrich-with-user-memory); expect an iterative loop on **Autoplay Atlas** labelling quality. The in-SDK [knowledge base query](../knowledge-base) and full user memory rollout are still rolling out.
 
 ---
 
