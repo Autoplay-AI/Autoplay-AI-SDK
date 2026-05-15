@@ -1,10 +1,14 @@
 ---
-title: "Quickstart"
+title: "🚀 Quickstart"
 sidebarTitle: "🚀 Quickstart"
 description: "Stream real-time user events into your AI copilots and agents in a couple lines of code."
 ---
 
-**The Goal:** Give your Agentic pipeline real-time user interaction context. Think of this like setting up a live camera feed so your AI knows exactly what your users are doing
+
+## Choose your existing session replay provider
+
+<AccordionGroup>
+<Accordion title="PostHog">
 
 <Tip>
   If you **already use PostHog** to capture events, register using your PostHog project id as the **`product_id`** and skip to step 3
@@ -449,3 +453,36 @@ Now that your data is flowing, here's how to put it to work:
 </CardGroup>
 
 For structured logging and `extra` field conventions used across the SDK, see [Logging](/sdk/logging). Release history is on the [Changelog](/changelog).
+
+</Accordion>
+
+<Accordion title="FullStory (Coming soon)">
+
+If your product activity source is FullStory, follow the dedicated setup guide:
+
+- [FullStory tutorial](/recipes/fullstory/how-to-setup)
+
+This accordion is marked **Coming soon** while the Quickstart is being refactored into source-specific end-to-end flows.
+
+</Accordion>
+
+<Accordion title="Datadog (Coming soon)">
+
+If your product activity source is Datadog, follow the dedicated setup guide:
+
+- [Datadog tutorial](/recipes/datadog/how-to-setup)
+
+This accordion is marked **Coming soon** while the Quickstart is being refactored into source-specific end-to-end flows.
+
+</Accordion>
+
+<Accordion title="Pendo (Coming soon)">
+
+If your product activity source is Pendo, follow the dedicated setup guide:
+
+- [Pendo tutorial](/recipes/pendo/how-to-setup)
+
+This accordion is marked **Coming soon** while the Quickstart is being refactored into source-specific end-to-end flows.
+
+</Accordion>
+</AccordionGroup>
