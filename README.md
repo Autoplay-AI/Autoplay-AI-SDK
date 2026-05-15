@@ -4,7 +4,7 @@
 
 # autoplay-sdk
 
-**Give your AI copilot real-time eyes inside your product.**
+**Transform your existing customer support chatbot into a proactive, personalized experience for every user.**
 
 [![PyPI](https://img.shields.io/pypi/v/autoplay-sdk)](https://pypi.org/project/autoplay-sdk)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/autoplay-sdk)
@@ -18,11 +18,26 @@
 
 ---
 
-## What is Autoplay?
 
-Most customer support copilots are blind. They don't know a user just spent 10 minutes stuck on the same screen, that they've never completed onboarding, or that they're one click away from churning. They wait to be asked. **And by then, it's too late.**
+**The problem with reactive customer support chatbots:**
 
-**Autoplay streams everything users are doing inside your product — in real time — directly into your AI agent as clean, LLM-ready context.** Your copilot sees what they're clicking, where they're stuck, and what they've mastered, so it can help before someone asks, guide them to the next right step, and stay quiet when it shouldn't interrupt.
+- They wait to be asked — assuming users will speak up when they're stuck. They rarely do.
+
+- And when users do ask, they're expected to know how to frame their question correctly. But users don't know what they don't know about your platform and often initiate the conversation in the wrong way.
+
+**What we propose you build with our SDK:**
+
+- Don't wait for users to come to your chatbot. Go to them first — with the right help framed in the right way, at the right moment, personalized to what they've been doing in your platform.
+
+- And don't just tell them how to fix it. Show them — by triggering contextual visual guidance through smart tooltips or a browser agent (coming soon).
+
+---
+
+## How it works
+
+You probably already have all the tools — you just need to orchestrate them correctly:
+
+![Autoplay SDK architecture — session replay feeds into the Autoplay SDK processor, which drives your chatbot and visual guidance tools](docs/images/integrations-diagram.png)
 
 ---
 
@@ -49,63 +64,40 @@ pip install autoplay-sdk
 uv add autoplay-sdk
 ```
 
-Stream live user events into your chatbot handler in a few lines:
+**The fastest way to get set up is with the AI agent skills.** Once installed, you can open Cursor or Claude and just say *"Set up Autoplay with Intercom and PostHog"* — the agent handles the entire wiring process for you: connecting your event source, scoping sessions correctly, linking chat conversations to user activity, and dropping in the right context assembly pattern for your stack.
 
-```python
-from autoplay_sdk import AsyncConnectorClient
+Run this once from your project root after installing:
 
-STREAM_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
-API_TOKEN  = "unkey_xxxx..."
-
-async def on_actions(payload):
-    print(payload.to_text())  # LLM-ready context string
-
-async with AsyncConnectorClient(url=STREAM_URL, token=API_TOKEN) as client:
-    client.on_actions(on_actions)
-    await client.run()
+```bash
+autoplay-install-skills
+# or target your specific stack:
+autoplay-install-skills --chatbot intercom --user-activity posthog
+autoplay-install-skills --chatbot ada --user-activity fullstory
 ```
 
-**Enrich a user query with their live session context before hitting your vector DB:**
+This drops a `.cursor/skills/` folder into your project. From there, your AI assistant knows exactly what to build and in what order — no guessing, no reading docs, no getting the session scoping wrong.
 
-```python
-from autoplay_sdk.context_store import AsyncContextStore
+**[→ Full setup guide on developers.autoplay.ai/quickstart](https://developers.autoplay.ai/quickstart)**
 
-context_store = AsyncContextStore(lookback_seconds=300, max_actions=20)
-client.on_actions(context_store.add)
-
-# In your chatbot handler:
-enriched = context_store.enrich(session_id, user_message)
-results  = await vector_db.query(await embed(enriched))
-```
+The quickstart walks through adding the PostHog frontend snippet, registering your product, and streaming your first live events in under 10 minutes.
 
 ---
 
-## How it works
+## Chatbot tutorials
 
-```
-Your frontend (PostHog snippet)
-        ↓
-Autoplay event connector   ← normalises, batches, and summarises UI events
-        ↓
-autoplay-sdk (SSE stream)  ← typed ActionsPayload / SummaryPayload
-        ↓
-Your AI agent              ← real-time context injected into every inference call
-```
+Step-by-step guides for wiring Autoplay into your existing chatbot platform.
 
----
-
-## Full setup guide
-
-The three-step setup (Autoplay app → frontend snippet → SDK registration) is covered in the full docs:
-
-**[→ Quickstart on developers.autoplay.ai](https://developers.autoplay.ai/quickstart)**
-
-Want to wire Autoplay into a specific chatbot platform? We have step-by-step tutorials for:
-
-- [Intercom](https://developers.autoplay.ai/recipes/intercom-tutorial/step-1-connect-real-time-events)
-- [Ada](https://developers.autoplay.ai/recipes/ada/step-1-connect-real-time-events)
-- [Botpress](https://developers.autoplay.ai/recipes/botpress/step-1-connect-real-time-events)
-- [Tidio, Landbot, Dify, Crisp AI](https://developers.autoplay.ai)
+| | Platform | Tutorial |
+|---|---|---|
+| <img src="docs/images/recipes/intercom/logo.png" width="24"> | Intercom | [View tutorial →](https://developers.autoplay.ai/recipes/intercom/how-to-setup) |
+| <img src="docs/images/recipes/ada/logo.png" width="24"> | Ada | [View tutorial →](https://developers.autoplay.ai/recipes/ada/how-to-setup) |
+| <img src="docs/images/recipes/botpress/logo.png" width="24"> | Botpress | [View tutorial →](https://developers.autoplay.ai/recipes/botpress/how-to-setup) |
+| <img src="docs/images/recipes/dify/logo.png" width="24"> | Dify | [View tutorial →](https://developers.autoplay.ai/recipes/dify/how-to-setup) |
+| <img src="docs/images/recipes/tidio/logo.png" width="24"> | Tidio | [View tutorial →](https://developers.autoplay.ai/recipes/tidio/how-to-setup) |
+| <img src="docs/images/recipes/landbot/logo.png" width="24"> | Landbot | [View tutorial →](https://developers.autoplay.ai/recipes/landbot/how-to-setup) |
+| <img src="docs/images/recipes/crisp/logo.png" width="24"> | Crisp AI | [View tutorial →](https://developers.autoplay.ai/recipes/crisp/how-to-setup) |
+| | Rasa | Coming soon |
+| | Inkeep | Coming soon |
 
 ---
 
