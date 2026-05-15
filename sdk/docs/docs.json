@@ -24,8 +24,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Get started",
-      "href": "/quickstart"
+      "label": "GitHub",
+      "href": "https://github.com/Autoplay-AI/Autoplay-AI-SDK"
     }
   },
   "footer": {
@@ -105,6 +105,16 @@
             "pages": [
               "recipes/landbot/step-1-connect-real-time-events",
               "recipes/landbot/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Rasa tutorial",
+            "icon": "/images/recipes/rasa/logo.png",
+            "root": "recipes/rasa",
+            "badge": "New",
+            "pages": [
+              "recipes/rasa/step-1-connect-real-time-events",
+              "recipes/rasa/step-2-define-proactive-triggers"
             ]
           },
           {
