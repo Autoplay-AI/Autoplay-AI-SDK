@@ -29,9 +29,9 @@
 
 What we propose you build with our SDK:
 
--Don’t wait for users to come to your chatbot. Go to them first — with the right help, at the right moment, personalized to what they’ve been doing in your platform.
+- Don’t wait for users to come to your chatbot. Go to them first — with the right help, at the right moment, personalized to what they’ve been doing in your platform.
 
--Don’t just tell them how to fix it. Show them — by triggering contextual visual guidance through smart tooltips or a browser agent (coming soon).
+- Don’t just tell them how to fix it. Show them — by triggering contextual visual guidance through smart tooltips or a browser agent (coming soon).
 
 ---
 
