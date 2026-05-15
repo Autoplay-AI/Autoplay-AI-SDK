@@ -108,6 +108,16 @@
             ]
           },
           {
+            "group": "Rasa tutorial",
+            "icon": "/images/recipes/rasa/logo.png",
+            "root": "recipes/rasa",
+            "badge": "New",
+            "pages": [
+              "recipes/rasa/step-1-connect-real-time-events",
+              "recipes/rasa/step-2-define-proactive-triggers"
+            ]
+          },
+          {
             "group": "Tidio tutorial",
             "icon": "/images/recipes/tidio/logo.png",
             "root": "recipes/tidio",
