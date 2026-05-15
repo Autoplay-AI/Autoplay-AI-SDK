@@ -30,13 +30,20 @@ dependencies = [
 [project.optional-dependencies]
 redis = ["redis>=4.0.0"]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "fakeredis>=2.0",
+]
+
 [project.scripts]
 autoplay-install-skills = "autoplay_sdk.install_skills:main"
 
 [project.urls]
-Homepage = "https://github.com/Autoplay-AI/autoplay-sdk"
-Documentation = "https://autoplay-sdk.mintlify.app"
-"Bug Tracker" = "https://github.com/Autoplay-AI/autoplay-sdk/issues"
+Homepage = "https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support"
+Documentation = "https://developers.autoplay.ai"
+"Bug Tracker" = "https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["autoplay_sdk"]
@@ -55,3 +62,4 @@ include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

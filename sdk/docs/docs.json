@@ -1,0 +1,254 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Autoplay SDK",
+  "description": "Powering real-time and context Aware copilots",
+  "colors": {
+    "primary": "#716EDB",
+    "light": "#9895F1",
+    "dark": "#5F5CCC"
+  },
+  "logo": "/images/logo-2.svg",
+  "favicon": "/images/logo-2.svg",
+  "navbar": {
+    "links": [
+      {
+        "label": "PyPI",
+        "href": "https://pypi.org/project/autoplay-sdk"
+      },
+      {
+        "label": "Discord",
+        "href": "https://discord.gg/jCbR2tQA5",
+        "icon": "discord"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get started",
+      "href": "/quickstart"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Autoplay-AI",
+      "discord": "https://discord.gg/jCbR2tQA5"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get started",
+        "pages": [
+          "quickstart",
+          "sdk/overview",
+          {
+            "group": "✨ The proactive + visual copilot recipe",
+            "root": "sdk/proactive-copilot",
+            "expanded": true,
+            "pages": [
+              "sdk/proactive-copilot/step-1-connect-real-time-actions",
+              "sdk/proactive-copilot/step-2-add-actions-to-llm-context",
+              "sdk/proactive-copilot/step-3-define-proactive-triggers",
+              "sdk/proactive-copilot/step-4-enhance-with-user-memory"
+            ]
+          }
+        ]
+      },
+      {
+        "group": "Chatbot Tutorials",
+        "pages": [
+          {
+            "group": "Botpress tutorial",
+            "icon": "/images/recipes/botpress/logo.png",
+            "root": "recipes/botpress",
+            "badge": "Coming Soon",
+            "pages": [
+              "recipes/botpress/step-1-connect-real-time-events",
+              "recipes/botpress/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Dify tutorial",
+            "icon": "/images/recipes/dify/logo.png",
+            "root": "recipes/dify-tutorial",
+            "badge": "Coming Soon",
+            "pages": [
+              "recipes/dify-tutorial/step-1-connect-real-time-events",
+              "recipes/dify-tutorial/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Crisp AI tutorial",
+            "icon": "/images/recipes/crisp/logo.png",
+            "root": "recipes/crisp-ai",
+            "badge": "Coming Soon",
+            "pages": [
+              "recipes/crisp-ai/step-1-connect-real-time-events",
+              "recipes/crisp-ai/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Intercom tutorial",
+            "icon": "/images/recipes/intercom/logo.png",
+            "root": "recipes/intercom-tutorial",
+            "badge": "Coming Soon",
+            "pages": [
+              "recipes/intercom-tutorial/step-1-connect-real-time-events",
+              "recipes/intercom-tutorial/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Landbot tutorial",
+            "icon": "/images/recipes/landbot/logo.png",
+            "root": "recipes/landbot",
+            "badge": "Coming Soon",
+            "pages": [
+              "recipes/landbot/step-1-connect-real-time-events",
+              "recipes/landbot/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Tidio tutorial",
+            "icon": "/images/recipes/tidio/logo.png",
+            "root": "recipes/tidio",
+            "badge": "Coming Soon",
+            "pages": [
+              "recipes/tidio/step-1-connect-real-time-events",
+              "recipes/tidio/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Ada tutorial",
+            "icon": "/images/recipes/ada/logo.png",
+            "root": "recipes/ada",
+            "badge": "Coming Soon",
+            "pages": [
+              "recipes/ada/step-1-connect-real-time-events",
+              "recipes/ada/step-2-define-proactive-triggers"
+            ]
+          }
+        ]
+      },
+      {
+        "group": "User Activity Tutorials",
+        "pages": [
+          {
+            "group": "FullStory tutorial",
+            "icon": "/images/recipes/fullstory/logo.png",
+            "root": "recipes/fullstory",
+            "badge": "Coming Soon",
+            "pages": ["recipes/fullstory/how-to-setup"]
+          },
+          {
+            "group": "Datadog tutorial",
+            "icon": "/images/recipes/datadog/logo.svg",
+            "root": "recipes/datadog",
+            "badge": "Coming Soon",
+            "pages": ["recipes/datadog/how-to-setup"]
+          },
+          {
+            "group": "PostHog tutorial",
+            "icon": "/images/recipes/posthog/logo.png",
+            "root": "recipes/posthog",
+            "pages": ["recipes/posthog/how-to-setup"]
+          },
+          {
+            "group": "Pendo tutorial",
+            "icon": "/images/recipes/pendo/logo.png",
+            "root": "recipes/pendo",
+            "badge": "Coming Soon",
+            "pages": ["recipes/pendo/how-to-setup"]
+          }
+        ]
+      },
+      {
+        "group": "User Tour Tutorials",
+        "pages": [
+          "recipes/user-tour/overview",
+          "recipes/userpilot/how-to-setup",
+          "recipes/chameleon/how-to-setup",
+          "recipes/userflow/how-to-setup",
+          "recipes/pendo/how-to-setup",
+          "recipes/jimo/how-to-setup",
+          "recipes/userguiding/how-to-setup",
+          "recipes/told/how-to-setup"
+        ]
+      },
+      {
+        "group": "Receive events",
+        "pages": [
+          "sdk/typed-payloads",
+          "sdk/sync-client",
+          "sdk/async-client",
+          "sdk/event-buffer",
+          "sdk/webhook-receiver"
+        ]
+      },
+      {
+        "group": "Build with events",
+        "pages": [
+          "sdk/rag-pipeline",
+          "sdk/chatbot-context-assembly",
+          "sdk/agent-states",
+          "sdk/proactive-triggers",
+          "sdk/proactive-triggers-authoring",
+          "sdk/proactive-triggers-builtins",
+          "sdk/summarizer",
+          "sdk/agent-context",
+          "sdk/chatbot-writer",
+          "sdk/self-hosted-bridge",
+          "sdk/rag-example"
+        ]
+      },
+      {
+        "group": "Integration helpers",
+        "pages": [
+          "integrations/intercom",
+          "integrations/zendesk",
+          "integrations/diffy",
+          "integrations/botpress",
+          "integrations/hubspot-chat",
+          "integrations/help-scout"
+        ]
+      },
+      {
+        "group": "Context sources",
+        "pages": ["sdk/knowledge-base", "sdk/user-memory"]
+      },
+      {
+        "group": "Reference",
+        "pages": ["changelog", "sdk/logging", "sdk/payload-schema"]
+      }
+    ]
+  },
+  "redirects": [
+    {
+      "source": "/sdk/proactive-copilot/step-2-add-to-llm-context",
+      "destination": "/sdk/proactive-copilot/step-2-add-actions-to-llm-context"
+    },
+    {
+      "source": "/sdk/rag-query",
+      "destination": "/sdk/chatbot-context-assembly"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-6-visual-pop-up-tours",
+      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-7-orchestrate-tours-and-ai",
+      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-5-orchestrate-tours-and-ai",
+      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-5-define-workflow-ontology",
+      "destination": "/sdk/proactive-copilot/step-4-enhance-with-user-memory"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-6-orchestrate-tours-and-ai",
+      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+    }
+  ]
+}

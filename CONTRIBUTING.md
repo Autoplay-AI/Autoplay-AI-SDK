@@ -7,8 +7,8 @@ Thank you for your interest in contributing!
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/Autoplay-AI/autoplay-sdk.git
-cd autoplay-sdk
+git clone https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support.git
+cd Autoplay-proactive-visual-customer-support
 uv sync
 ```
 
@@ -38,6 +38,8 @@ pytest tests/ -v
 3. Add a changelog entry in `CHANGELOG.md` under `## Unreleased`.
 4. Open a pull request — CI will run tests and Gitleaks automatically.
 
+Need help? Join us on [Discord](https://discord.gg/jCbR2tQA5) — drop a message in `#contributing`.
+
 ## Commit style
 
 Use conventional commits where possible:
@@ -47,6 +49,12 @@ feat: add AsyncRagPipeline.flush()
 fix: handle empty session_id in ContextStore.enrich
 docs: clarify watermark cutoff semantics
 ```
+
+## Community standards
+
+- Be respectful and constructive. See `CODE_OF_CONDUCT.md`.
+- Report vulnerabilities privately using `SECURITY.md` guidance.
+- For support expectations and channels, see `SUPPORT.md`.
 
 ## Releasing (maintainers only)
 

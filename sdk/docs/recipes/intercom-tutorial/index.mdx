@@ -1,0 +1,66 @@
+---
+title: "Intercom tutorial"
+sidebarTitle: "Intercom tutorial"
+description: "Consume Autoplay's stream on your server, correlate Intercom webhooks on your HTTPS origin, and post internal notes via Intercom REST."
+icon: "/images/recipes/intercom/logo.png"
+---
+
+Consume Autoplay's stream on your server, correlate Intercom webhooks on your HTTPS origin, and post internal notes via Intercom REST.
+
+## ✨ Final result
+
+<Tabs sync={false}>
+  <Tab title="Without real-time context">
+    ```text
+    User: How do I create a project?
+
+    Bot: To create a project, go to My Projects in the sidebar and click Add Project.
+
+    (Could be on any page. No idea where they are.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    User: How do I create a project?
+
+    Bot: You're on the Pricing page comparing plans. Open My Projects from the sidebar,
+    click Add Project, then pick a workspace that matches what you're configuring here.
+
+    Internal note (team only): Session ↔ conversation linked — recent clicks: Pricing →
+    Compare plans → seat calculator.
+
+    (Autoplay events + Intercom thread — answers match what they're doing.)
+    ```
+  </Tab>
+</Tabs>
+
+<Frame>
+  <img
+    src="/images/recipes/intercom/intercom-final.png"
+    alt="Intercom conversation showing internal Autoplay action and summary notes"
+  />
+</Frame>
+
+Notes are **internal only** (team-visible, not shown to the contact).
+
+See also: [Agent context](/sdk/agent-context).
+
+---
+
+## 📋 Prerequisites
+
+Complete the [Quickstart](/quickstart). You should have:
+
+- **PostHog in the browser** — snippet, API key, `product_id` on `identify` (and email after login if you use it)
+- **Connector credentials** — URL, API token, stream URL (e.g. `https://your-connector.onrender.com/stream/` plus your product id from the dashboard)
+- **`autoplay-sdk` installed** — and a successful test stream from the Quickstart
+- **A public HTTPS URL you control** — for Intercom to `POST` webhook payloads to
+
+---
+
+## The building blocks
+
+Follow the steps in order — each page stands alone so you can ship incrementally.
+
+1. **[Connect real-time events](./step-1-connect-real-time-events)** — Register Intercom webhooks, consume the Autoplay stream, and post internal notes into conversations.
+2. **[Define proactive triggers](./step-2-define-proactive-triggers)** — Proactively message users in Intercom based on what they're doing in your product.

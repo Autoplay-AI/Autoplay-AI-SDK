@@ -1,0 +1,154 @@
+---
+title: Payload schema
+sidebarTitle: "📐 Payload schema"
+description: Full JSON wire format for actions and summary events from the SSE stream.
+---
+
+The Autoplay connector emits JSON events over the SSE stream (and the
+same `actions` object shape is POSTed to customer webhooks in push mode).
+The SDK parses these automatically into typed Python objects — you rarely need
+to work with the raw JSON directly, but this reference is useful when debugging
+or building your own client.
+
+## Event type reference
+
+| SSE frame/event type | Description | SDK handling |
+|---|---|---|
+| `actions` | Batch of UI actions for one session | Parsed as `ActionsPayload`; dispatched via `on_actions` |
+| `summary` | LLM summary replacing many actions | Parsed as `SummaryPayload`; dispatched via `on_summary` |
+| `usertour_trigger` | Trigger metadata for user-tour flows | Not parsed into SDK payload models yet; ignored by default stream clients |
+| `heartbeat` (SSE `event` field) | Keep-alive ping frame | Ignored by SDK clients |
+
+---
+
+## `actions` event
+
+Emitted when the connector extracts and forwards a batch of UI actions from a user session.
+
+```json
+{
+  "type":       "actions",
+  "product_id": "prod_abc",
+  "session_id": "ps_abc123",
+  "user_id":    "distinct_id_xyz",
+  "email":      "user@example.com",
+  "count":      3,
+  "forwarded_at": 1700000000.0,
+  "actions": [
+    {
+      "index":           0,
+      "type":            "pageview",
+      "title":           "Page Load: Dashboard",
+      "description":     "User landed on the dashboard page",
+      "timestamp_start": 1700000000.0,
+      "timestamp_end":   1700000005.2,
+      "raw_url":         "https://app.example.com/dashboard?ref=email",
+      "canonical_url":   "https://app.example.com/dashboard",
+      "session_id":      "ps_abc123",
+      "user_id":         "distinct_id_xyz",
+      "email":           "user@example.com"
+    },
+    {
+      "index":           1,
+      "type":            "click",
+      "title":           "Click Export CSV button",
+      "description":     "User clicked Export CSV button on the dashboard page",
+      "timestamp_start": 1700000005.2,
+      "timestamp_end":   1700000012.8,
+      "raw_url":         "https://app.example.com/dashboard",
+      "canonical_url":   "https://app.example.com/dashboard",
+      "session_id":      "ps_abc123",
+      "user_id":         "distinct_id_xyz",
+      "email":           "user@example.com"
+    },
+    {
+      "index":           2,
+      "type":            "click",
+      "title":           "Click billing settings link",
+      "description":     "User clicked billing settings link on the settings page",
+      "timestamp_start": 1700000012.8,
+      "timestamp_end":   1700000012.8,
+      "raw_url":         "https://app.example.com/settings/billing",
+      "canonical_url":   "https://app.example.com/settings/billing",
+      "session_id":      "ps_abc123",
+      "user_id":         "distinct_id_xyz",
+      "email":           "user@example.com"
+    }
+  ]
+}
+```
+
+### Top-level fields
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"actions"` |
+| `product_id` | string | Connector product identifier |
+| `session_id` | string \| null | User session identifier |
+| `user_id` | string \| null | External user identifier passed at session boot |
+| `email` | string \| null | User email from the identity store |
+| `count` | int | Number of actions in this batch |
+| `forwarded_at` | float | Unix timestamp when the connector forwarded this batch |
+| `actions` | array | Ordered list of action objects |
+
+### Action object fields
+
+| Field | Type | Description |
+|---|---|---|
+| `index` | int | 0-based position in the session sequence |
+| `type` | string | Lowercase event type: `"pageview"`, `"click"`, `"submit"`, `"type"`, `"focus"`, `"blur"` |
+| `title` | string | Human-readable label for the event |
+| `description` | string | Natural-language description of what the user did |
+| `timestamp_start` | float | Unix timestamp when the action began |
+| `timestamp_end` | float | Unix timestamp when the action ended (next action's start, or same for last) |
+| `raw_url` | string | Original URL before canonicalization |
+| `canonical_url` | string | Normalised page URL (dynamic segments → `:id`) |
+| `session_id` | string \| null | PostHog session id for this action (matches batch-level when known) |
+| `user_id` | string \| null | Distinct id / identified user id for this action |
+| `email` | string \| null | User email from PostHog when present |
+
+---
+
+## `summary` event
+
+Emitted when the connector's LLM summariser produces a prose description of a session.
+This is intended to replace raw action embeddings for context-window efficiency.
+
+```json
+{
+  "type":         "summary",
+  "product_id":   "prod_abc",
+  "session_id":   "ps_abc123",
+  "summary":      "The user navigated to the Dashboard, exported a CSV report, then opened account settings to update their billing plan.",
+  "replaces":     12,
+  "forwarded_at": 1700000060.0
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"summary"` |
+| `product_id` | string | Connector product identifier |
+| `session_id` | string \| null | User session identifier |
+| `summary` | string | Prose description of the session |
+| `replaces` | int | Number of individual actions this summary condenses |
+| `forwarded_at` | float | Unix timestamp when the connector forwarded this summary |
+
+---
+
+## SSE frame format
+
+Events arrive as standard SSE frames. The `data` field contains the JSON payload above.
+
+```
+data: {"type":"actions","product_id":"prod_abc","session_id":"ps_abc123",...}
+
+data: {"type":"summary","product_id":"prod_abc","session_id":"ps_abc123",...}
+
+event: heartbeat
+data:
+```
+
+The SDK silently ignores `heartbeat` frames — they are keep-alive pings sent every 30 seconds.

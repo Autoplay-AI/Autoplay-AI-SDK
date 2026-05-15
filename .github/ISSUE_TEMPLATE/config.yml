@@ -1,0 +1,12 @@
+name: config
+blank_issues_enabled: false
+contact_links:
+  - name: Discord (questions & setup help)
+    url: https://discord.gg/jCbR2tQA5
+    about: For setup help, integration questions, and general discussion — use Discord.
+  - name: Documentation
+    url: https://developers.autoplay.ai
+    about: Full docs, quickstart, and chatbot tutorials.
+  - name: Security vulnerability
+    url: https://github.com/Autoplay-AI/autoplay-sdk/security/advisories/new
+    about: Please report security issues privately — do not open a public issue.

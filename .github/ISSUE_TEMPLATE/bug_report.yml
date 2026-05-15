@@ -1,0 +1,70 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much detail as possible — the more context you give, the faster we can fix it.
+
+        **Before filing:** check the [Changelog](../blob/main/CHANGELOG.md) and open issues to see if this is already known.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. What did you expect vs what actually happened?
+      placeholder: "e.g. AsyncConnectorClient reconnects in a loop instead of stopping after client.stop() is called."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code snippet or steps that reliably trigger the issue.
+      render: python
+      placeholder: |
+        from autoplay_sdk import AsyncConnectorClient
+
+        async def main():
+            async with AsyncConnectorClient(url=STREAM_URL, token=TOKEN) as client:
+                client.on_actions(lambda p: print(p))
+                await client.run()
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error output
+      description: Paste any stack traces or log output (redact API tokens and secrets).
+      render: text
+
+  - type: input
+    id: sdk_version
+    attributes:
+      label: autoplay-sdk version
+      placeholder: "e.g. 0.7.2 — run: pip show autoplay-sdk"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      placeholder: "e.g. 3.11.9 — run: python --version"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. macOS 14.5, Ubuntu 22.04, Windows 11"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else — integration platform, chatbot stack, relevant config, etc.

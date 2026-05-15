@@ -1,0 +1,177 @@
+---
+title: Chatbot context assembly
+sidebarTitle: "🤖 Chatbot context assembly"
+description: Combine user queries, real-time product events, conversation history, and an optional knowledge base into one LLM-ready context with assemble_rag_chat_context (autoplay_sdk.rag_query).
+---
+
+<Frame caption="Four signals converge in assemble_rag_chat_context; format_rag_system_prompt builds the system side for your LLM.">
+  <img
+    src="/images/sdk/rag-query-input-pipeline.svg"
+    alt="RAG context assembly: user query, real-time events, conversation history, and knowledge base flow into context assembly, system prompt, and LLM, producing a user-action-aware answer."
+  />
+</Frame>
+
+When a user asks a question about your software, the best answer rarely comes from a single source. To consistently deliver accurate, contextual responses, your pipeline needs to draw from **four signals together**:
+
+| Signal | What it captures |
+| ------ | ---------------- |
+| **User query** | What the user is asking right now |
+| **Real-time product events** | What the user is actively doing in your product |
+| **Conversation history** | What has already been discussed in this session |
+| **Knowledge base** | Retrieved docs or chunks from your KB (when configured) |
+
+Weaving these together — rather than only querying a knowledge base in isolation — is what separates a generic AI response from one that feels genuinely helpful and contextually aware.
+
+`autoplay_sdk.rag_query` provides the framework to assemble these signals into a single, structured context block ready for any chat LLM.
+
+<Note>
+  This is **not** [`RagPipeline`](/sdk/rag-pipeline) (ingestion → vector store). `rag_query` is specifically for **answering a user message** using structured, multi-signal context at query time.
+</Note>
+
+<Tip>
+  **When to use `ContextStore.enrich` vs `assemble_rag_chat_context`:**
+
+  - `ContextStore.enrich(session_id, query)` returns one enriched string. Use it as retrieval input for embedding/vector search.
+  - `assemble_rag_chat_context(...)` returns structured prompt parts (`user_block`, `assembly`). Use it to build chat LLM `messages`.
+</Tip>
+
+---
+
+## What it optimizes for
+
+<CardGroup cols={2}>
+  <Card title="User query" icon="message">
+    The current message from the user — the question being answered right now.
+  </Card>
+  <Card title="Real-time events" icon="bolt">
+    What the user is doing in your product at this moment, including optional delta activity since their last chat message via `session_activity_since`.
+  </Card>
+  <Card title="Conversation history" icon="clock">
+    Prior turns in the conversation, surfaced via `ChatMemoryProvider.conversation_turns`.
+  </Card>
+  <Card title="Knowledge base" icon="book">
+    Retrieved records from your KB via `KnowledgeBaseRetriever` on `RagChatProviders` when configured. The SDK is vendor-agnostic — swap in Zep, Postgres, Atlas, or any other backend behind the provided protocols.
+  </Card>
+</CardGroup>
+
+---
+
+## Entry point
+
+```python
+from autoplay_sdk.rag_query import (
+    RagChatProviders,
+    assemble_rag_chat_context,
+    format_rag_system_prompt,
+)
+from autoplay_sdk.prompts import RAG_SYSTEM_PROMPT
+
+# Implement ChatMemoryProvider + KnowledgeBaseRetriever for your stack, then:
+user_block, assembly = await assemble_rag_chat_context(
+    product_id="...",
+    integration_config={"kb_knowledge_id": "..."},  # your KB ids
+    conversation_id="...",
+    user_message="How do I export?",
+    email="user@example.com",
+    session_id="sess_1",
+    activity_since_cutoff=None,
+    providers=your_rag_chat_providers,
+)
+
+system_text = format_rag_system_prompt(
+    template_content=RAG_SYSTEM_PROMPT["content"],
+    assembly=assembly,
+    user_message="How do I export?",
+)
+
+# Pass system_text + user messages to your LLM.
+# Log prompt_meta=RAG_SYSTEM_PROMPT for observability.
+```
+
+The assembled `system_text` bundles all three signals — query, events, and history — into a single prompt your LLM can reason over without additional orchestration.
+
+---
+
+## Delta activity: since last chat message
+
+To give your LLM visibility into **product actions that happened after the user's previous message**, persist an inbound watermark per thread and pass its value into assembly.
+
+<Steps>
+  <Step title="Load the previous inbound timestamp">
+    Before calling `assemble_rag_chat_context`, retrieve the watermark from your store:
+
+    ```python
+    previous_at = await store.get_previous_inbound_at(scope)
+    ```
+  </Step>
+  <Step title="Pass the cutoff into assembly">
+    ```python
+    user_block, assembly = await assemble_rag_chat_context(
+        ...
+        activity_since_cutoff=cutoff_for_delta_activity(previous_at),
+    )
+    ```
+  </Step>
+  <Step title="Advance the cursor after replying">
+    Once the assistant reply is successfully sent, move the watermark forward:
+
+    ```python
+    await store.set_last_inbound_at(
+        scope,
+        effective_inbound_timestamp(msg_created_at)
+    )
+    ```
+  </Step>
+</Steps>
+
+Use **`ChatWatermarkScope(conversation_id=..., product_id=...)`** (plus optional `tenant_id`) to key threads consistently across your store.
+
+For the store itself:
+
+- **Production:** implement `InboundWatermarkStore` backed by Redis or SQL.
+- **Development / testing:** use the built-in `InMemoryInboundWatermarkStore`.
+
+---
+
+## Default prompts
+
+The SDK ships versioned prompt dicts (each with `name`, `description`, `version`, and `content` fields):
+
+| Prompt | Purpose |
+| ------ | ------- |
+| `RAG_SYSTEM_PROMPT` | Primary system prompt for RAG chat assembly |
+| `REASONING_PROMPT` | Guides multi-step reasoning over retrieved context |
+| `RESPONSE_PROMPT` | Shapes the final user-facing answer format |
+
+Import from `autoplay_sdk.prompts` or use the root package re-exports.
+
+---
+
+## Observability
+
+The SDK does not configure logging for you. Enable debug output from the assembly step:
+
+```python
+import logging
+logging.getLogger("autoplay_sdk.rag_query").setLevel(logging.DEBUG)
+```
+
+| Outcome | Log level | What's emitted |
+| ------- | --------- | ---------------- |
+| **Success** | `DEBUG` | Structured `extra` only: `product_id`, `conversation_id`, `session_id`, coarse flags (`has_memory`, `has_kb`, `has_delta_activity`), and character lengths — never full message text or prompt content |
+| **Failure** | `WARNING` | `exc_info=True` with the same correlation IDs, then re-raises the original exception (providers are not silently swallowed) |
+
+See [Logging](/sdk/logging) for full conventions covering the `autoplay_sdk.*` namespace, lazy `%` formatting, and safe `extra` fields.
+
+---
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="RagPipeline" icon="arrow-right-arrow-left" href="/sdk/rag-pipeline">
+    Embedding and upsert from the event stream — the ingestion side of RAG.
+  </Card>
+  <Card title="ContextStore" icon="database" href="/sdk/overview">
+    `enrich(session_id, query)` for retrieval queries at the overview level.
+  </Card>
+</CardGroup>

@@ -1,0 +1,235 @@
+---
+title: BaseChatbotWriter
+sidebarTitle: "💬 BaseChatbotWriter"
+description: Base class for delivering session events to any chatbot platform — handles pre-link buffering, at-link flush, and post-link debouncing so you only implement the API call.
+---
+
+`BaseChatbotWriter` is the recommended starting point for any destination where session context should be posted (hosted chatbot APIs, self-hosted bots, internal services, queues, or custom LLM agents). Subclass it, implement two async methods, and you get the full delivery policy for free.
+
+---
+
+## What it does
+
+### Pre-link buffering (sliding window)
+
+Before a conversation is linked to a PostHog session, actions are buffered in memory rather than discarded. On every new arrival, entries older than `pre_link_window_s` seconds are trimmed — so the buffer never grows unboundedly.
+
+```
+write_actions() called (no conversation yet)
+  → append to _pending[session_id]
+  → trim actions older than pre_link_window_s
+  → no API call
+```
+
+### At-link flush (one API call)
+
+When `on_session_linked()` fires, the entire buffer is flushed as a single `_post_note` call. Actions are grouped into `bin_seconds`-wide visual bins separated by blank lines — making the user's journey easy to scan. One API call regardless of how many events accumulated before the conversation opened.
+
+```
+on_session_linked("sess1", "conv-123")
+  → flush all _pending["sess1"] as one note (binned)
+  → clear buffer
+  → cancel any in-flight debounce task
+```
+
+### Post-link debounce (trailing edge)
+
+After a conversation is linked, each `write_actions()` call appends to a per-session buffer and (re)schedules a short `asyncio.Task`. When the timer fires with no new arrivals, one `_post_note` is made. Rapid event bursts are coalesced; a pause longer than `post_link_debounce_s` triggers delivery.
+
+```
+write_actions() called (linked)
+  → extend _debounce_buffer[session_id]
+  → cancel previous debounce task (if any)
+  → schedule new task: sleep(post_link_debounce_s) → _post_note()
+```
+
+---
+
+## Note body format
+
+`BaseChatbotWriter` builds the string passed to `_post_note(conversation_id, body)` as **plain text**, line-oriented.
+
+### Header (always)
+
+The first lines come from `format_chatbot_note_header(session_id, timestamp_unix)`:
+
+- `session_id: …`
+- `timestamp: … UTC` (human-readable from Unix time)
+- A blank line after the header
+
+For action notes, the timestamp is taken from the **earliest** `timestamp_start` among the actions **after** sorting. If `slim_actions` is empty, the header uses the current time instead.
+
+### Action lines
+
+- Actions are **sorted by** `timestamp_start` before rendering.
+- Each line is `[n] {description}` where `n` is **1-based** and local to that note. It is **not** the per-batch wire `index` on each slim action dict.
+- **One action** → one line `[1] …`. **Many** → `[1]` through `[n]`. **Zero actions** → header only (no action lines).
+
+### Binning
+
+- **Pre-link flush** (`on_session_linked`): uses the constructor’s `bin_seconds` (default `3`). Actions whose `timestamp_start` values fall in different time bins get a **blank line** between groups so the note is easier to scan.
+- **Post-link debounced notes**: `_format_note` is called with `bin_seconds=0`, so **no** extra blank lines between groups.
+
+### Example (actions note)
+
+```
+session_id: abc123
+timestamp: 2024-01-15 12:34:50 UTC
+
+[1] User clicked Sign up button on the pricing page
+[2] User clicked Confirm plan button on the checkout page
+
+[3] User submitted Payment form on the checkout page
+```
+
+The blank line between `[2]` and `[3]` appears when those actions fall in different `bin_seconds`-wide bins (pre-link flush). Post-link notes omit those separators.
+
+### Summary notes (LLM)
+
+`_format_note` applies only to **action** timelines. `BaseChatbotWriter` does **not** wrap LLM summary text.
+
+For `overwrite_with_summary`, build the body yourself: call `format_chatbot_note_header(session_id, time.time())` (or another Unix timestamp), then append your summary prose. The in-repo [Intercom integration](/integrations/intercom) does this for summary posts.
+
+<Tip>
+  Import the helper from the package root: `from autoplay_sdk import format_chatbot_note_header` (also available from `autoplay_sdk.chatbot`).
+</Tip>
+
+---
+
+## Constructor
+
+### `BaseChatbotWriter(product_id, pre_link_window_s=120, post_link_debounce_s=0.15, bin_seconds=3)`
+
+<ParamField path="product_id" type="str" required>
+  Product identifier used in logs and metrics.
+</ParamField>
+
+<ParamField path="pre_link_window_s" type="float" default="120.0">
+  How long to retain buffered actions before the session is linked. Actions older than this (measured by `timestamp_start`) are dropped on each new arrival. Default is 120 seconds (2 minutes).
+</ParamField>
+
+<ParamField path="post_link_debounce_s" type="float" default="0.15">
+  Trailing-edge debounce window in seconds. After the last `write_actions()` call for a session, the writer waits this long before posting a note. Coalesces rapid event bursts into a single API call. Default is 150 ms.
+</ParamField>
+
+<ParamField path="bin_seconds" type="int" default="3">
+  Width of time bins used to group actions into visual sections in the note body. Actions more than `bin_seconds` apart get a blank-line separator. Set to `0` to disable binning. Used for the pre-link flush note; post-link notes always use `bin_seconds=0`.
+</ParamField>
+
+---
+
+## Building a custom backend
+
+Subclass `BaseChatbotWriter` and implement these two methods:
+
+### `_post_note(conversation_id, body) → str | None`
+
+Post a note to the platform conversation. Return its platform-assigned id (used for later redaction), or `None` if the platform does not support redaction.
+
+### `_redact_part(conversation_id, part_id) → None`
+
+Delete or blank a previously posted note. This is called by `AsyncAgentContextWriter`'s `overwrite_with_summary` step when LLM summaries are enabled. Implement as a no-op if the platform does not support redaction.
+
+### Example — Zendesk
+
+```python
+from autoplay_sdk.chatbot import BaseChatbotWriter
+
+class ZendeskChatbot(BaseChatbotWriter):
+    def __init__(self, api_token: str, client, **kwargs):
+        super().__init__(**kwargs)
+        self._api_token = api_token
+        self._client = client
+
+    async def _post_note(self, conversation_id: str, body: str) -> str | None:
+        resp = await self._client.post(
+            f"https://api.zendesk.com/tickets/{conversation_id}/comments",
+            json={"comment": {"body": body, "public": False}},
+            headers={"Authorization": f"Bearer {self._api_token}"},
+        )
+        resp.raise_for_status()
+        return str(resp.json()["comment"]["id"])
+
+    async def _redact_part(self, conversation_id: str, part_id: str) -> None:
+        pass  # Zendesk comments are immutable; no-op
+```
+
+### Example — Generic HTTP endpoint (self-hosted bot bridge)
+
+```python
+from autoplay_sdk.chatbot import BaseChatbotWriter
+
+class HttpBridgeWriter(BaseChatbotWriter):
+    def __init__(self, endpoint: str, client, **kwargs):
+        super().__init__(**kwargs)
+        self._endpoint = endpoint
+        self._client = client
+
+    async def _post_note(self, conversation_id: str, body: str) -> str | None:
+        resp = await self._client.post(
+            f"{self._endpoint}/conversations/{conversation_id}/note",
+            json={"body": body},
+        )
+        resp.raise_for_status()
+        return resp.json().get("id")
+
+    async def _redact_part(self, conversation_id: str, part_id: str) -> None:
+        resp = await self._client.delete(
+            f"{self._endpoint}/conversations/{conversation_id}/note/{part_id}"
+        )
+        resp.raise_for_status()
+```
+
+---
+
+## Using with `AsyncAgentContextWriter`
+
+`BaseChatbotWriter` already debounces `write_actions()` calls internally via `post_link_debounce_s`. When wiring an `AsyncAgentContextWriter` to a `BaseChatbotWriter` subclass, keep `debounce_ms=0` (the default) — the base class debounce is sufficient, and stacking both windows only adds latency.
+
+```python
+from autoplay_sdk.agent_context import AsyncAgentContextWriter
+from autoplay_sdk import AsyncSessionSummarizer
+
+chatbot = ZendeskChatbot(
+    product_id="my_product",
+    api_token="...",
+    client=http_client,
+    post_link_debounce_s=0.15,
+)
+
+# Link sessions when a conversation opens:
+# await chatbot.on_session_linked(session_id, conversation_id)
+
+summarizer = AsyncSessionSummarizer(llm=my_llm, threshold=20)
+
+writer = AsyncAgentContextWriter(
+    summarizer=summarizer,
+    write_actions=lambda sid, text: chatbot.write_actions("", sid, _parse(text)),
+    overwrite_with_summary=my_overwrite_cb,
+    debounce_ms=0,  # BaseChatbotWriter already debounces — keep this at 0
+)
+```
+
+<Warning>
+**Avoid double-debouncing.** Setting `debounce_ms > 0` on `AsyncAgentContextWriter` while using a `BaseChatbotWriter` subclass stacks two debounce windows and adds unnecessary latency with no additional reduction in API calls.
+</Warning>
+
+---
+
+## API reference
+
+| Method | Description |
+|---|---|
+| `write_actions(conversation_id, session_id, slim_actions, ...)` | Route actions to pre-link buffer or post-link debounce pipeline |
+| `on_session_linked(session_id, conversation_id)` | Store the session→conversation mapping and flush pre-link buffer |
+| `_post_note(conversation_id, body)` | **Subclass contract** — post a note; return its id or `None` |
+| `_redact_part(conversation_id, part_id)` | **Subclass contract** — delete/blank a posted note (best-effort) |
+| `_format_note(session_id, slim_actions, bin_seconds=None)` | Builds the action-note body described in **Note body format** above (header, sorted 1-based lines, optional binning) |
+
+---
+
+## Related
+
+- [AgentContextWriter](/sdk/agent-context) — LLM summarisation and push delivery; pairs with `BaseChatbotWriter` for the full pipeline
+- [Typed payloads](/sdk/typed-payloads) — `ActionsPayload` and `SlimAction` — the typed models your callbacks receive
+- [Intercom integration](/integrations/intercom) — the built-in `BaseChatbotWriter` subclass for Intercom
