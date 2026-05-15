@@ -1,7 +1,80 @@
 ---
 title: "Userflow — How to setup"
-sidebarTitle: "How to setup"
-description: "Learn how to programmatically trigger the user tour at the right time based on live user activity using Userflow and the Autoplay SDK."
+sidebarTitle: "Userflow tutorial"
+description: "Trigger a Userflow flow from the Autoplay event stream."
+icon: "/images/recipes/userflow/logo.png"
 ---
 
-<Note>This tutorial is coming soon. Check back shortly for the full guide.</Note>
+<Note>
+  Autoplay streams structured UI actions from your users' browser sessions in real time. This tutorial wires that stream to Userflow so that when the right moment arrives — a user stuck on a page, a first-time feature visit, a repeated error — your backend detects it and fires the correct Userflow flow immediately.
+  This tutorial builds on [How to trigger a User Tour](/recipes/user-tour/overview). Complete that guide first — it covers the proxy route, EventSource connection, and payload structure. This page covers only what is specific to Userflow.
+</Note>
+
+## 1. Install Userflow
+
+Add the snippet to your app and initialize it with your token from **Settings → Environments**.
+
+```html
+<script>
+  window.userflowJs=window.userflowJs||[];
+  (function(){
+    var s=document.createElement('script');
+    s.async=true;
+    s.src='https://js.userflow.com/userflow.js';
+    document.head.appendChild(s);
+  })();
+</script>
+```
+
+Then initialize the SDK with your environment token:
+
+```javascript
+userflow.init('YOUR_USERFLOW_TOKEN');
+```
+
+## 2. Identify the user
+
+Call this once the user is authenticated. Use the same `userId` you send to PostHog so Autoplay can match sessions correctly.
+
+```javascript
+userflow.identify(userId, {
+  name: user.displayName,
+  email: user.email,
+  signed_up_at: user.createdAt, // ISO 8601
+});
+```
+
+## 3. Create a flow in Userflow
+
+1. In the Userflow dashboard go to **Flows → New flow** and build your tour.
+2. Use the visual builder to add steps — tooltips, modals, hotspots, or checklists — and attach each step to an element on your page.
+3. Set any targeting rules you need (page URL, user segment, etc.), then publish the flow.
+4. Note the **Flow ID** shown in the URL bar when editing the flow (`/flows/<flow_id>`).
+
+<iframe
+  src="https://app.arcade.software/share/1VgJ2KcVS54mLqKhJeBJ"
+  title="Create a flow in Userflow"
+  width="100%"
+  height="500"
+  allow="clipboard-write"
+  allowFullScreen
+></iframe>
+
+## 4. Trigger the flow
+
+In your `onmessage` handler from [Step 4 of the base guide](/recipes/user-tour/overview#4-understanding-the-payload), add the Userflow trigger call:
+
+```javascript
+events.onmessage = (event) => {
+  const payload = JSON.parse(event.data);
+
+  if (payload.type !== "usertour_trigger") return;
+
+  const mySessionId = posthog?.get_session_id?.() ?? null;
+  if (!mySessionId || payload.session_id !== mySessionId) return;
+
+  userflow.start(payload.flow_id);
+};
+```
+
+The `flow_id` in the payload maps to the **Flow ID** of your Userflow flow, visible in the URL when editing the flow in the Userflow dashboard.

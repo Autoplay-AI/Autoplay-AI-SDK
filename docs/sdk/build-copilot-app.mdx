@@ -1,0 +1,89 @@
+---
+title: build_copilot_app(...)
+sidebarTitle: "🚀 build_copilot_app(...)"
+description: FastAPI factory for a minimal user-keyed copilot bridge with health, context, reply, and admin reset endpoints.
+---
+
+Use `build_copilot_app(...)` when you want a ready-to-run FastAPI bridge instead of wiring transport, indexing, and request handlers manually.
+
+`session_id` scoping is the compulsory baseline for live event ingestion.
+User-keyed endpoints in this bridge are an identity-enabled path that depends on
+captured `user_id` linkage.
+
+## Install serve extras
+
+```bash
+pip install "autoplay-sdk[serve]"
+```
+
+## Import
+
+```python
+from autoplay_sdk.serve import build_copilot_app
+```
+
+## Signature
+
+```python
+build_copilot_app(
+    *,
+    stream_url,
+    token,
+    llm,
+    summary_threshold=10,
+    lookback_seconds=300.0,
+    system_prompt=None,
+)
+```
+
+- `stream_url`, `token`: connector stream authentication.
+- `llm`: async reply callable used by `/reply`.
+- `summary_threshold`, `lookback_seconds`: pipeline tuning.
+- `system_prompt`: override default scaffold (`RAG_SYSTEM_PROMPT["content"]`).
+
+## Minimal setup
+
+```python
+from autoplay_sdk.serve import build_copilot_app
+
+app = build_copilot_app(
+    stream_url=STREAM_URL,
+    token=API_TOKEN,
+    llm=my_async_llm,
+    summary_threshold=10,
+    lookback_seconds=300,
+)
+```
+
+## Endpoints
+
+- `GET /healthz`
+- `GET /context/{user_id}?query=...`
+- `GET /reply/{user_id}?query=...`
+- `POST /admin/reset/{user_id}`
+
+<Note>
+  `/context/{user_id}` and `/reply/{user_id}` require identity linkage (events
+  with `user_id`). If identity is not captured by your provider, keep session ->
+  conversation continuity as the baseline contract and add user-keyed endpoints
+  once identity capture is available.
+</Note>
+
+## Lifecycle behavior
+
+- Startup registers the stream callback and starts `AsyncConnectorClient.run_in_background()`.
+- Shutdown calls `client.stop()` and awaits task completion.
+- Requests are user-keyed; event ingestion remains session-keyed via `UserSessionIndex`.
+
+## Status codes
+
+- `GET /healthz` -> `200` with `{"status":"ok"}`.
+- `GET /context/{user_id}` -> `200` when activity exists, `404` when no recent indexed activity exists.
+- `GET /reply/{user_id}` -> `200` with `{reply, context, ...}` when activity exists, `404` when none exists.
+- `POST /admin/reset/{user_id}` -> `200` after clearing index/session state.
+
+## Troubleshooting
+
+- `404` usually means no stream activity yet, missing identity linkage, or lookback eviction.
+- Keep identity consistent across event source IDs, widget metadata, and backend sender IDs.
+- For product-scoped actions, preserve matching `product_id` for retrieval.
