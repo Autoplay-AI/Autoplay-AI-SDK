@@ -18,22 +18,21 @@
 
 ---
 
+## 🤔 The problem
 
 **The problem with reactive customer support chatbots:**
 
 - They wait to be asked — assuming users will speak up when they're stuck. They rarely do.
-
-- And when users do ask, they're expected to know how to frame their question correctly. But users don't know what they don't know about your platform and often initiate the conversation in the wrong way.
+- When users do ask, they're expected to know how to frame their question correctly. But users don't know what they don't know about your platform, and often initiate the conversation in the wrong way.
 
 **What we propose you build with our SDK:**
 
-- Don't wait for users to come to your chatbot. Go to them first — with the right help framed in the right way, at the right moment, personalized to what they've been doing in your platform.
-
-- And don't just tell them how to fix it. Show them — by triggering contextual visual guidance through smart tooltips or a browser agent (coming soon).
+- Don't wait for users to come to your chatbot. Go to them first — with the right help, at the right moment, personalized to what they've been doing in your platform.
+- Don't just tell them how to fix it. Show them — by triggering contextual visual guidance through smart tooltips or a browser agent (coming soon).
 
 ---
 
-## How it works
+## ⚙️ How it works
 
 You probably already have all the tools — you just need to orchestrate them correctly:
 
@@ -41,20 +40,20 @@ You probably already have all the tools — you just need to orchestrate them co
 
 ---
 
-## Features
+## ✨ Features
 
-| | What Autoplay handles for you |
+| Feature | What it does |
 |---|---|
-| **Real-time events** | Browser activity becomes normalised, typed payloads your model can read — no noisy raw data |
-| **Context tooling** | Buffers, summarisers, and typed models keep high event volume from blowing your context window |
-| **Golden paths** | Record ideal product journeys so your agent always knows the optimal route through your product |
-| **Workflow tracking** | Per-user mastery, in-progress steps, and gaps across sessions — so suggestions never repeat |
-| **Proactive triggers** | Fire chat or visual nudges at exactly the right moment based on real-time activity |
-| **Agent session states** | Built-in FSM that gates when your copilot speaks — never over-interrupts |
+| **Real-time event stream** | Captures and normalizes browser activity into clean, structured data your model can actually use |
+| **Context management** | Automatically buffers and summarizes high-volume events so you never blow your context window |
+| **Golden paths** | Record your product's ideal user journeys once — your agent always guides users the right way |
+| **Per-user memory** | Tracks what each user knows, where they got stuck, and what they've done — so your agent never repeats itself |
+| **Proactive triggers** | Detects the right moment to intervene and fires a chat message or visual nudge automatically |
+| **Interruption control** | A built-in state machine ensures your copilot only speaks when it should — helpful, never annoying |
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 **Requirements:** Python 3.10+
 
@@ -64,9 +63,7 @@ pip install autoplay-sdk
 uv add autoplay-sdk
 ```
 
-**The fastest way to get set up is with the AI agent skills.** Once installed, you can open Cursor or Claude and just say *"Set up Autoplay with Intercom and PostHog"* — the agent handles the entire wiring process for you: connecting your event source, scoping sessions correctly, linking chat conversations to user activity, and dropping in the right context assembly pattern for your stack.
-
-Run this once from your project root after installing:
+**The fastest way to get set up is with the AI agent skills.** Run this once from your project root after installing:
 
 ```bash
 autoplay-install-skills
@@ -75,68 +72,53 @@ autoplay-install-skills --chatbot intercom --user-activity posthog
 autoplay-install-skills --chatbot ada --user-activity fullstory
 ```
 
-This drops a `.cursor/skills/` folder into your project. From there, your AI assistant knows exactly what to build and in what order — no guessing, no reading docs, no getting the session scoping wrong.
+This drops a `.cursor/skills/` folder into your project. Then open Cursor or Claude and say *"Set up Autoplay with Intercom and PostHog"* — the agent handles the full wiring automatically: session scoping, conversation linking, and context assembly for your stack.
 
 **[→ Full setup guide on developers.autoplay.ai/quickstart](https://developers.autoplay.ai/quickstart)**
 
-The quickstart walks through adding the PostHog frontend snippet, registering your product, and streaming your first live events in under 10 minutes.
+The quickstart covers the PostHog frontend snippet, product registration, and streaming your first live events in under 10 minutes.
 
 ---
 
-## Chatbot tutorials
+## 🤖 Chatbot tutorials
 
 Step-by-step guides for wiring Autoplay into your existing chatbot platform.
 
 | | Platform | Tutorial |
 |---|---|---|
-| <img src="docs/images/recipes/intercom/logo.png" width="24"> | Intercom | [View tutorial →](https://developers.autoplay.ai/recipes/intercom/how-to-setup) |
-| <img src="docs/images/recipes/ada/logo.png" width="24"> | Ada | [View tutorial →](https://developers.autoplay.ai/recipes/ada/how-to-setup) |
-| <img src="docs/images/recipes/botpress/logo.png" width="24"> | Botpress | [View tutorial →](https://developers.autoplay.ai/recipes/botpress/how-to-setup) |
-| <img src="docs/images/recipes/dify/logo.png" width="24"> | Dify | [View tutorial →](https://developers.autoplay.ai/recipes/dify/how-to-setup) |
-| <img src="docs/images/recipes/tidio/logo.png" width="24"> | Tidio | [View tutorial →](https://developers.autoplay.ai/recipes/tidio/how-to-setup) |
-| <img src="docs/images/recipes/landbot/logo.png" width="24"> | Landbot | [View tutorial →](https://developers.autoplay.ai/recipes/landbot/how-to-setup) |
-| <img src="docs/images/recipes/crisp/logo.png" width="24"> | Crisp AI | [View tutorial →](https://developers.autoplay.ai/recipes/crisp/how-to-setup) |
-| | Rasa | Coming soon |
-| | Inkeep | Coming soon |
+| <img src="docs/images/recipes/intercom/logo.png" width="24"> | Intercom | [View tutorial →](https://developers.autoplay.ai/recipes/intercom-tutorial/step-1-connect-real-time-events) |
+| <img src="docs/images/recipes/ada/logo.png" width="24"> | Ada | [View tutorial →](https://developers.autoplay.ai/recipes/ada/step-1-connect-real-time-events) |
+| <img src="docs/images/recipes/botpress/logo.png" width="24"> | Botpress | [View tutorial →](https://developers.autoplay.ai/recipes/botpress/step-1-connect-real-time-events) |
+| <img src="docs/images/recipes/dify/logo.png" width="24"> | Dify | [View tutorial →](https://developers.autoplay.ai/recipes/dify-tutorial) |
+| <img src="docs/images/recipes/tidio/logo.png" width="24"> | Tidio | [View tutorial →](https://developers.autoplay.ai/recipes/tidio/step-1-connect-real-time-events) |
+| <img src="docs/images/recipes/landbot/logo.png" width="24"> | Landbot | [View tutorial →](https://developers.autoplay.ai/recipes/landbot/step-1-connect-real-time-events) |
+| <img src="docs/images/recipes/crisp/logo.png" width="24"> | Crisp AI | [View tutorial →](https://developers.autoplay.ai/recipes/crisp-ai) |
+| <img src="docs/images/recipes/rasa/logo.png" width="24"> | Rasa | Coming soon |
+| <img src="docs/images/recipes/inkeep/logo.png" width="24"> | Inkeep | Coming soon |
 
 ---
 
-## AI agent skills (Cursor / Claude)
-
-The SDK ships with agent skills that teach your AI assistant exactly how to wire Autoplay for your stack:
-
-```bash
-autoplay-install-skills
-# or target your specific stack:
-autoplay-install-skills --chatbot intercom --user-activity posthog
-autoplay-install-skills --chatbot ada --user-activity fullstory
-```
-
-This drops a `.cursor/skills/` folder into your project. Open Cursor or Claude and say *"Set up Autoplay with Intercom and PostHog"* — the agent follows the correct wiring pattern automatically.
-
----
-
-## Community and contact
+## 💬 Community
 
 | | |
 |---|---|
 | **Discord** | [discord.gg/jCbR2tQA5](https://discord.gg/jCbR2tQA5) — share what you're building, get help, stay updated |
 | **GitHub Issues** | Best for bug reports and feature requests |
-| **Support policy** | See [SUPPORT.md](SUPPORT.md) for support channels and response expectations |
+| **Support** | See [SUPPORT.md](SUPPORT.md) for channels and response expectations |
 | **Docs** | [developers.autoplay.ai](https://developers.autoplay.ai) |
 | **PyPI** | [pypi.org/project/autoplay-sdk](https://pypi.org/project/autoplay-sdk) |
 
 ---
 
-## Project governance
+## 📋 Contributing
 
-- Contributor expectations: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- Security reporting policy: [SECURITY.md](SECURITY.md)
-- Maintainer model and release governance: [GOVERNANCE.md](GOVERNANCE.md)
-- Open-source maintainer checklist (GitHub settings): [.github/OPEN_SOURCE_MAINTAINER_CHECKLIST.md](.github/OPEN_SOURCE_MAINTAINER_CHECKLIST.md)
+- Contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Security reporting: [SECURITY.md](SECURITY.md)
 
 ---
 
-## License
+## 📄 License
 
 MIT — see [LICENSE](LICENSE).
+
