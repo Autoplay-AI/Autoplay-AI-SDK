@@ -1,8 +1,71 @@
 ---
 title: "UserGuiding — How to setup"
 sidebarTitle: "UserGuiding tutorial"
-description: "Learn how to programmatically trigger the user tour at the right time based on live user activity using UserGuiding and the Autoplay SDK."
+description: "Trigger a UserGuiding flow from the Autoplay event stream."
 icon: "/images/recipes/userguiding/logo.png"
 ---
 
-<Note>This tutorial is coming soon. Check back shortly for the full guide.</Note>
+<Note>
+  Autoplay streams structured UI actions from your users' browser sessions in real time. This tutorial wires that stream to UserGuiding so that when the right moment arrives — a user stuck on a page, a first-time feature visit, a repeated error — your backend detects it and fires the correct UserGuiding flow immediately.
+  This tutorial builds on [How to trigger a User Tour](/recipes/user-tour/overview). Complete that guide first — it covers the proxy route, EventSource connection, and payload structure. This page covers only what is specific to UserGuiding.
+</Note>
+
+## 1. Install UserGuiding
+
+Add the snippet to your app and initialize it with your Container ID from **Settings → Installation**.
+
+```html
+<script>
+  (function(g,u,i,d,e,s){
+    g[e]=g[e]||[];
+    var f=u.getElementsByTagName(i)[0];
+    var k=u.createElement(i);k.async=true;
+    k.src='https://static.userguiding.com/media/user-guiding-'+s+'-embedded.js';
+    f.parentNode.insertBefore(k,f);
+    if(g[d])return;
+    var ug=g[d]={q:[]};
+    ug.c=function(n){return function(){ug.q.push([n,arguments]);};};
+    var m=['previewGuide','finishPreview','track','identify','triggerNPS',
+           'hideChecklist','launchChecklist'];
+    for(var j=0;j<m.length;j+=1){ug[m[j]]=ug.c(m[j]);}
+  })(window,document,'script','userGuiding','userGuidingLayer','YOUR_CONTAINER_ID');
+</script>
+```
+
+## 2. Identify the user
+
+Call this once the user is authenticated. Use the same `userId` you send to PostHog so Autoplay can match sessions correctly.
+
+```javascript
+window.userGuiding.identify(userId, {
+  name: user.displayName,
+  email: user.email,
+  created_at: user.createdAt, // ISO 8601
+});
+```
+
+## 3. Create a flow in UserGuiding
+
+1. In the UserGuiding dashboard go to **Guides → Create Guide** and build your tour.
+2. Set any targeting rules you need (page URL, user segment, etc.).
+3. Publish the guide.
+4. Note the **Guide ID** shown in the URL bar (`/guides/<guide_id>/edit`).
+
+## 4. Trigger the flow
+
+In your `onmessage` handler from [Step 4 of the base guide](/recipes/user-tour/overview#4-understanding-the-payload), add the UserGuiding trigger call:
+
+```javascript
+events.onmessage = (event) => {
+  const payload = JSON.parse(event.data);
+
+  if (payload.type !== "usertour_trigger") return;
+
+  const mySessionId = posthog?.get_session_id?.() ?? null;
+  if (!mySessionId || payload.session_id !== mySessionId) return;
+
+  window.userGuiding.previewGuide(payload.flow_id);
+};
+```
+
+The `flow_id` in the payload maps to the **Guide ID** of your UserGuiding guide, visible in the URL when editing the guide in the UserGuiding dashboard.
