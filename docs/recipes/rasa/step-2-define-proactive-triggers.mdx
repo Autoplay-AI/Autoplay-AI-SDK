@@ -1,0 +1,47 @@
+---
+title: "Step 2 — Define proactive triggers"
+sidebarTitle: "Step 2 — Define proactive triggers"
+description: "Proactively message users in Rasa based on what they're doing in your product, using agent_state_v2 and the SDK's proactive trigger registry."
+---
+
+*Coming soon.*
+
+This page will show how to extend the bridge you built in [Step 1](./step-1-connect-real-time-events) so that Autoplay can **proactively** message the user — not only reactively answer their questions.
+
+You'll add:
+
+- **`agent_state_v2.SessionState`** — a 3-state FSM (`THINKING` / `PROACTIVE` / `REACTIVE`) per session that gates when an unsolicited nudge is allowed to fire. The session you're already creating in Step 1's bridge stays the source of truth here.
+- **`ProactiveTriggerRegistry`** — a registry of triggers (built-in or custom) that watch the action stream and decide whether to surface a message. The SDK ships ready-made triggers like `canonical_url_ping_pong` (user bouncing between two pages = stuck).
+- **A push channel back to the chat widget** — Rasa exposes `POST /conversations/{sender}/tracker/events`, which lets the bridge inject a bot message into an active chat session.
+- **(Optional) popup triggers** — surface guidance overlays in the app itself when the FSM transitions to `PROACTIVE`, so the user sees a hint without having to open the chat first.
+
+## Sketch of the flow
+
+```
+ActionsPayload arrives in bridge
+   ↓
+ProactiveTriggerRegistry.evaluate_first(context)
+   ↓ returns trigger_id if a trigger fires
+SessionState.transition_to_proactive(trigger_id)
+   ↓ returns False if cooldown blocks the offer
+bridge → Rasa POST /conversations/{user_id}/tracker/events
+   ↓ injects bot message
+Widget shows the proactive nudge in the open chat
+   (or: bridge → app frontend → popup overlay)
+```
+
+## What you'll need
+
+- A working Step 1 bridge (this page builds on top of `copilot_server.py`).
+- Familiarity with `autoplay_sdk.proactive_triggers` — see the [proactive triggers reference](/sdk/proactive-triggers) and the [authoring guide](/sdk/proactive-triggers-authoring).
+- A handler in your web app for popup events if you want on-screen guidance in addition to chat nudges.
+
+## Planned sections
+
+1. **Wire the trigger registry into `on_actions`** — evaluate against `ProactiveTriggerContext.from_actions_payloads`.
+2. **Gate proactive offers with `SessionState`** — respect the FSM's cooldown rules so users aren't spammed.
+3. **Push a bot message into Rasa** — `bridge → POST /conversations/{user_id}/tracker/events` with the trigger's message body.
+4. **(Optional) trigger popups in the app** — server-sent event from the bridge to the frontend with a popup payload; React handler renders the overlay.
+5. **Author a custom trigger** — beyond the built-in registry, e.g. "user clicked Upgrade Plan twice in 60 seconds."
+
+Until this page lands, the [proactive triggers SDK reference](/sdk/proactive-triggers) and the [Intercom recipe's Step 2](/recipes/intercom-tutorial/step-2-define-proactive-triggers) cover the underlying primitives in detail. The Rasa-specific glue is the only piece this page will add.

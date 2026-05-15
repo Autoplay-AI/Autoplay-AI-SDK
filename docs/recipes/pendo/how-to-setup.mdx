@@ -1,8 +1,83 @@
 ---
 title: "Pendo — How to setup"
-sidebarTitle: "How to setup"
-description: "Learn how to set up live user activity from Pendo to feed as context to your chatbot using the Autoplay SDK."
+sidebarTitle: "Pendo tutorial"
+description: "Trigger a Pendo guide from the Autoplay event stream."
 icon: "/images/recipes/pendo/logo.png"
 ---
 
-<Note>This tutorial is coming soon. Check back shortly for the full guide.</Note>
+<Note>
+  Autoplay streams structured UI actions from your users' browser sessions in real time. This tutorial wires that stream to Pendo so that when the right moment arrives — a user stuck on a page, a first-time feature visit, a repeated error — your backend detects it and fires the correct Pendo guide immediately.
+  This tutorial builds on [How to trigger a User Tour](/recipes/user-tour/overview). Complete that guide first — it covers the proxy route, EventSource connection, and payload structure. This page covers only what is specific to Pendo.
+</Note>
+
+## 1. Install Pendo
+
+Add the snippet to your app and initialize it with your API key from **Settings → Subscription → Developer Settings**.
+
+```html
+<script>
+  (function(apiKey){
+    (function(p,e,n,d,o){var v,w,x,y,z;o=p[d]=p[d]||{};o._q=o._q||[];
+    v=['initialize','identify','updateOptions','pageLoad','track'];
+    for(w=0,x=v.length;w<x;++w)(function(m){
+      o[m]=o[m]||function(){o._q[m===v[0]?'unshift':'push']([m].concat([].slice.call(arguments,0)));};
+    })(v[w]);
+    y=e.createElement(n);y.async=!0;
+    y.src='https://cdn.pendo.io/agent/static/'+apiKey+'/pendo.js';
+    z=e.getElementsByTagName(n)[0];z.parentNode.insertBefore(y,z);
+    })(window,document,'script','pendo');
+  })('YOUR_API_KEY');
+</script>
+```
+
+## 2. Identify the user
+
+Call this once the user is authenticated. Use the same `userId` you send to PostHog so Autoplay can match sessions correctly.
+
+```javascript
+pendo.initialize({
+  visitor: {
+    id: userId,
+    email: user.email,
+    full_name: user.displayName,
+  },
+  account: {
+    id: user.accountId,
+  },
+});
+```
+
+## 3. Create a guide in Pendo
+
+1. In the Pendo dashboard go to **Guides → Create Guide** and build your tour.
+2. Set any targeting rules you need (page URL, user segment, etc.).
+3. Publish the guide.
+4. Note the **Guide ID** shown in the URL bar (`/guides/<guide_id>/edit`).
+
+<iframe
+  src="https://app.arcade.software/share/GPRS729GXxZpictj33D6"
+  title="Create a guide in Pendo"
+  width="100%"
+  height="500"
+  allow="clipboard-write"
+  allowFullScreen
+></iframe>
+
+## 4. Trigger the guide
+
+In your `onmessage` handler from [Step 4 of the base guide](/recipes/user-tour/overview#4-understanding-the-payload), add the Pendo trigger call:
+
+```javascript
+events.onmessage = (event) => {
+  const payload = JSON.parse(event.data);
+
+  if (payload.type !== "usertour_trigger") return;
+
+  const mySessionId = posthog?.get_session_id?.() ?? null;
+  if (!mySessionId || payload.session_id !== mySessionId) return;
+
+  pendo.showGuideById(payload.flow_id);
+};
+```
+
+The `flow_id` in the payload maps to the **Guide ID** of your Pendo guide, visible in the URL when editing the guide in the Pendo dashboard.
