@@ -1,189 +1,46 @@
 ---
-title: "Step 4 — User memory and workflow ontology"
-sidebarTitle: "Step 4 — User memory and workflow ontology"
-description: Define the workflows your product recognises so Atlas and memory can attach workflow completion rates and mastery; then filter suggestions with cross-session user memory.
+title: "Step 4 — Connect relevant visual guidance"
+sidebarTitle: "Step 4 — Connect relevant visual guidance"
+description: Route qualifying proactive outcomes into relevant on-screen tours so guidance appears at the right time without interrupting active reactive chat.
 ---
 
-Rich **user memory** — `mastered`, `in_progress`, **`best_completion_pct`**, **`journey_completion`**, and related fields — is expressed in terms of **named workflows**. Those names only make sense once you have supplied a **workflow ontology** (which journeys exist and what “done” means). Treat ontology definition as the **input step**: Autoplay Atlas labels replays by workflow and completion; distillation builds the memory profile your copilot reads.
+After [Step 3](./step-3-define-proactive-triggers), you know **when** to help. This step is about **how** to execute relevant visual guidance on-screen.
 
----
+**Chat-only guidance is not enough for product support workflows.** Users need visual direction in the interface itself — what to click, where to look, and what sequence to follow — so this step treats visual guidance as a core delivery path, not a fallback.
 
-## Define your workflow ontology
+<Note>Support for browser agents in this step is coming soon.</Note>
 
-<Info>Available now.</Info>
+<AccordionGroup>
+<Accordion title="User-popups">
 
-Supply the **ontology of workflows** your product recognises — which journeys exist, how they relate, and what steps matter. Session replays can only be labelled against workflows that **exist in that ontology**. Golden paths and recorded flows are **how** that ontology gets into Autoplay; they are not an end in themselves.
+## What you add today
 
-You can establish workflows in two ways:
+Use your existing frontend tour library and trigger it programmatically after Step 3 gating passes.
 
-1. **Chrome extension** — record flows directly in your UI with the [Autoplay Chrome extension](https://chromewebstore.google.com/detail/autoplay/ckabmfabmccgkcpajebbdkniedapgfpm).
-2. **Documentation → workflows** — convert existing product documentation into structured workflows with Autoplay. [Join the Autoplay Slack workspace](https://join.slack.com/t/autoplay-ai-dev/shared_invite/zt-3uslbaddx-UT2Cl18BGiLkeMwJ439ppg) and reach out to the team to get started.
+See the tutorials below for how to trigger the main user-tour providers programmatically:
 
-Use one or both; coverage of the journeys you care about matters more than which channel you use first.
+- [User Tour overview](/recipes/user-tour/overview)
+- [Userpilot tutorial](/recipes/userpilot/how-to-setup)
+- [Chameleon tutorial](/recipes/chameleon/how-to-setup)
+- [Userflow tutorial](/recipes/userflow/how-to-setup)
+- [Pendo tutorial](/recipes/pendo/how-to-setup)
+- [Usertour tutorial](/recipes/usertour/how-to-setup)
+- [UserGuiding tutorial](/recipes/userguiding/how-to-setup)
+- [Told tutorial](/recipes/told/how-to-setup)
 
-**Iteration with Autoplay on AI accuracy:** production-grade labelling is a **collaborative loop**, not a one-shot upload. You will work with the team to iterate on **AI accuracy** for **workflow assignment** and **completion signals** on session replays — especially when ingesting workflows from documentation.
+## Autoplay bridge (coming soon)
 
-### Autoplay Atlas and session replay labelling
+Autoplay will convert golden paths you define (for example via the Chrome extension) into relevant visual guidance so you do not define the same workflow twice.
 
-Once your ontology exists, **Autoplay Atlas** labels **session replays** by **workflow** and **workflow completion rate** — replay-level semantics grounded in those workflows. For each replay you typically see:
+When the bridge ships, you can replace or wrap `notify_frontend_start_tour` with the managed conversion from extension-defined golden paths.
 
-- **Workflow completion rate** — how far the user progressed on the workflows you defined, within that replay.
-- **Most likely workflow** — which journey best explains what they were trying to do in the session.
-- **Timeline** — how inferred workflows and completion evolve across the replay, not only a single summary at the end.
+</Accordion>
 
-That turns a flat stream of clicks into **workflow-level context** you can feed to an agent. Individual UI events are ambiguous; Atlas lifts them into **which workflow**, **how complete**, and **where they diverged** — so the model reasons about journeys, not isolated DOM events.
+<Accordion title="Browser agents (Coming soon)">
 
-### Why workflow context beats raw clicks alone
+Support for browser agents is coming soon. Join our [Discord](https://discord.gg/jCbR2tQA5) for notifications.
 
-Raw telemetry is a list of atomic actions: without grouping, you cannot tell exploration from a stuck multi-step task. When Autoplay matches the user's sequence against your defined workflows, you get structured outcomes — for example which workflow was attempted, how complete the attempt was, and which expected step was missed. **Completion rate** then tells the copilot *how* to intervene (introduce a flow, resume mid-way, or stay quiet after mastery). **Cross-session memory** builds on the same workflow signals so progress is not forgotten between visits.
+</Accordion>
+</AccordionGroup>
 
-### Index journeys for retrieval
-
-Index ideal step-by-step journeys in Autoplay — from docs and/or captures via the Chrome extension — so they can power retrieval and Atlas-backed labelling as those services roll out.
-
-<Note>
-  Calling **`query_knowledge_base`** from your app matches the **[Knowledge base](../knowledge-base)** SDK — that helper and HTTP endpoint are **coming soon**. Supplying workflows via the extension or with the team is separate from wiring this query path in your codebase.
-</Note>
-
-```python
-golden_paths = await client.query_knowledge_base(
-    query=payload.to_text(),
-    top_k=2,
-)
-```
-
-See [Knowledge base](../knowledge-base) for the planned endpoint reference and golden path management.
-
-### Ontology + live actions
-
-With real-time events plus a workflow ontology (and Atlas labels on replays), your agent can reason over **which workflow** someone is in and **how complete** it is — then compare that to live actions. Once the knowledge base query ships in your stack, you can retrieve ideal-path text at inference time:
-
-```python
-async def on_actions(payload: ActionsPayload) -> None:
-    golden_paths = await client.query_knowledge_base(
-        query=payload.to_text(),
-        top_k=2,
-    )
-
-    suggestion = await your_llm(
-        system="You are a product copilot. Use the ideal path and live actions "
-               "to suggest one concrete next step. Be brief.",
-        user=f"## What the user is doing\n{payload.to_text()}\n\n"
-             f"## Ideal paths for this context\n{golden_paths.to_text()}",
-    )
-```
-
----
-
-## User memory profile
-
-<Note>Coming soon.</Note>
-
-Once ontology and labelling feed distillation, fetch the user's cross-session memory profile alongside the live event payload. This profile is built automatically by Autoplay — after every session, an LLM distillation pass updates it with what the user did, what they completed, and where they struggled.
-
-```python
-memory = await client.get_user_memory(user_id=payload.user_id)
-```
-
-The profile tells you exactly where this user is in the product's adoption journey — including **workflow completion** fields tied to the ontology above:
-
-```json
-{
-  "knowledge_state": {
-    "mastered": ["connect_data_source", "create_dashboard"],
-    "in_progress": {
-      "setup_slack_integration": {
-        "attempts": 2,
-        "last_issue": "missed final step: verify connection success message",
-        "best_completion_pct": 85.0
-      }
-    },
-    "untouched": ["set_up_alerts", "configure_webhooks", "export_to_csv"]
-  },
-  "journey_completion": {
-    "completed_workflows": ["connect_data_source", "create_dashboard"],
-    "total_known_workflows": 7,
-    "completion_rate": 0.29
-  }
-}
-```
-
-### What your copilot can do now
-
-User memory is the **relevance filter**. Without it, your copilot treats every user as if it's their first day. With it, suggestions are grounded in exactly what this person has and hasn't done:
-
-| Memory state | Copilot behaviour |
-|---|---|
-| Workflow in `mastered` | Skip it — the user already knows it |
-| Workflow in `in_progress` | Surface the specific missed step, not the whole flow again |
-| Workflow in `untouched` | Proactively introduce it when the user is in a relevant context |
-| Area in `struggle_patterns` | Change approach — repeating what already failed is noise |
-
-### Code — memory alone
-
-```python
-async def on_actions(payload: ActionsPayload) -> None:
-    memory = await client.get_user_memory(user_id=payload.user_id)
-
-    # Don't suggest what they already know
-    mastered = memory.knowledge_state.mastered
-    gaps = memory.knowledge_state.untouched + list(memory.knowledge_state.in_progress)
-
-    suggestion = await your_llm(
-        system="You are a product copilot. Only suggest things the user hasn't mastered yet.",
-        user=f"## What the user is doing\n{payload.to_text()}\n\n"
-             f"## Already mastered (do not suggest)\n{', '.join(mastered)}\n\n"
-             f"## Gaps to focus on\n{', '.join(gaps)}",
-    )
-```
-
-See [User memory](../user-memory) for the full schema and field reference.
-
-### Combine all signals
-
-With **real-time events**, **user memory**, and **golden paths** together, your copilot can compute a precise gap: where they are now, what they have already done, and where they should be going next.
-
-```
-Where the user is now        ← real-time events
-What they've already done    ← user memory (mastered / in_progress)
-Where they should be going   ← golden path from knowledge base
-                                       ↓
-              gap = ideal journey minus what this user has completed
-                                       ↓
-         copilot surfaces the single most relevant next step
-```
-
-```python
-import asyncio
-
-async def on_actions(payload: ActionsPayload) -> None:
-    memory, golden_paths = await asyncio.gather(
-        client.get_user_memory(user_id=payload.user_id),
-        client.query_knowledge_base(query=payload.to_text(), top_k=2),
-    )
-
-    mastered = memory.knowledge_state.mastered
-    in_progress_keys = list(memory.knowledge_state.in_progress)
-    context = f"""
-## 👆 What the user just did
-{payload.to_text()}
-
-## 📜 Their workflow history
-Mastered: {', '.join(mastered) or 'none'}
-In progress: {', '.join(in_progress_keys) or 'none'}
-Never started: {', '.join(memory.knowledge_state.untouched) or 'none'}
-
-## 🗺️ Ideal path for this area
-{golden_paths.to_text()}
-"""
-
-    suggestion = await your_llm(
-        system="You are a proactive product copilot. Based on what the user is doing, "
-               "their history, and the ideal path, suggest one concrete next step. "
-               "Do not suggest anything they have already mastered. "
-               "Be brief and specific. Stay silent if there is no clear gap.",
-        user=context,
-    )
-```
-
-**Recipe overview:** [The proactive + visual copilot recipe](/sdk/proactive-copilot)
+**Next:** [Step 5 — Enrich with user memory](./step-5-enrich-with-user-memory)

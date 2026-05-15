@@ -4,8 +4,8 @@ Single async runner for programmatic onboarding (:func:`run_product_onboarding`)
 and higher-level helpers such as :func:`onboard_product`. Library code raises
 exceptions; callers map them to stderr + exit as needed.
 
-External CLI scripts may duplicate this flow for convenience;
-future work is to rely on the SDK only.
+The ``/scripts/`` CLIs duplicate this flow for now;
+future work is to rely on the SDK only and retire those scripts.
 """
 
 from __future__ import annotations

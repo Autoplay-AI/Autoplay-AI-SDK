@@ -49,7 +49,9 @@ def _skills_source_root() -> Path:
         )
 
 
-def _copy_skill(source_root: Path, skill_dir_name: str, dest_root: Path) -> bool:
+def _copy_skill(
+    source_root: Path, skill_dir_name: str, dest_root: Path, *, force: bool
+) -> bool:
     """Copy a single skill directory to dest_root. Returns True if copied."""
     src = source_root / skill_dir_name
     if not src.exists():
@@ -57,6 +59,13 @@ def _copy_skill(source_root: Path, skill_dir_name: str, dest_root: Path) -> bool
         return False
     dest = dest_root / skill_dir_name
     if dest.exists():
+        if not force:
+            print(
+                f"  [skip] {skill_dir_name} — destination exists ({dest}); "
+                "rerun with --force to overwrite",
+                file=sys.stderr,
+            )
+            return False
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
     print(f"  ✓ {skill_dir_name}")
@@ -88,6 +97,11 @@ def main() -> None:
         default=".cursor/skills",
         help="Destination directory (default: .cursor/skills)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing skill directories in destination.",
+    )
     args = parser.parse_args()
 
     # Validate
@@ -113,23 +127,47 @@ def main() -> None:
     print(f"Installing Autoplay skills to {dest_root}/\n")
 
     # Always install the core skill
-    _copy_skill(source_root, CORE_SKILL, dest_root)
+    copied_any = _copy_skill(source_root, CORE_SKILL, dest_root, force=args.force)
 
     if args.chatbot:
-        _copy_skill(source_root, CHATBOT_SKILLS[args.chatbot], dest_root)
+        copied_any = (
+            _copy_skill(
+                source_root, CHATBOT_SKILLS[args.chatbot], dest_root, force=args.force
+            )
+            or copied_any
+        )
     elif args.activity:
         pass  # activity-only install: core + activity below
     else:
         # No filters — install everything
         for skill_dir in CHATBOT_SKILLS.values():
-            _copy_skill(source_root, skill_dir, dest_root)
+            copied_any = (
+                _copy_skill(source_root, skill_dir, dest_root, force=args.force)
+                or copied_any
+            )
         for skill_dir in ACTIVITY_SKILLS.values():
-            _copy_skill(source_root, skill_dir, dest_root)
+            copied_any = (
+                _copy_skill(source_root, skill_dir, dest_root, force=args.force)
+                or copied_any
+            )
 
     if args.activity:
-        _copy_skill(source_root, ACTIVITY_SKILLS[args.activity], dest_root)
+        copied_any = (
+            _copy_skill(
+                source_root, ACTIVITY_SKILLS[args.activity], dest_root, force=args.force
+            )
+            or copied_any
+        )
     elif not args.chatbot and args.chatbot is None:
         pass  # already installed all above
+
+    if not copied_any and not args.force:
+        print(
+            "\nNo skills were copied. Existing directories were preserved. "
+            "Use --force to overwrite.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     print(
         "\nDone. Open Cursor or Claude and say:\n"

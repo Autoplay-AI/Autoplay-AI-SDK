@@ -55,9 +55,12 @@ Observability:
 
 See the project README on PyPI or GitHub for the full architecture diagram,
 quickstart examples, sync-vs-async decision guide, and performance/locking
-reference: https://github.com/Autoplay-AI/autoplay-sdk#readme
+reference: https://github.com/Autoplay-AI/Autoplay-AI-SDK/tree/main/.#readme
 """
 
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+from . import agent_state_v2
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.buffer import BufferBackend, EventBuffer, RedisEventBuffer
 from autoplay_sdk.chatbot import (
@@ -66,6 +69,7 @@ from autoplay_sdk.chatbot import (
     ConversationWriter,
     format_chatbot_note_header,
 )
+from autoplay_sdk.chat_pipeline import AsyncChatPipeline, compose_chat_pipeline
 from autoplay_sdk.client import ConnectorClient
 from autoplay_sdk.context_store import AsyncContextStore, ContextStore
 from autoplay_sdk.exceptions import (
@@ -109,6 +113,7 @@ from autoplay_sdk.agent_states import (
     TaskProgress,
 )
 from autoplay_sdk.webhook_receiver import WebhookReceiver
+from autoplay_sdk.user_index import SessionRef, UserSessionIndex
 
 __all__ = [
     # Clients
@@ -160,11 +165,16 @@ __all__ = [
     "InvalidTransitionError",
     "SessionMetrics",
     "TaskProgress",
+    "agent_state_v2",
     # Chatbot destination building blocks
     "ConversationWriter",
     "BaseChatbotWriter",
     "ConversationEvent",
     "format_chatbot_note_header",
+    "AsyncChatPipeline",
+    "compose_chat_pipeline",
+    "UserSessionIndex",
+    "SessionRef",
     # Push webhook receiver
     "WebhookReceiver",
     # Observability
@@ -177,4 +187,7 @@ __all__ = [
     # Version
     "__version__",
 ]
-__version__ = "0.7.0"
+try:
+    __version__ = _pkg_version("autoplay-sdk")
+except PackageNotFoundError:
+    __version__ = "0.0.0+local"

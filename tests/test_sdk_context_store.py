@@ -499,3 +499,35 @@ def test_product_scoped_action_buckets_isolate_same_session_string() -> None:
     assert "/tenant-a-only" in ga
     assert "/tenant-b-only" in gb
     assert "/tenant-b-only" not in ga
+
+
+def test_get_without_product_id_falls_back_to_single_product_bucket(caplog) -> None:
+    import logging
+
+    store = ContextStore()
+    payload = _action("sess_single", n=1)
+    payload.product_id = "tenant_x"
+    payload.actions[0].description = "Scoped action"
+    store.add(payload)
+
+    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.context_store"):
+        result = store.get("sess_single")
+    assert "Scoped action" in result
+    assert "fell back to product-scoped actions bucket" in caplog.text
+
+
+def test_get_without_product_id_warns_on_ambiguous_scoped_buckets(caplog) -> None:
+    import logging
+
+    store = ContextStore()
+    payload_a = _action("sess_ambiguous", n=1)
+    payload_a.product_id = "tenant_a"
+    payload_b = _action("sess_ambiguous", n=1)
+    payload_b.product_id = "tenant_b"
+    store.add(payload_a)
+    store.add(payload_b)
+
+    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.context_store"):
+        result = store.get("sess_ambiguous")
+    assert result == ""
+    assert "found multiple product-scoped buckets" in caplog.text

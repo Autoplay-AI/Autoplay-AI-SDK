@@ -231,9 +231,9 @@ async def sync_products_config_to_render(
 
 
 def default_merge_local_path() -> Path:
-    """Default path for the operator merge file (repo root).
+    """Default path for the operator merge file (``/`` root).
 
-    ``__file__`` is ``.../autoplay_sdk/admin/render_products_config.py``;
-    ``parents[2]`` is the repo root.
+    ``__file__`` is ``.../src/customer_sdk/autoplay_sdk/admin/render_products_config.py``;
+    ``parents[4]`` is the ```` repo root.
     """
-    return Path(__file__).resolve().parents[2] / DEFAULT_PRODUCTS_CONFIG_MERGE_FILENAME
+    return Path(__file__).resolve().parents[4] / DEFAULT_PRODUCTS_CONFIG_MERGE_FILENAME

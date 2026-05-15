@@ -379,7 +379,11 @@ async def _run(args: argparse.Namespace) -> bool:
         print(f"\n  ERROR: Cannot reach connector at {base}/health")
         print(f"         {exc}")
         print("\n  Is the connector running?  Try:")
-        print("    uvicorn event_connector.api.app:app --host 0.0.0.0 --port 8080 --reload\n")
+        print("    cd ")
+        print("    source .venv/bin/activate")
+        print(
+            "    uvicorn event_connector.api.app:app --host 0.0.0.0 --port 8080 --reload\n"
+        )
         return False
 
     # Register all synthetic products before firing events (optional).

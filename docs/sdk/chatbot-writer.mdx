@@ -4,7 +4,7 @@ sidebarTitle: "💬 BaseChatbotWriter"
 description: Base class for delivering session events to any chatbot platform — handles pre-link buffering, at-link flush, and post-link debouncing so you only implement the API call.
 ---
 
-`BaseChatbotWriter` is the recommended starting point for any chatbot destination (Intercom, Zendesk, Salesforce, custom LLM agent, etc.). Subclass it, implement two async methods, and you get the full delivery policy for free.
+`BaseChatbotWriter` is the recommended starting point for any destination where session context should be posted (hosted chatbot APIs, self-hosted bots, internal services, queues, or custom LLM agents). Subclass it, implement two async methods, and you get the full delivery policy for free.
 
 ---
 
@@ -152,6 +152,32 @@ class ZendeskChatbot(BaseChatbotWriter):
 
     async def _redact_part(self, conversation_id: str, part_id: str) -> None:
         pass  # Zendesk comments are immutable; no-op
+```
+
+### Example — Generic HTTP endpoint (self-hosted bot bridge)
+
+```python
+from autoplay_sdk.chatbot import BaseChatbotWriter
+
+class HttpBridgeWriter(BaseChatbotWriter):
+    def __init__(self, endpoint: str, client, **kwargs):
+        super().__init__(**kwargs)
+        self._endpoint = endpoint
+        self._client = client
+
+    async def _post_note(self, conversation_id: str, body: str) -> str | None:
+        resp = await self._client.post(
+            f"{self._endpoint}/conversations/{conversation_id}/note",
+            json={"body": body},
+        )
+        resp.raise_for_status()
+        return resp.json().get("id")
+
+    async def _redact_part(self, conversation_id: str, part_id: str) -> None:
+        resp = await self._client.delete(
+            f"{self._endpoint}/conversations/{conversation_id}/note/{part_id}"
+        )
+        resp.raise_for_status()
 ```
 
 ---

@@ -6,6 +6,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.7.3] — 2026-05-14
+
+### Documentation
+
+- Expanded [`docs/sdk/self-hosted-bridge.mdx`](docs/sdk/self-hosted-bridge.mdx) from a quickstart-style guide into reference documentation for `UserSessionIndex`, `compose_chat_pipeline(...)`, and `build_copilot_app(...)`, including lifecycle, endpoint status semantics, and failure/troubleshooting notes.
+- Updated [`docs/sdk/logging.mdx`](docs/sdk/logging.mdx) with explicit observability guidance for `autoplay_sdk.chat_pipeline`, `autoplay_sdk.user_index`, and `autoplay_sdk.serve.fastapi`, plus recommended app-layer log points for self-hosted bridges.
+- Added a clearer self-hosted quick-reference and troubleshooting section to [`README.md`](README.md), including when to use each primitive and common `404`/identity/product-scope failure modes.
+
+---
+
 ## [0.7.2] — 2026-05-14
 
 ### Removed
@@ -259,9 +269,9 @@ None.
 
 ### Documentation
 
-- **BaseChatbotWriter — Note body format** — Mintlify [chatbot-writer](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/docs/sdk/chatbot-writer.mdx) now documents the full plain-text contract for `_post_note` bodies (header via `format_chatbot_note_header`, sorted 1-based action lines, binning vs post-link, empty list, summary notes). `_format_note` docstring points to that page as the single source of truth.
+- **BaseChatbotWriter — Note body format** — Mintlify [chatbot-writer](https://github.com/Autoplay-AI/Autoplay-AI-SDK/blob/main/./docs/sdk/chatbot-writer.mdx) now documents the full plain-text contract for `_post_note` bodies (header via `format_chatbot_note_header`, sorted 1-based action lines, binning vs post-link, empty list, summary notes). `_format_note` docstring points to that page as the single source of truth.
 
-- **Logging** — New [logging](https://github.com/Autoplay-AI/autoplay-sdk/blob/main/docs/sdk/logging.mdx) reference page (module loggers, `%` formatting, `exc_info`, structured `extra`, secrets guidance including HTTP bodies, common logging mistakes). Quickstart links to it for discoverability.
+- **Logging** — New [logging](https://github.com/Autoplay-AI/Autoplay-AI-SDK/blob/main/./docs/sdk/logging.mdx) reference page (module loggers, `%` formatting, `exc_info`, structured `extra`, secrets guidance including HTTP bodies, common logging mistakes). Quickstart links to it for discoverability.
 
 ### Bug fixes / observability
 

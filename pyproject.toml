@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autoplay-sdk"
-version = "0.7.2"
+version = "0.7.3"
 description = "Real-time event streaming client for Autoplay connectors"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,25 +25,21 @@ dependencies = [
     "httpx>=0.27.0",
     "httpx-sse>=0.4.0",
     "rich>=13.7.0",
+    "unkey.py>=3.0.1",
 ]
 
 [project.optional-dependencies]
-redis = ["redis>=4.0.0"]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "fakeredis>=2.0",
+serve = [
+    "fastapi>=0.110.0",
 ]
 
 [project.scripts]
 autoplay-install-skills = "autoplay_sdk.install_skills:main"
 
 [project.urls]
-Homepage = "https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support"
-Documentation = "https://developers.autoplay.ai"
-"Bug Tracker" = "https://github.com/Autoplay-AI/Autoplay-proactive-visual-customer-support/issues"
+Homepage = "https://github.com/Autoplay-AI/Autoplay-AI-SDK"
+Documentation = "https://github.com/Autoplay-AI/Autoplay-AI-SDK/tree/main/.#readme"
+"Bug Tracker" = "https://github.com/Autoplay-AI/Autoplay-AI-SDK/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["autoplay_sdk"]
@@ -62,4 +58,3 @@ include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
