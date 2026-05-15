@@ -25,7 +25,7 @@
 - They wait to be asked — assuming users will speak up when they're stuck. They rarely do.
 - When users do ask, they're expected to know how to frame their question correctly. But users don't know what they don't know about your platform, and often initiate the conversation in the wrong way.
 
-✅ The solution
+## ✅ The solution
 
 What we propose you build with our SDK:
 
