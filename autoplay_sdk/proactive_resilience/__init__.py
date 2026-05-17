@@ -1,40 +1,25 @@
-"""Surface-agnostic proactive delivery resilience: key space, config, outcomes, test doubles.
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-Hosts (e.g. the event connector) implement persistence (Redis) using
-:func:`proactive_key_suffixes` / :class:`ProactiveResilienceKeySpace` for stable keys.
-The SDK does not import Redis or HTTP clients.
-"""
+import importlib
+import warnings as _warnings
 
-from autoplay_sdk.proactive_resilience.circuit import InMemoryProactiveCircuitBreaker
-from autoplay_sdk.proactive_resilience.config import (
-    DEFAULT_MIN_INTERVAL_SECONDS,
-    CircuitBreakerConfig,
-    ProactiveRateLimitConfig,
-    ProactiveResilienceConfig,
+_warnings.warn(
+    "`autoplay_sdk.proactive_resilience` has moved to `autoplay_sdk.proactive.resilience.resilience`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
 )
-from autoplay_sdk.proactive_resilience.keys import (
-    ProactiveResilienceKeySpace,
-    ProactiveSurfaceId,
-    proactive_key_namespace,
-    proactive_key_suffixes,
-)
-from autoplay_sdk.proactive_resilience.outcomes import (
-    ProactiveDeliveryOutcome,
-    outcome_counts_toward_circuit,
-)
-from autoplay_sdk.proactive_resilience.protocol import ProactiveResilienceStore
 
-__all__ = [
-    "DEFAULT_MIN_INTERVAL_SECONDS",
-    "CircuitBreakerConfig",
-    "ProactiveResilienceConfig",
-    "ProactiveRateLimitConfig",
-    "ProactiveSurfaceId",
-    "ProactiveResilienceKeySpace",
-    "proactive_key_namespace",
-    "proactive_key_suffixes",
-    "ProactiveDeliveryOutcome",
-    "outcome_counts_toward_circuit",
-    "InMemoryProactiveCircuitBreaker",
-    "ProactiveResilienceStore",
-]
+_TARGET = "autoplay_sdk.proactive.resilience.resilience"
+
+
+def __getattr__(name: str):
+    mod = importlib.import_module(_TARGET)
+    try:
+        return getattr(mod, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+
+def __dir__():
+    return dir(importlib.import_module(_TARGET))

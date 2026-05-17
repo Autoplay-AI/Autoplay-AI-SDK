@@ -49,7 +49,7 @@ In your webhook handler: verify `X-Hub-Signature-256` with your `client_secret`,
 
 ```python
 import httpx
-from autoplay_sdk.chatbot import BaseChatbotWriter
+from autoplay_sdk.chat.chatbot import BaseChatbotWriter
 from autoplay_sdk.integrations.intercom import INTERCOM_WEBHOOK_TOPICS
 
 ACCESS_TOKEN = "your-intercom-access-token"
@@ -96,7 +96,7 @@ class IntercomWriter(BaseChatbotWriter):
 
 ```python
 from collections import defaultdict
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
+from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
 from autoplay_sdk import AsyncSessionSummarizer
 
 conv_map: dict[str, str] = {}

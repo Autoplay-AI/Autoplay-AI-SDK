@@ -1,38 +1,33 @@
-"""Central defaults for proactive triggers (transport-agnostic detection layer).
-
-``trigger_id`` strings are **code-defined** (not environment-driven) so analytics,
-cooldown keys, and logs stay stable across processes and deployments. Override
-IDs only via new SDK versions or explicit application-level mapping — not ad-hoc
-env vars — unless you intentionally migrate metrics and stored keys.
-
-Quick-reply **copy** defaults live here too; :mod:`autoplay_sdk.integrations.intercom`
-re-exports them under ``INTERCOM_*`` names for backward compatibility.
-"""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import importlib.util
+import sys as _sys
+import warnings as _warnings
+from pathlib import Path
 
+_warnings.warn(
+    "`autoplay_sdk.proactive_triggers.defaults` has moved to `autoplay_sdk.proactive.triggers.defaults`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-@dataclass(frozen=True)
-class ProactiveTriggerIds:
-    """Stable identifiers for built-in triggers — single registry."""
+# Load canonical defaults by file path to avoid importing
+# autoplay_sdk.proactive.triggers.__init__ during partially initialized cycles.
+_canonical_path = (
+    Path(__file__).resolve().parents[1] / "proactive" / "triggers" / "defaults.py"
+)
+_module_name = "autoplay_sdk._compat_proactive_defaults"
+_spec = importlib.util.spec_from_file_location(_module_name, _canonical_path)
+if _spec is None or _spec.loader is None:
+    raise ImportError(
+        f"Unable to load canonical defaults module from {_canonical_path}"
+    )
+_mod = importlib.util.module_from_spec(_spec)
+_sys.modules[_module_name] = _mod
+_spec.loader.exec_module(_mod)
 
-    canonical_ping_pong: str = "canonical_url_ping_pong"
-    user_page_dwell: str = "user_page_dwell"
-    section_playbook_match: str = "section_playbook_match"
-
-
-PROACTIVE_TRIGGER_IDS = ProactiveTriggerIds()
-
-
-def get_proactive_trigger_ids() -> ProactiveTriggerIds:
-    """Return the shared trigger id registry."""
-    return PROACTIVE_TRIGGER_IDS
-
-
-TRIGGER_ID_CANONICAL_URL_PING_PONG = PROACTIVE_TRIGGER_IDS.canonical_ping_pong
-TRIGGER_ID_USER_PAGE_DWELL = PROACTIVE_TRIGGER_IDS.user_page_dwell
-TRIGGER_ID_SECTION_PLAYBOOK_MATCH = PROACTIVE_TRIGGER_IDS.section_playbook_match
-
-DEFAULT_PROACTIVE_QUICK_REPLY_BODY = "Need my expert help?"
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

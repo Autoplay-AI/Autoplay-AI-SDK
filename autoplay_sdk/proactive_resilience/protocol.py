@@ -1,17 +1,19 @@
-from __future__ import annotations
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from typing import Any, Protocol, runtime_checkable
+import importlib
+import sys as _sys
+import warnings as _warnings
 
+_warnings.warn(
+    "`autoplay_sdk.proactive_resilience.protocol` has moved to `autoplay_sdk.proactive.resilience.protocol`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-@runtime_checkable
-class ProactiveResilienceStore(Protocol):
-    """Minimal async KV operations for proactive resilience (implemented in the host)."""
+_mod = importlib.import_module("autoplay_sdk.proactive.resilience.protocol")
 
-    async def exists(self, key: str) -> bool: ...
-    async def get(self, key: str) -> bytes | None: ...
-    async def setex(
-        self, key: str, seconds: float | int, value: bytes | str
-    ) -> Any: ...
-    async def incr(self, key: str) -> int: ...
-    async def delete(self, key: str) -> Any: ...
-    async def expire(self, key: str, seconds: float | int) -> Any: ...
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

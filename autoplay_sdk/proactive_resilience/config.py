@@ -1,39 +1,19 @@
-from __future__ import annotations
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from dataclasses import dataclass, field
+import importlib
+import sys as _sys
+import warnings as _warnings
 
-# Product default: at most one proactive suggestion per 5 minutes per
-# (product, session, surface) — override via host env e.g. PROACTIVE_MIN_INTERVAL_SECONDS.
-DEFAULT_MIN_INTERVAL_SECONDS: float = 300.0
+_warnings.warn(
+    "`autoplay_sdk.proactive_resilience.config` has moved to `autoplay_sdk.proactive.resilience.config`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
+_mod = importlib.import_module("autoplay_sdk.proactive.resilience.config")
 
-@dataclass(frozen=True, slots=True)
-class CircuitBreakerConfig:
-    """When consecutive transport-class failures reach ``failure_threshold``, open circuit."""
-
-    failure_threshold: int = 5
-    pause_s: float = 120.0
-    # ``0`` disables circuit breaker behavior (always closed unless externally forced).
-    disabled: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ProactiveRateLimitConfig:
-    """Rate and spacing knobs for proactive deliveries.
-
-    ``0`` disables the corresponding guard where documented.
-    """
-
-    min_interval_seconds: float = DEFAULT_MIN_INTERVAL_SECONDS
-    max_attempts_per_product_per_minute: int = 0
-    max_per_session_per_hour: int = 0
-    max_per_user_per_day: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class ProactiveResilienceConfig:
-    """Bundled proactive resilience settings for a host process."""
-
-    surface_id: str = "intercom"
-    circuit: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
-    rates: ProactiveRateLimitConfig = field(default_factory=ProactiveRateLimitConfig)
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

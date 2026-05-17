@@ -1,6 +1,4 @@
-"""Optional admin / operator helpers (do not import from untrusted app code paths)."""
-
-from autoplay_sdk.admin.onboard import (
+from autoplay_sdk.admin.admin import (
     DEFAULT_CONNECTOR_URL,
     ConnectorRegistrationHttpError,
     MergedPostRegistrationHttpError,
@@ -16,8 +14,8 @@ __all__ = [
     "DEFAULT_CONNECTOR_URL",
     "ConnectorRegistrationHttpError",
     "MergedPostRegistrationHttpError",
-    "ProductAlreadyRegisteredError",
     "OnboardProductResult",
+    "ProductAlreadyRegisteredError",
     "UnkeyOnboardingError",
     "onboard_product",
     "onboard_product_sync",

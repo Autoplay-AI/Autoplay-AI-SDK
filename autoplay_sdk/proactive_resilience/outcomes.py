@@ -1,23 +1,19 @@
-from __future__ import annotations
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from enum import Enum
+import importlib
+import sys as _sys
+import warnings as _warnings
 
+_warnings.warn(
+    "`autoplay_sdk.proactive_resilience.outcomes` has moved to `autoplay_sdk.proactive.resilience.outcomes`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-class ProactiveDeliveryOutcome(str, Enum):
-    """Normalized result of a proactive transport attempt (Intercom, Slack, …)."""
+_mod = importlib.import_module("autoplay_sdk.proactive.resilience.outcomes")
 
-    SUCCESS = "success"
-    TRANSPORT_ERROR = "transport_error"
-    RATE_LIMITED = "rate_limited"
-    TIMEOUT = "timeout"
-    CANCELLED = "cancelled"
-    VALIDATION_ERROR = "validation_error"
-
-
-def outcome_counts_toward_circuit(outcome: ProactiveDeliveryOutcome) -> bool:
-    """True when this outcome should increment the host's failure streak."""
-    return outcome in (
-        ProactiveDeliveryOutcome.TRANSPORT_ERROR,
-        ProactiveDeliveryOutcome.RATE_LIMITED,
-        ProactiveDeliveryOutcome.TIMEOUT,
-    )
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

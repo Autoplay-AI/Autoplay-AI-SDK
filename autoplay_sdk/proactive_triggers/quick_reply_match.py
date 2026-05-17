@@ -1,33 +1,19 @@
-"""Match inbound Messenger text to quick-reply chip labels (strip + casefold)."""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from __future__ import annotations
+import importlib
+import sys as _sys
+import warnings as _warnings
 
-from collections.abc import Sequence
+_warnings.warn(
+    "`autoplay_sdk.proactive_triggers.quick_reply_match` has moved to `autoplay_sdk.proactive.triggers.quick_reply_match`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
+_mod = importlib.import_module("autoplay_sdk.proactive.triggers.quick_reply_match")
 
-def match_quick_reply_label(user_message: str, labels: Sequence[str]) -> int | None:
-    """Return the index of the first label equal to the message (strip + casefold), else None."""
-    msg = (user_message or "").strip().casefold()
-    if not msg:
-        return None
-    for i, label in enumerate(labels):
-        if (label or "").strip().casefold() == msg:
-            return i
-    return None
-
-
-def messages_match_quick_reply_pair(
-    user_message: str,
-    *,
-    yes_label: str = "Yes",
-    no_label: str = "No",
-) -> str | None:
-    """Return ``\"yes\"`` or ``\"no\"`` when the message matches labels; else None."""
-    msg = (user_message or "").strip().casefold()
-    if not msg:
-        return None
-    if (yes_label or "").strip().casefold() == msg:
-        return "yes"
-    if (no_label or "").strip().casefold() == msg:
-        return "no"
-    return None
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

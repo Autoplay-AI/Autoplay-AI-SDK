@@ -1,40 +1,19 @@
-from __future__ import annotations
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-import time
-from dataclasses import dataclass, field
+import importlib
+import sys as _sys
+import warnings as _warnings
 
-from autoplay_sdk.proactive_resilience.config import CircuitBreakerConfig
+_warnings.warn(
+    "`autoplay_sdk.proactive_resilience.circuit` has moved to `autoplay_sdk.proactive.resilience.circuit`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
+_mod = importlib.import_module("autoplay_sdk.proactive.resilience.circuit")
 
-@dataclass
-class InMemoryProactiveCircuitBreaker:
-    """In-process circuit + streak for unit tests (no network)."""
-
-    config: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
-    fail_streak: int = 0
-    circuit_open_until: float | None = None
-
-    def is_open(self, now: float | None = None) -> bool:
-        t = time.monotonic() if now is None else float(now)
-        if self.circuit_open_until is None:
-            return False
-        if t < self.circuit_open_until:
-            return True
-        self.circuit_open_until = None
-        return False
-
-    def record_success(self) -> None:
-        self.fail_streak = 0
-        self.circuit_open_until = None
-
-    def record_failure_opening_if_needed(self, now: float | None = None) -> bool:
-        """Increment streak; return True if the circuit is now open."""
-        if self.config.disabled or self.config.failure_threshold <= 0:
-            return False
-        t = time.monotonic() if now is None else float(now)
-        self.fail_streak += 1
-        if self.fail_streak >= self.config.failure_threshold:
-            self.circuit_open_until = t + max(0.0, float(self.config.pause_s))
-            self.fail_streak = 0
-            return True
-        return False
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

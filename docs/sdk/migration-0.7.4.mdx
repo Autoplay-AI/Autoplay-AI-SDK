@@ -1,0 +1,44 @@
+---
+title: Migration 0.7.4
+description: Update deprecated autoplay_sdk import paths before 1.0.0.
+---
+
+`0.7.4` is a transition release. Old import paths still work, but emit `DeprecationWarning` and will be removed in `1.0.0`.
+
+## What stays stable
+
+- `from autoplay_sdk import ...` does not need changes.
+- Runtime behavior is unchanged; this release is import-path reorganization only.
+
+## Find deprecated imports
+
+```bash
+rg "from autoplay_sdk\." -g "*.py" \
+  | rg -v "from autoplay_sdk\.(core|chat|context|proactive|agent_state|api|rag|admin|integrations|skills|prompts|compat)" \
+  | rg -v "from autoplay_sdk import"
+```
+
+Then update imports that are not already in canonical domains:
+`core`, `chat`, `context`, `proactive`, `agent_state`, `api`, `rag`, `admin`, `integrations`, `prompts`, `skills`, `compat`.
+
+`autoplay_sdk.rag` remains a stable alias in `0.7.4` and should be left unchanged.
+
+## Common replacements
+
+| Old | New |
+|---|---|
+| `autoplay_sdk.serve.fastapi` | `autoplay_sdk.api.fastapi` |
+| `autoplay_sdk.proactive_triggers` | `autoplay_sdk.proactive.triggers` |
+| `autoplay_sdk.agent_states` | `autoplay_sdk.agent_state.v1.states` |
+| `autoplay_sdk.agent_state_v2` | `autoplay_sdk.agent_state.v2.states` |
+| `autoplay_sdk.rag_query` | `autoplay_sdk.rag.query` |
+| `autoplay_sdk.context_store` | `autoplay_sdk.context.context_store` |
+| `autoplay_sdk.models` | `autoplay_sdk.core.models` |
+
+Full mapping is listed in [`CHANGELOG.md`](../../CHANGELOG.md).
+
+## Verify
+
+```bash
+python -m pytest tests/compat -v -W error::DeprecationWarning
+```

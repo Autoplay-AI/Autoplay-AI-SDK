@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from autoplay_sdk.exceptions import SdkConfigError
+from autoplay_sdk.core.exceptions import SdkConfigError
 from autoplay_sdk.proactive_triggers.builtin_catalog import (
     BUILTIN_TRIGGER_CATALOG,
     list_builtin_trigger_catalog,

@@ -5,7 +5,47 @@ description: "Stream real-time user events into your AI copilots and agents in a
 ---
 
 
-## Choose your existing session replay provider
+## Install the SDK and agent skills first
+
+Run these commands once from your project root:
+
+```bash
+pip install autoplay-sdk
+# OR
+uv add autoplay-sdk
+```
+
+Then install Autoplay skills for Cursor/Claude:
+
+```bash
+autoplay-install-skills
+```
+
+<Note>
+  **SDK reorganization update (v0.7.4):** internal imports were reorganized into domain-based modules. Existing old paths still work in `0.7.4` (with deprecation warnings) and are removed in `1.0.0`.
+
+  To migrate quickly, install migration skills and run:
+
+  ```bash
+  autoplay-install-skills --migrate
+  ```
+
+  See [Migration 0.7.4](/sdk/migration-0.7.4) for the complete old-to-new path mapping.
+</Note>
+
+Agent skills add project-local guidance so your assistant follows the correct integration pattern for your stack (session scoping, conversation linking, and field mapping) instead of generating generic setup code.
+
+Use `--force` only when you intentionally want to overwrite existing local skill customizations.
+
+You can also target a specific stack:
+
+```bash
+autoplay-install-skills --chatbot ada --user-activity fullstory
+autoplay-install-skills --chatbot intercom --user-activity posthog
+autoplay-install-skills --chatbot botpress
+```
+
+## 🎥 Step-1 Choose your existing session replay provider
 
 <AccordionGroup>
 <Accordion title="PostHog" icon="/images/recipes/posthog/logo.png" iconType="image">
@@ -96,47 +136,7 @@ Your stream consumer can pass the bearer token directly to `AsyncConnectorClient
   - **Project Settings:** Navigate to Project Settings in the PostHog sidebar. The ID is typically listed under the general project configuration or API sections.
 </Tip>
 
-Run the following script:
-
-**1. Install the Toolkit (Requires Python 3.10\+)** Open your computer's terminal and install our SDK using either command:
-
-Bash
-
-```bash
-pip install autoplay-sdk
-# OR
-uv add autoplay-sdk
-```
-
-<Tip>
-  **⚡ Set up Cursor / Claude AI skills (optional but recommended)**
-
-  The SDK ships with agent skills for Cursor and Claude that teach your AI assistant exactly how to wire Autoplay for your specific chatbot and activity source — including the session scoping patterns that most integrations get wrong.
-
-  Run this once after installing the SDK, from your project root:
-
-  ```bash
-  autoplay-install-skills
-  ```
-
-  Existing skill directories are preserved by default. Pass `--force` only if you intentionally want to overwrite local changes.
-
-  Or target your specific stack:
-
-  ```bash
-  autoplay-install-skills --chatbot ada --user-activity fullstory
-  autoplay-install-skills --chatbot intercom --user-activity posthog
-  autoplay-install-skills --chatbot botpress
-  ```
-
-  This drops a `.cursor/skills/` folder into your project. Then just open Cursor or Claude and say:
-
-  > *"Set up Autoplay with Ada and FullStory"*
-
-  The agent will follow the correct wiring pattern — session scoping, conversation linking, field mapping — automatically.
-</Tip>
-
-**2. Run the Registration Script** Create a Python file with the code below. Paste your **Product ID** from Step 1 into the script and run it.
+Create a Python file with the script below. Paste your **Product ID** from Step 1 into the script and run it.
 
 Python
 
@@ -469,6 +469,128 @@ Coming soon. Join our [Discord](https://discord.gg/jCbR2tQA5) for notifications.
 </Accordion>
 
 <Accordion title="Pendo (Coming soon)" icon="/images/recipes/pendo/logo.png" iconType="image">
+
+Coming soon. Join our [Discord](https://discord.gg/jCbR2tQA5) for notifications.
+
+</Accordion>
+</AccordionGroup>
+
+## 🤖 Step-2 Choose your existing chatbot provider
+
+<AccordionGroup>
+<Accordion title="Intercom" icon="/images/recipes/intercom/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/intercom-tutorial/step-1-connect-real-time-events)
+
+</Accordion>
+
+<Accordion title="Ada" icon="/images/recipes/ada/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/ada/step-1-connect-real-time-events)
+
+</Accordion>
+
+<Accordion title="Botpress" icon="/images/recipes/botpress/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/botpress/step-1-connect-real-time-events)
+
+</Accordion>
+
+<Accordion title="Dify" icon="/images/recipes/dify/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/dify-tutorial)
+
+</Accordion>
+
+<Accordion title="Tidio" icon="/images/recipes/tidio/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/tidio/step-1-connect-real-time-events)
+
+</Accordion>
+
+<Accordion title="Landbot" icon="/images/recipes/landbot/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/landbot/step-1-connect-real-time-events)
+
+</Accordion>
+
+<Accordion title="Crisp AI" icon="/images/recipes/crisp/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/crisp-ai)
+
+</Accordion>
+
+<Accordion title="Zendesk (Coming soon)" icon="/images/recipes/zendesk/logo.png" iconType="image">
+
+Coming soon.
+
+</Accordion>
+
+<Accordion title="Rasa (Coming soon)" icon="/images/recipes/rasa/logo.png" iconType="image">
+
+Coming soon.
+
+</Accordion>
+
+<Accordion title="Inkeep (Coming soon)" icon="/images/recipes/inkeep/logo.png" iconType="image">
+
+Coming soon.
+
+</Accordion>
+</AccordionGroup>
+
+## 🗺️ Step-3 Choose your existing visual guidance
+
+### Pop-up tours
+
+<AccordionGroup>
+<Accordion title="Userpilot" icon="/images/recipes/userpilot/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/userpilot/how-to-setup)
+
+</Accordion>
+
+<Accordion title="Chameleon" icon="/images/recipes/chameleon/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/chameleon/how-to-setup)
+
+</Accordion>
+
+<Accordion title="Userflow" icon="/images/recipes/userflow/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/userflow/how-to-setup)
+
+</Accordion>
+
+<Accordion title="Pendo" icon="/images/recipes/pendo/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/pendo/how-to-setup)
+
+</Accordion>
+
+<Accordion title="Usertour" icon="/images/recipes/usertour/logo.svg" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/usertour/how-to-setup)
+
+</Accordion>
+
+<Accordion title="UserGuiding" icon="/images/recipes/userguiding/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/userguiding/how-to-setup)
+
+</Accordion>
+
+<Accordion title="Told" icon="/images/recipes/told/logo.png" iconType="image">
+
+[View tutorial ->](https://developers.autoplay.ai/recipes/told/how-to-setup)
+
+</Accordion>
+</AccordionGroup>
+
+### Browser agents
+
+<AccordionGroup>
+<Accordion title="Browser agents (Coming soon)">
 
 Coming soon. Join our [Discord](https://discord.gg/jCbR2tQA5) for notifications.
 

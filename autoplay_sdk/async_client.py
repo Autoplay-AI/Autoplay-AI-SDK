@@ -90,19 +90,24 @@ import asyncio
 import json
 import logging
 import random
+import time
 from collections import OrderedDict
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
 from httpx_sse import aconnect_sse
 
-from autoplay_sdk.exceptions import SdkUpstreamError
-from autoplay_sdk.metrics import SdkMetricsHook, _safe_call
-from autoplay_sdk.models import ActionsPayload, SummaryPayload
+from autoplay_sdk.core.exceptions import SdkUpstreamError
+from autoplay_sdk.core.metrics import SdkMetricsHook, _safe_call
+from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
 from autoplay_sdk.stream_auth import resolve_connector_bearer_token
 
 logger = logging.getLogger(__name__)
+_DEBUG_LOG_PATH = Path(
+    "/Users/marieliesse/Desktop/CODE/real-time-chatbot-poc/.cursor/debug-a1da9d.log"
+)
 
 # Maximum number of per-session semaphores to keep in memory.
 # Evicts the least-recently-used entry when the cap is exceeded so long-lived
@@ -113,6 +118,27 @@ _MAX_SESSION_SEMAPHORES = 10_000
 ActionCallback = Callable[[ActionsPayload], Any]
 SummaryCallback = Callable[[SummaryPayload], Any]
 LifecycleCallback = Callable[[], Any]
+
+
+def _debug_log(
+    *, run_id: str, hypothesis_id: str, location: str, message: str, data: dict
+) -> None:
+    # region agent log
+    payload = {
+        "sessionId": "a1da9d",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    # endregion
 
 
 class AsyncConnectorClient:
@@ -335,6 +361,19 @@ class AsyncConnectorClient:
                         extra={"url": self._url, "retry_count": retry_count},
                     )
                     self._running = False
+                    _debug_log(
+                        run_id="pre-fix",
+                        hypothesis_id="H6",
+                        location="autoplay_sdk/async_client.py:run:max_retries_exhausted",
+                        message="raising_sdk_upstream_error",
+                        data={
+                            "retry_count": retry_count,
+                            "max_retries": self._max_retries,
+                            "raised_cls_module": SdkUpstreamError.__module__,
+                            "raised_cls_qualname": SdkUpstreamError.__qualname__,
+                            "raised_cls_id": id(SdkUpstreamError),
+                        },
+                    )
                     raise SdkUpstreamError(
                         f"autoplay_sdk: max_retries={self._max_retries} exhausted "
                         f"after {retry_count} attempts"
@@ -469,6 +508,19 @@ class AsyncConnectorClient:
         self, session_id: str, typed: ActionsPayload | SummaryPayload
     ) -> None:
         """Invoke the registered callback under the per-session semaphore."""
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H1",
+            location="autoplay_sdk/async_client.py:_dispatch:entry",
+            message="dispatch_entry",
+            data={
+                "session_id": session_id,
+                "typed_type": type(typed).__name__,
+                "typed_module": type(typed).__module__,
+                "is_actions_payload": isinstance(typed, ActionsPayload),
+                "is_summary_payload": isinstance(typed, SummaryPayload),
+            },
+        )
         sem = self._session_semaphores.get(session_id)
         if sem is None:
             sem = asyncio.Semaphore(self._session_concurrency)
@@ -478,8 +530,17 @@ class AsyncConnectorClient:
         else:
             self._session_semaphores.move_to_end(session_id)
 
+        is_actions_like = hasattr(typed, "actions") and hasattr(typed, "count")
+        is_summary_like = hasattr(typed, "summary") and hasattr(typed, "replaces")
+
         cb: ActionCallback | SummaryCallback | None
-        if isinstance(typed, ActionsPayload):
+        if is_actions_like and not is_summary_like:
+            cb = self._actions_cb
+            event_type = "actions"
+        elif is_summary_like:
+            cb = self._summary_cb
+            event_type = "summary"
+        elif isinstance(typed, ActionsPayload):
             cb = self._actions_cb
             event_type = "actions"
         else:
@@ -487,12 +548,33 @@ class AsyncConnectorClient:
             event_type = "summary"
 
         if cb is None:
+            _debug_log(
+                run_id="pre-fix",
+                hypothesis_id="H2",
+                location="autoplay_sdk/async_client.py:_dispatch:cb-none",
+                message="dispatch_no_callback",
+                data={
+                    "session_id": session_id,
+                    "event_type": event_type,
+                    "actions_cb_set": self._actions_cb is not None,
+                    "summary_cb_set": self._summary_cb is not None,
+                    "typed_type": type(typed).__name__,
+                    "typed_module": type(typed).__module__,
+                },
+            )
             return
 
         product_id = getattr(typed, "product_id", None)
 
         # Drop and record if all concurrency slots for this session are busy.
         if sem.locked():
+            _debug_log(
+                run_id="pre-fix",
+                hypothesis_id="H3",
+                location="autoplay_sdk/async_client.py:_dispatch:drop-queue-full",
+                message="dispatch_dropped_queue_full",
+                data={"session_id": session_id, "event_type": event_type},
+            )
             logger.debug(
                 "autoplay_sdk: session semaphore full — dropping event "
                 "(event_type=%s, session=%s)",
@@ -523,6 +605,13 @@ class AsyncConnectorClient:
                 depth=self._active_dispatches,
             )
             try:
+                _debug_log(
+                    run_id="pre-fix",
+                    hypothesis_id="H4",
+                    location="autoplay_sdk/async_client.py:_dispatch:before-callback",
+                    message="dispatch_callback_start",
+                    data={"session_id": session_id, "event_type": event_type},
+                )
                 result = cb(typed)
                 if asyncio.iscoroutine(result):
                     await result

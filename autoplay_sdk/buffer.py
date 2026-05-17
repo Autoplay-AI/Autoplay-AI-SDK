@@ -69,8 +69,8 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
-from autoplay_sdk.metrics import SdkMetricsHook, _safe_call
-from autoplay_sdk.models import ActionsPayload, AnyPayload, SummaryPayload
+from autoplay_sdk.core.metrics import SdkMetricsHook, _safe_call
+from autoplay_sdk.core.models import ActionsPayload, AnyPayload, SummaryPayload
 
 logger = logging.getLogger(__name__)
 

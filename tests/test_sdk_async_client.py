@@ -60,6 +60,29 @@ def _summary_data(session_id: str = "sess1") -> str:
     )
 
 
+def _debug_log(
+    *, run_id: str, hypothesis_id: str, location: str, message: str, data: dict
+) -> None:
+    # region agent log
+    payload = {
+        "sessionId": "a1da9d",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(__import__("time").time() * 1000),
+    }
+    try:
+        with Path(
+            "/Users/marieliesse/Desktop/CODE/real-time-chatbot-poc/.cursor/debug-a1da9d.log"
+        ).open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    # endregion
+
+
 # ---------------------------------------------------------------------------
 # _handle: parsing and dispatch
 # ---------------------------------------------------------------------------
@@ -328,7 +351,19 @@ class TestReconnect:
     @pytest.mark.asyncio
     async def test_max_retries_exhaustion_raises_sdk_upstream_error(self):
         """After max_retries failures run() raises SdkUpstreamError instead of looping."""
-        from autoplay_sdk.exceptions import SdkUpstreamError
+        from autoplay_sdk.core.exceptions import SdkUpstreamError
+
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H5",
+            location="tests/test_sdk_async_client.py:test_max_retries_exhaustion_raises_sdk_upstream_error",
+            message="expected_exception_identity",
+            data={
+                "expected_cls_module": SdkUpstreamError.__module__,
+                "expected_cls_qualname": SdkUpstreamError.__qualname__,
+                "expected_cls_id": id(SdkUpstreamError),
+            },
+        )
 
         client = AsyncConnectorClient(
             url="http://x",
@@ -411,7 +446,7 @@ class TestReconnect:
             initial_backoff_s=0.001,
             on_disconnect=on_disconnect,
         )
-        from autoplay_sdk.exceptions import SdkUpstreamError
+        from autoplay_sdk.core.exceptions import SdkUpstreamError
 
         with patch(
             "autoplay_sdk.async_client.httpx.AsyncClient",
@@ -538,7 +573,7 @@ class TestAsyncConnectorClientExceptions:
     @pytest.mark.asyncio
     async def test_max_retries_exhausted_raises_sdk_upstream_error(self):
         """When max_retries is exhausted, SdkUpstreamError is raised."""
-        from autoplay_sdk.exceptions import SdkUpstreamError
+        from autoplay_sdk.core.exceptions import SdkUpstreamError
 
         client = AsyncConnectorClient(
             url="http://x",
@@ -555,6 +590,6 @@ class TestAsyncConnectorClientExceptions:
 
     def test_sdk_upstream_error_is_sdk_error_subclass(self):
         """SdkUpstreamError must be a subclass of SdkError."""
-        from autoplay_sdk.exceptions import SdkError, SdkUpstreamError
+        from autoplay_sdk.core.exceptions import SdkError, SdkUpstreamError
 
         assert issubclass(SdkUpstreamError, SdkError)
