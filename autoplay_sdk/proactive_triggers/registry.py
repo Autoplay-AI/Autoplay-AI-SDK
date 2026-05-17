@@ -1,43 +1,19 @@
-"""Ordered registry of proactive triggers (first match wins for production UX)."""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from __future__ import annotations
+import importlib
+import sys as _sys
+import warnings as _warnings
 
-from typing import Sequence
-
-from autoplay_sdk.proactive_triggers.types import (
-    ProactiveTrigger,
-    ProactiveTriggerContext,
-    ProactiveTriggerResult,
+_warnings.warn(
+    "`autoplay_sdk.proactive_triggers.registry` has moved to `autoplay_sdk.proactive.triggers.registry`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
+_mod = importlib.import_module("autoplay_sdk.proactive.triggers.registry")
 
-class ProactiveTriggerRegistry:
-    """Run triggers in registration order."""
-
-    def __init__(self, triggers: Sequence[ProactiveTrigger]) -> None:
-        self._triggers: tuple[ProactiveTrigger, ...] = tuple(triggers)
-
-    @property
-    def triggers(self) -> tuple[ProactiveTrigger, ...]:
-        return self._triggers
-
-    def evaluate_first(
-        self, ctx: ProactiveTriggerContext
-    ) -> ProactiveTriggerResult | None:
-        """Return the first non-``None`` result (recommended for sending one proactive message)."""
-        for t in self._triggers:
-            out = t.evaluate(ctx)
-            if out is not None:
-                return out
-        return None
-
-    def evaluate_all(
-        self, ctx: ProactiveTriggerContext
-    ) -> list[ProactiveTriggerResult]:
-        """Return every firing trigger (merge list for LLM judge + diagnostics)."""
-        hits: list[ProactiveTriggerResult] = []
-        for t in self._triggers:
-            out = t.evaluate(ctx)
-            if out is not None:
-                hits.append(out)
-        return hits
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

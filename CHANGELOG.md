@@ -6,6 +6,94 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.7.4] — 2026-05-16
+
+### Summary
+
+Domain-oriented reorganization with one-release compatibility shims. Internal modules now live under canonical domains (`core`, `chat`, `context`, `proactive`, `agent_state`, `api`, `rag`), while old import paths remain available in this release and emit `DeprecationWarning`.
+
+### Added
+
+- `autoplay_sdk.compat` with `SHIM_MAP` and reusable shim helper.
+- `tests/compat/test_import_compat.py` for old/new import parity and warning behavior checks.
+- `.github/workflows/import-compat.yml` for Python 3.10/3.11/3.12 compatibility CI.
+- `scripts/migrate_layout.py` and `scripts/generate_shims.py` migration helpers.
+- `autoplay_sdk/skills/autoplay-migrate-imports/SKILL.md` migration assistant skill.
+
+### Changed
+
+- Package layout reorganized into domain folders while preserving top-level public exports from `autoplay_sdk.__init__`.
+- `autoplay-install-skills` now supports `--migrate` and installs the migration skill in full-install mode.
+- `pyproject.toml` version bumped to `0.7.4`.
+
+### Deprecated (supported in 0.7.4, removed in 1.0.0)
+
+| Old path | New canonical path |
+|---|---|
+| `autoplay_sdk.serve` | `autoplay_sdk.api` |
+| `autoplay_sdk.serve.fastapi` | `autoplay_sdk.api.fastapi` |
+| `autoplay_sdk.agent_states` | `autoplay_sdk.agent_state.v1.states` |
+| `autoplay_sdk.agent_states.state_machine` | `autoplay_sdk.agent_state.v1.state_machine` |
+| `autoplay_sdk.agent_states.types` | `autoplay_sdk.agent_state.v1.types` |
+| `autoplay_sdk.agent_states.proactive_idle_expiry` | `autoplay_sdk.proactive.state.idle_expiry` |
+| `autoplay_sdk.agent_state_v2` | `autoplay_sdk.agent_state.v2.states` |
+| `autoplay_sdk.agent_state_v2.session_state` | `autoplay_sdk.agent_state.v2.session_state` |
+| `autoplay_sdk.agent_state_v2.types` | `autoplay_sdk.agent_state.v2.types` |
+| `autoplay_sdk.rag_query` | `autoplay_sdk.rag.query` |
+| `autoplay_sdk.rag_query.assembly` | `autoplay_sdk.rag.query.assembly` |
+| `autoplay_sdk.rag_query.formatters` | `autoplay_sdk.rag.query.formatters` |
+| `autoplay_sdk.rag_query.pipeline` | `autoplay_sdk.rag.query.pipeline` |
+| `autoplay_sdk.rag_query.watermark` | `autoplay_sdk.rag.query.watermark` |
+| `autoplay_sdk.proactive_resilience` | `autoplay_sdk.proactive.resilience.resilience` |
+| `autoplay_sdk.proactive_resilience.circuit` | `autoplay_sdk.proactive.resilience.circuit` |
+| `autoplay_sdk.proactive_resilience.config` | `autoplay_sdk.proactive.resilience.config` |
+| `autoplay_sdk.proactive_resilience.keys` | `autoplay_sdk.proactive.resilience.keys` |
+| `autoplay_sdk.proactive_resilience.outcomes` | `autoplay_sdk.proactive.resilience.outcomes` |
+| `autoplay_sdk.proactive_resilience.protocol` | `autoplay_sdk.proactive.resilience.protocol` |
+| `autoplay_sdk.chatbot` | `autoplay_sdk.chat.chatbot` |
+| `autoplay_sdk.chat_pipeline` | `autoplay_sdk.chat.chat_pipeline` |
+| `autoplay_sdk.context_store` | `autoplay_sdk.context.context_store` |
+| `autoplay_sdk.agent_context` | `autoplay_sdk.context.agent_context` |
+| `autoplay_sdk.user_index` | `autoplay_sdk.context.user_index` |
+| `autoplay_sdk.summarizer` | `autoplay_sdk.context.summarizer` |
+| `autoplay_sdk.models` | `autoplay_sdk.core.models` |
+| `autoplay_sdk.exceptions` | `autoplay_sdk.core.exceptions` |
+| `autoplay_sdk.metrics` | `autoplay_sdk.core.metrics` |
+| `autoplay_sdk.onboarding` | `autoplay_sdk.admin.onboarding` |
+| `autoplay_sdk.proactive_idle_expiry` | `autoplay_sdk.proactive.state.idle_expiry` |
+| `autoplay_sdk.proactive_triggers` | `autoplay_sdk.proactive.triggers` |
+| `autoplay_sdk.proactive_triggers.builtin_catalog` | `autoplay_sdk.proactive.triggers.builtin_catalog` |
+| `autoplay_sdk.proactive_triggers.context_source` | `autoplay_sdk.proactive.triggers.context_source` |
+| `autoplay_sdk.proactive_triggers.defaults` | `autoplay_sdk.proactive.triggers.defaults` |
+| `autoplay_sdk.proactive_triggers.entity` | `autoplay_sdk.proactive.triggers.entity` |
+| `autoplay_sdk.proactive_triggers.judge` | `autoplay_sdk.proactive.triggers.judge` |
+| `autoplay_sdk.proactive_triggers.pending_tour_offer` | `autoplay_sdk.proactive.triggers.pending_tour_offer` |
+| `autoplay_sdk.proactive_triggers.predicate_trigger` | `autoplay_sdk.proactive.triggers.predicate_trigger` |
+| `autoplay_sdk.proactive_triggers.proactive_intercom_config` | `autoplay_sdk.proactive.triggers.proactive_intercom_config` |
+| `autoplay_sdk.proactive_triggers.quick_reply_match` | `autoplay_sdk.proactive.triggers.quick_reply_match` |
+| `autoplay_sdk.proactive_triggers.registry` | `autoplay_sdk.proactive.triggers.registry` |
+| `autoplay_sdk.proactive_triggers.scope` | `autoplay_sdk.proactive.triggers.scope` |
+| `autoplay_sdk.proactive_triggers.section_activity` | `autoplay_sdk.proactive.triggers.section_activity` |
+| `autoplay_sdk.proactive_triggers.tour_registry` | `autoplay_sdk.proactive.triggers.tour_registry` |
+| `autoplay_sdk.proactive_triggers.trigger_config` | `autoplay_sdk.proactive.triggers.trigger_config` |
+| `autoplay_sdk.proactive_triggers.triggers` | `autoplay_sdk.proactive.triggers.triggers` |
+| `autoplay_sdk.proactive_triggers.triggers.canonical_ping_pong` | `autoplay_sdk.proactive.triggers.triggers.canonical_ping_pong` |
+| `autoplay_sdk.proactive_triggers.triggers.scoped_canonical_ping_pong` | `autoplay_sdk.proactive.triggers.triggers.scoped_canonical_ping_pong` |
+| `autoplay_sdk.proactive_triggers.triggers.section_playbook` | `autoplay_sdk.proactive.triggers.triggers.section_playbook` |
+| `autoplay_sdk.proactive_triggers.triggers.user_page_dwell` | `autoplay_sdk.proactive.triggers.triggers.user_page_dwell` |
+| `autoplay_sdk.proactive_triggers.types` | `autoplay_sdk.proactive.triggers.types` |
+| `autoplay_sdk.proactive_triggers.url_scope` | `autoplay_sdk.proactive.triggers.url_scope` |
+
+### Migration
+
+
+`autoplay_sdk.rag` remains a stable alias in `0.7.4` (no deprecation warning).
+
+- Follow `docs/sdk/migration-0.7.4.mdx` for scripted import updates.
+- `from autoplay_sdk import ...` imports remain stable and do not need changes.
+
+---
+
 ## [0.7.3] — 2026-05-14
 
 ### Documentation

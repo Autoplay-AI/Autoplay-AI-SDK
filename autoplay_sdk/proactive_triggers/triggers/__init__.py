@@ -1,25 +1,25 @@
-"""Concrete proactive trigger implementations."""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from autoplay_sdk.proactive_triggers.defaults import (
-    TRIGGER_ID_CANONICAL_URL_PING_PONG,
-    TRIGGER_ID_SECTION_PLAYBOOK_MATCH,
-    TRIGGER_ID_USER_PAGE_DWELL,
-)
-from autoplay_sdk.proactive_triggers.triggers.canonical_ping_pong import (
-    CanonicalPingPongTrigger,
-)
-from autoplay_sdk.proactive_triggers.triggers.section_playbook import (
-    SectionPlaybookTrigger,
-)
-from autoplay_sdk.proactive_triggers.triggers.user_page_dwell import (
-    UserPageDwellTrigger,
+import importlib
+import warnings as _warnings
+
+_warnings.warn(
+    "`autoplay_sdk.proactive_triggers.triggers` has moved to `autoplay_sdk.proactive.triggers.triggers`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
-__all__ = [
-    "TRIGGER_ID_CANONICAL_URL_PING_PONG",
-    "TRIGGER_ID_SECTION_PLAYBOOK_MATCH",
-    "TRIGGER_ID_USER_PAGE_DWELL",
-    "CanonicalPingPongTrigger",
-    "SectionPlaybookTrigger",
-    "UserPageDwellTrigger",
-]
+_TARGET = "autoplay_sdk.proactive.triggers.triggers"
+
+
+def __getattr__(name: str):
+    mod = importlib.import_module(_TARGET)
+    try:
+        return getattr(mod, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+
+def __dir__():
+    return dir(importlib.import_module(_TARGET))

@@ -1,85 +1,19 @@
-"""Orchestrate proactive idle teardown for chat integrations (remote delete → FSM → local cleanup)."""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from __future__ import annotations
+import importlib
+import sys as _sys
+import warnings as _warnings
 
-import logging
-from dataclasses import dataclass
-from enum import Enum
-from typing import Protocol, runtime_checkable
-
-from autoplay_sdk.agent_states.state_machine import (
-    AgentStateMachine,
-    proactive_idle_eligible,
+_warnings.warn(
+    "`autoplay_sdk.agent_states.proactive_idle_expiry` has moved to `autoplay_sdk.proactive.state.idle_expiry`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
 )
-from autoplay_sdk.agent_states.types import ProactiveIdleExpiryResult
 
-logger = logging.getLogger(__name__)
+_mod = importlib.import_module("autoplay_sdk.proactive.state.idle_expiry")
 
-
-class ProactiveIdleExpiryPipelineStatus(str, Enum):
-    """Outcome of :func:`run_proactive_idle_expiry`."""
-
-    SKIPPED_NOT_ELIGIBLE = "skipped_not_eligible"
-    REMOTE_DELETE_FAILED = "remote_delete_failed"
-    COMPLETED = "completed"
-
-
-@dataclass(frozen=True)
-class ProactiveIdleExpiryPipelineResult:
-    """Structured result from :func:`run_proactive_idle_expiry`."""
-
-    status: ProactiveIdleExpiryPipelineStatus
-    fsm_result: ProactiveIdleExpiryResult | None = None
-
-
-@runtime_checkable
-class ProactiveIdleExpiryHooks(Protocol):
-    """Host hooks for remote thread deletion and local connector cleanup."""
-
-    async def delete_remote_chat_thread(self) -> bool:
-        """Return ``True`` only when remote teardown succeeded (proceed to FSM + local cleanup)."""
-
-    async def clear_local_chat_thread_state(self) -> None:
-        """Clear session↔thread binding and persisted FSM for this thread."""
-
-
-async def run_proactive_idle_expiry(
-    sm: AgentStateMachine,
-    *,
-    now: float,
-    interaction_timeout_s: float,
-    hooks: ProactiveIdleExpiryHooks,
-) -> ProactiveIdleExpiryPipelineResult:
-    """Run ordered pipeline: eligibility → remote delete → FSM idle expiry → local cleanup.
-
-    Does not mutate the FSM when not eligible or when ``delete_remote_chat_thread`` returns
-    ``False``.
-    """
-    if not proactive_idle_eligible(sm, now, interaction_timeout_s):
-        return ProactiveIdleExpiryPipelineResult(
-            status=ProactiveIdleExpiryPipelineStatus.SKIPPED_NOT_ELIGIBLE,
-        )
-
-    if not await hooks.delete_remote_chat_thread():
-        return ProactiveIdleExpiryPipelineResult(
-            status=ProactiveIdleExpiryPipelineStatus.REMOTE_DELETE_FAILED,
-        )
-
-    fsm_result = sm.expire_proactive_to_thinking_if_idle(now, interaction_timeout_s)
-    if not fsm_result.transitioned:
-        logger.error(
-            "agent_states: proactive_idle_expiry FSM did not transition after successful "
-            "remote delete (unexpected); proceeding with clear_local_chat_thread_state "
-            "from_state=%s",
-            sm.state.value,
-            extra={
-                "event_type": "proactive_idle_expiry_fsm_invariant",
-                "from_state": sm.state.value,
-            },
-        )
-
-    await hooks.clear_local_chat_thread_state()
-    return ProactiveIdleExpiryPipelineResult(
-        status=ProactiveIdleExpiryPipelineStatus.COMPLETED,
-        fsm_result=fsm_result,
-    )
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

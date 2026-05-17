@@ -59,7 +59,7 @@ def test_enter_reactive_from_user_message_logs_and_reraises_invalid_transition()
             "transition_to",
             side_effect=InvalidTransitionError("forced"),
         ),
-        patch("autoplay_sdk.agent_states.state_machine.logger.warning") as warn,
+        patch("autoplay_sdk.agent_state.v1.state_machine.logger.warning") as warn,
     ):
         with pytest.raises(InvalidTransitionError, match="forced"):
             sm.enter_reactive_from_user_message(reason="inbound_user_message")
@@ -148,19 +148,24 @@ def test_can_show_proactive_with_reason_wrong_state() -> None:
 
 
 def test_expire_proactive_to_thinking_if_idle_transitions() -> None:
-    with patch("autoplay_sdk.agent_states.state_machine.time") as mock_time:
+    with patch("autoplay_sdk.agent_state.v1.state_machine.time") as mock_time:
+        from autoplay_sdk.agent_state.v1.state_machine import (
+            AgentStateMachine as CanonSM,
+        )
+        from autoplay_sdk.agent_state.v1.types import AgentState as CanonState
+
         mock_time.time.return_value = 1000.0
-        sm = AgentStateMachine()
-        sm.transition_to(AgentState.PROACTIVE_ASSISTANCE)
+        sm = CanonSM()
+        sm.transition_to(CanonState.PROACTIVE_ASSISTANCE)
         entered = sm.state_entered_at
         assert entered == 1000.0
         assert not sm.expire_proactive_to_thinking_if_idle(1009.0, 10.0)
-        assert sm.state == AgentState.PROACTIVE_ASSISTANCE
+        assert sm.state == CanonState.PROACTIVE_ASSISTANCE
         mock_time.time.return_value = 1010.0
         r = sm.expire_proactive_to_thinking_if_idle(1010.0, 10.0)
         assert r.transitioned and r.reset_chat_thread_binding
         assert r
-        assert sm.state == AgentState.THINKING
+        assert sm.state == CanonState.THINKING
         assert sm.state_entered_at == 1010.0
 
 

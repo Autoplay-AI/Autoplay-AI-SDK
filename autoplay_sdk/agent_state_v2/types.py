@@ -1,31 +1,19 @@
-"""Enums and exceptions for agent state v2 (3-state session FSM)."""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from __future__ import annotations
+import importlib
+import sys as _sys
+import warnings as _warnings
 
-from enum import Enum
+_warnings.warn(
+    "`autoplay_sdk.agent_state_v2.types` has moved to `autoplay_sdk.agent_state.v2.types`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
+_mod = importlib.import_module("autoplay_sdk.agent_state.v2.types")
 
-class AgentStateV2(str, Enum):
-    """Three operational states for the v2 session FSM.
-
-    Named ``AgentStateV2`` to avoid collision with the existing
-    ``autoplay_sdk.agent_states.AgentState`` (5-state enum).
-    """
-
-    THINKING = "thinking"
-    PROACTIVE = "proactive_assistance"
-    REACTIVE = "reactive_assistance"
-
-
-class InvalidTransitionError(ValueError):
-    """Raised when a requested state transition violates the allowed rules.
-
-    Valid transitions::
-
-        thinking  → proactive   (blocked if cooldown_active)
-        thinking  → reactive    (cooldown does NOT block)
-        proactive → thinking    ONLY via tick() timeout — never direct
-        reactive  → thinking    ONLY via tick() timeout — never direct
-
-    Direct proactive ↔ reactive transitions are never allowed.
-    """
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

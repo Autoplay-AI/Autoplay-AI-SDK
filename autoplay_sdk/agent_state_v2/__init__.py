@@ -1,30 +1,25 @@
-"""Agent state v2 — 3-state session FSM (THINKING / PROACTIVE / REACTIVE).
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-Coexists with ``autoplay_sdk.agent_states`` (5-state ``AgentStateMachine``);
-nothing in that module is changed.
+import importlib
+import warnings as _warnings
 
-Typical usage::
-
-    from autoplay_sdk.agent_state_v2 import SessionState, AgentStateV2
-
-    session = SessionState()
-    ok = session.transition_to_proactive("my_trigger")
-    session.tick()
-"""
-
-from autoplay_sdk.agent_state_v2.session_state import (
-    ProactiveState,
-    ReactiveState,
-    SessionState,
-    ThinkingState,
+_warnings.warn(
+    "`autoplay_sdk.agent_state_v2` has moved to `autoplay_sdk.agent_state.v2.states`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
 )
-from autoplay_sdk.agent_state_v2.types import AgentStateV2, InvalidTransitionError
 
-__all__ = [
-    "AgentStateV2",
-    "InvalidTransitionError",
-    "ProactiveState",
-    "ReactiveState",
-    "SessionState",
-    "ThinkingState",
-]
+_TARGET = "autoplay_sdk.agent_state.v2.states"
+
+
+def __getattr__(name: str):
+    mod = importlib.import_module(_TARGET)
+    try:
+        return getattr(mod, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+
+def __dir__():
+    return dir(importlib.import_module(_TARGET))

@@ -90,7 +90,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from autoplay_sdk.models import ActionsPayload, AnyPayload, SummaryPayload
+from autoplay_sdk.core.models import ActionsPayload, AnyPayload, SummaryPayload
 
 logger = logging.getLogger(__name__)
 

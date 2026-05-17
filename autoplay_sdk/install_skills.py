@@ -34,6 +34,7 @@ ACTIVITY_SKILLS: dict[str, str] = {
 }
 
 CORE_SKILL = "autoplay-core"
+MIGRATION_SKILL = "autoplay-migrate-imports"
 
 
 def _skills_source_root() -> Path:
@@ -102,6 +103,11 @@ def main() -> None:
         action="store_true",
         help="Overwrite existing skill directories in destination.",
     )
+    parser.add_argument(
+        "--migrate",
+        action="store_true",
+        help="Install only the migration helper skill (plus core).",
+    )
     args = parser.parse_args()
 
     # Validate
@@ -136,6 +142,11 @@ def main() -> None:
             )
             or copied_any
         )
+    elif args.migrate:
+        copied_any = (
+            _copy_skill(source_root, MIGRATION_SKILL, dest_root, force=args.force)
+            or copied_any
+        )
     elif args.activity:
         pass  # activity-only install: core + activity below
     else:
@@ -150,6 +161,10 @@ def main() -> None:
                 _copy_skill(source_root, skill_dir, dest_root, force=args.force)
                 or copied_any
             )
+        copied_any = (
+            _copy_skill(source_root, MIGRATION_SKILL, dest_root, force=args.force)
+            or copied_any
+        )
 
     if args.activity:
         copied_any = (
@@ -158,7 +173,7 @@ def main() -> None:
             )
             or copied_any
         )
-    elif not args.chatbot and args.chatbot is None:
+    elif not args.chatbot and args.chatbot is None and not args.migrate:
         pass  # already installed all above
 
     if not copied_any and not args.force:

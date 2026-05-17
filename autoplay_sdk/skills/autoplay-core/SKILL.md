@@ -24,6 +24,12 @@ pip install autoplay-sdk
 #   pip install google-generativeai  # Gemini
 ```
 
+Upgrading an existing integration? Install the migration helper skill and ask your agent to rewrite deprecated imports:
+
+```bash
+autoplay-install-skills --migrate
+```
+
 Credentials come from the Autoplay dashboard after running `onboard_product`:
 - `CONNECTOR_URL` — stream URL: `https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID`
 - `API_TOKEN` — Bearer token (Unkey key)
@@ -74,7 +80,7 @@ Rules:
 ```python
 import asyncio
 from autoplay_sdk import AsyncConnectorClient, compose_chat_pipeline
-from autoplay_sdk.user_index import UserSessionIndex
+from autoplay_sdk.context.user_index import UserSessionIndex
 
 CONNECTOR_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
 API_TOKEN = "your-api-token"
@@ -131,7 +137,7 @@ This avoids hand-rolled `user_id -> session_id` indexing and keeps `product_id`-
 If your chatbot runtime is in another process (Rasa/Botpress/Twilio/custom webhook), prefer the built-in FastAPI factory:
 
 ```python
-from autoplay_sdk.serve import build_copilot_app
+from autoplay_sdk.api import build_copilot_app
 
 app = build_copilot_app(
     stream_url=CONNECTOR_URL,

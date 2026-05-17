@@ -6,7 +6,9 @@ Also verifies that the exceptions are raised by the wired call sites.
 
 from __future__ import annotations
 
+import json
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -15,12 +17,35 @@ import pytest
 _SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
 sys.path.insert(0, str(_SDK_DIR))
 
-from autoplay_sdk.exceptions import (  # noqa: E402
+from autoplay_sdk.core.exceptions import (  # noqa: E402
     SdkBufferFullError,
     SdkConfigError,
     SdkError,
     SdkUpstreamError,
 )
+
+
+def _debug_log(
+    *, run_id: str, hypothesis_id: str, location: str, message: str, data: dict
+) -> None:
+    # region agent log
+    payload = {
+        "sessionId": "a1da9d",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with Path(
+            "/Users/marieliesse/Desktop/CODE/real-time-chatbot-poc/.cursor/debug-a1da9d.log"
+        ).open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    # endregion
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +94,18 @@ class TestExceptionWiring:
     def test_session_summarizer_threshold_raises_sdk_config_error(self):
         """SessionSummarizer raises SdkConfigError (not ValueError) for bad threshold."""
         from autoplay_sdk.summarizer import SessionSummarizer
+
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H9",
+            location="tests/test_sdk_exceptions.py:test_session_summarizer_threshold_raises_sdk_config_error",
+            message="expected_exception_identity",
+            data={
+                "expected_cls_module": SdkConfigError.__module__,
+                "expected_cls_qualname": SdkConfigError.__qualname__,
+                "expected_cls_id": id(SdkConfigError),
+            },
+        )
 
         with pytest.raises(SdkConfigError):
             SessionSummarizer(llm=MagicMock(), threshold=0)

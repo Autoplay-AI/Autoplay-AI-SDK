@@ -77,19 +77,44 @@ import random
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
 from httpx_sse import connect_sse
 
-from autoplay_sdk.exceptions import SdkUpstreamError
-from autoplay_sdk.metrics import SdkMetricsHook, _safe_call
-from autoplay_sdk.models import ActionsPayload, SummaryPayload
+from autoplay_sdk.core.exceptions import SdkUpstreamError
+from autoplay_sdk.core.metrics import SdkMetricsHook, _safe_call
+from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
 from autoplay_sdk.stream_auth import resolve_connector_bearer_token
 
 logger = logging.getLogger(__name__)
+_DEBUG_LOG_PATH = Path(
+    "/Users/marieliesse/Desktop/CODE/real-time-chatbot-poc/.cursor/debug-a1da9d.log"
+)
 
 _WORKER_STOP = object()  # sentinel that tells the worker thread to exit
+
+
+def _debug_log(
+    *, run_id: str, hypothesis_id: str, location: str, message: str, data: dict
+) -> None:
+    # region agent log
+    payload = {
+        "sessionId": "a1da9d",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    # endregion
 
 
 class ConnectorClient:
@@ -369,6 +394,19 @@ class ConnectorClient:
                             extra={"url": self._url, "retry_count": retry_count},
                         )
                         self._running = False
+                        _debug_log(
+                            run_id="pre-fix",
+                            hypothesis_id="H8",
+                            location="autoplay_sdk/client.py:run:max_retries_exhausted",
+                            message="raising_sdk_upstream_error",
+                            data={
+                                "retry_count": retry_count,
+                                "max_retries": self._max_retries,
+                                "raised_cls_module": SdkUpstreamError.__module__,
+                                "raised_cls_qualname": SdkUpstreamError.__qualname__,
+                                "raised_cls_id": id(SdkUpstreamError),
+                            },
+                        )
                         raise SdkUpstreamError(
                             f"autoplay_sdk: max_retries={self._max_retries} exhausted "
                             f"after {retry_count} attempts"

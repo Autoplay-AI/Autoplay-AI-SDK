@@ -1,35 +1,25 @@
-"""Session-level agent state FSM (reactive / proactive / guidance / conservative)."""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from autoplay_sdk.agent_states.proactive_idle_expiry import (
-    ProactiveIdleExpiryHooks,
-    ProactiveIdleExpiryPipelineResult,
-    ProactiveIdleExpiryPipelineStatus,
-    run_proactive_idle_expiry,
-)
-from autoplay_sdk.agent_states.state_machine import (
-    AgentStateMachine,
-    proactive_idle_eligible,
-)
-from autoplay_sdk.agent_states.types import (
-    AgentState,
-    InvalidSnapshotError,
-    InvalidTransitionError,
-    ProactiveIdleExpiryResult,
-    SessionMetrics,
-    TaskProgress,
+import importlib
+import warnings as _warnings
+
+_warnings.warn(
+    "`autoplay_sdk.agent_states` has moved to `autoplay_sdk.agent_state.v1.states`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
-__all__ = [
-    "AgentState",
-    "AgentStateMachine",
-    "InvalidSnapshotError",
-    "InvalidTransitionError",
-    "ProactiveIdleExpiryHooks",
-    "ProactiveIdleExpiryPipelineResult",
-    "ProactiveIdleExpiryPipelineStatus",
-    "ProactiveIdleExpiryResult",
-    "SessionMetrics",
-    "TaskProgress",
-    "proactive_idle_eligible",
-    "run_proactive_idle_expiry",
-]
+_TARGET = "autoplay_sdk.agent_state.v1.states"
+
+
+def __getattr__(name: str):
+    mod = importlib.import_module(_TARGET)
+    try:
+        return getattr(mod, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+
+def __dir__():
+    return dir(importlib.import_module(_TARGET))

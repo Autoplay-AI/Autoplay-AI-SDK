@@ -1,41 +1,19 @@
-"""Optional session metadata for opt-in visual guidance after a scripted quick_reply."""
+"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
-from __future__ import annotations
+import importlib
+import sys as _sys
+import warnings as _warnings
 
-import json
-from dataclasses import dataclass
-from typing import Any
+_warnings.warn(
+    "`autoplay_sdk.proactive_triggers.pending_tour_offer` has moved to `autoplay_sdk.proactive.triggers.pending_tour_offer`. "
+    "Update your imports before 1.0.0, when the old path will be removed.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
+_mod = importlib.import_module("autoplay_sdk.proactive.triggers.pending_tour_offer")
 
-@dataclass(frozen=True)
-class PendingTourOffer:
-    """Represents a pending \"Would you like me to show you?\" tour opt-in (host-persisted)."""
-
-    flow_id: str
-
-
-def pending_offer_to_json(flow_id: str) -> str:
-    """Serialize :class:`PendingTourOffer` as Redis JSON (legacy ``\"1\"`` still accepted)."""
-    fid = (flow_id or "").strip()
-    return json.dumps({"flow_id": fid})
-
-
-def resolve_pending_redis_value(raw: str | None, *, default_flow_id: str) -> str:
-    """Map stored Redis value to a UserTour ``flow_id`` (legacy ``\"1\"`` → default)."""
-    df = (default_flow_id or "").strip()
-    if raw is None:
-        return df
-    s = str(raw).strip()
-    if not s:
-        return df
-    if s == "1":
-        return df
-    try:
-        obj: Any = json.loads(s)
-        if isinstance(obj, dict):
-            fid = (obj.get("flow_id") or "").strip()
-            if fid:
-                return fid
-    except Exception:
-        pass
-    return df
+# Preserve legacy import path, but alias to the canonical module object so
+# attribute reads/writes and module globals behave identically.
+_sys.modules[__name__] = _mod
+globals().update(_mod.__dict__)

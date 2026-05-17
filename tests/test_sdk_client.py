@@ -17,8 +17,10 @@ Tests cover:
 
 from __future__ import annotations
 
+import json
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -59,6 +61,29 @@ def _summary_payload() -> dict:
         "replaces": 5,
         "forwarded_at": 1234567890.0,
     }
+
+
+def _debug_log(
+    *, run_id: str, hypothesis_id: str, location: str, message: str, data: dict
+) -> None:
+    # region agent log
+    payload = {
+        "sessionId": "a1da9d",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with Path(
+            "/Users/marieliesse/Desktop/CODE/real-time-chatbot-poc/.cursor/debug-a1da9d.log"
+        ).open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    # endregion
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +481,19 @@ class TestContextManager:
 class TestMaxRetries:
     def test_max_retries_raises_sdk_upstream_error_after_exhaustion(self):
         """run() raises SdkUpstreamError once max_retries transient failures are exceeded."""
-        from autoplay_sdk.exceptions import SdkUpstreamError
+        from autoplay_sdk.core.exceptions import SdkUpstreamError
+
+        _debug_log(
+            run_id="pre-fix",
+            hypothesis_id="H7",
+            location="tests/test_sdk_client.py:test_max_retries_raises_sdk_upstream_error_after_exhaustion",
+            message="expected_exception_identity",
+            data={
+                "expected_cls_module": SdkUpstreamError.__module__,
+                "expected_cls_qualname": SdkUpstreamError.__qualname__,
+                "expected_cls_id": id(SdkUpstreamError),
+            },
+        )
 
         client = ConnectorClient(
             url="http://x",
@@ -647,7 +684,7 @@ class TestConnectorClientTimeouts:
 class TestConnectorClientExceptions:
     def test_max_retries_exhausted_raises_sdk_upstream_error(self):
         """When max_retries is exhausted, SdkUpstreamError is raised (not RuntimeError)."""
-        from autoplay_sdk.exceptions import SdkUpstreamError
+        from autoplay_sdk.core.exceptions import SdkUpstreamError
 
         client = ConnectorClient(
             url="http://x",
@@ -668,6 +705,6 @@ class TestConnectorClientExceptions:
 
     def test_sdk_upstream_error_is_sdk_error_subclass(self):
         """SdkUpstreamError must be a subclass of SdkError."""
-        from autoplay_sdk.exceptions import SdkError, SdkUpstreamError
+        from autoplay_sdk.core.exceptions import SdkError, SdkUpstreamError
 
         assert issubclass(SdkUpstreamError, SdkError)

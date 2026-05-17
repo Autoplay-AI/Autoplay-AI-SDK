@@ -128,7 +128,7 @@ If context is empty, answer normally without mentioning it.
 ```python
 import httpx
 from autoplay_sdk import AsyncConnectorClient, AsyncSessionSummarizer
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
+from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
 
 BOTPRESS_WEBHOOK_URL = "https://webhook.botpress.cloud/YOUR_WEBHOOK_ID"
 

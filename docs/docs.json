@@ -230,7 +230,12 @@
       },
       {
         "group": "Reference",
-        "pages": ["changelog", "sdk/logging", "sdk/payload-schema"]
+        "pages": [
+          "changelog",
+          "sdk/migration-0.7.4",
+          "sdk/logging",
+          "sdk/payload-schema"
+        ]
       }
     ]
   },
