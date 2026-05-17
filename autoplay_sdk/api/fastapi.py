@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.chat_pipeline import compose_chat_pipeline
 from autoplay_sdk.prompts import RAG_SYSTEM_PROMPT
-from autoplay_sdk.context.user_index import UserSessionIndex
+from autoplay_sdk.user_index import UserSessionIndex
 
 LlmCallable = Callable[[str], Awaitable[str]]
 

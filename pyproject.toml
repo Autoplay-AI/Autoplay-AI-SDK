@@ -32,13 +32,8 @@ dependencies = [
 serve = [
     "fastapi>=0.110.0",
 ]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "fakeredis>=2.0",
-    "ruff>=0.6.0",
+test = [
+    "pytest>=8",
 ]
 
 [project.scripts]
@@ -66,7 +61,6 @@ include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
 filterwarnings = [
     "error::DeprecationWarning:tests.compat",
 ]
