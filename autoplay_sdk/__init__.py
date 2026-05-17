@@ -2,6 +2,8 @@
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
+from . import agent_state, async_client, client  # noqa: F401 — required for patch() to resolve submodule attributes
+
 from autoplay_sdk.agent_state import v2 as agent_state_v2
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.buffer import BufferBackend, EventBuffer, RedisEventBuffer
