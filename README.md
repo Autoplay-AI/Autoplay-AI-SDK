@@ -174,7 +174,7 @@ To migrate automatically, install the migration skill and run it in
 Cursor or Claude:
 
 ```bash
-autoplay-install-skills --skill autoplay-migrate-imports
+autoplay-install-skills --migrate
 ```
 
 Then open your project and say:
