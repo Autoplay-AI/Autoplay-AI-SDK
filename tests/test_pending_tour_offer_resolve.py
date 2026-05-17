@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from autoplay_sdk.proactive_triggers.pending_tour_offer import (
+from autoplay_sdk.proactive.triggers.pending_tour_offer import (
     pending_offer_to_json,
     resolve_pending_redis_value,
 )

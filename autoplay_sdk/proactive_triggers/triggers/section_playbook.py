@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.proactive_triggers.triggers.section_playbook` has moved to `autoplay_sdk.proactive.triggers.triggers.section_playbook`. "
+    "`autoplay_sdk.proactive.triggers.triggers.section_playbook` has moved to `autoplay_sdk.proactive.triggers.triggers.section_playbook`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

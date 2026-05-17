@@ -8,6 +8,16 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 ---
 
+## [0.7.5] — 2026-05-17
+
+### Changed
+
+- Bumped package version to `0.7.5`.
+- Expanded the `test` optional dependency extra to include async/runtime test dependencies (`pytest-asyncio`, `fakeredis`, `respx`) so `pip install -e ".[serve,test]"` is enough for SDK CI and local test runs.
+- Enabled `asyncio_mode = "auto"` in pytest config so async tests are discovered consistently without requiring explicit per-test markers.
+
+---
+
 ## [0.7.4] — 2026-05-16
 
 ### Summary

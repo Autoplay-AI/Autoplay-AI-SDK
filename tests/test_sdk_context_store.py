@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.context_store — ContextStore and AsyncContextStore."""
+"""Tests for autoplay_sdk.context.context_store — ContextStore and AsyncContextStore."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ import pytest
 _SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
 sys.path.insert(0, str(_SDK_DIR))
 
-from autoplay_sdk.context_store import (  # noqa: E402
+from autoplay_sdk.context.context_store import (  # noqa: E402
     AsyncContextStore,
     ContextStore,
     actions_bucket_id,
 )
-from autoplay_sdk.models import ActionsPayload, SlimAction  # noqa: E402
+from autoplay_sdk.core.models import ActionsPayload, SlimAction  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -323,7 +323,9 @@ class TestContextStoreSummarizerWiring:
 
         summarizer = MagicMock()
         summarizer.on_summary = MagicMock()
-        with caplog.at_level(logging.WARNING, logger="autoplay_sdk.context_store"):
+        with caplog.at_level(
+            logging.WARNING, logger="autoplay_sdk.context.context_store"
+        ):
             ContextStore(summarizer=summarizer)
         assert "replacing existing on_summary" in caplog.text
 
@@ -510,7 +512,7 @@ def test_get_without_product_id_falls_back_to_single_product_bucket(caplog) -> N
     payload.actions[0].description = "Scoped action"
     store.add(payload)
 
-    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.context_store"):
+    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.context.context_store"):
         result = store.get("sess_single")
     assert "Scoped action" in result
     assert "fell back to product-scoped actions bucket" in caplog.text
@@ -527,7 +529,7 @@ def test_get_without_product_id_warns_on_ambiguous_scoped_buckets(caplog) -> Non
     store.add(payload_a)
     store.add(payload_b)
 
-    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.context_store"):
+    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.context.context_store"):
         result = store.get("sess_ambiguous")
     assert result == ""
     assert "found multiple product-scoped buckets" in caplog.text

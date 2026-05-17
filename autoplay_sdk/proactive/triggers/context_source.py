@@ -1,4 +1,4 @@
-"""Contracts for loading :class:`~autoplay_sdk.models.ActionsPayload` batches for proactive context.
+"""Contracts for loading :class:`~autoplay_sdk.core.models.ActionsPayload` batches for proactive context.
 
 Hosts implement :class:`RecentActionsPayloadSource` in the connector or app layer (e.g. in-memory
 store, Zep). The SDK stays free of connector imports.

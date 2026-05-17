@@ -1,4 +1,4 @@
-"""autoplay_sdk.user_index — user-keyed session index for chatbot integrations.
+"""autoplay_sdk.context.user_index — user-keyed session index for chatbot integrations.
 
 `ContextStore` is keyed by session_id, while chatbot backends are often keyed by
 user_id. `UserSessionIndex` bridges that gap by tracking recent

@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.summarizer` has moved to `autoplay_sdk.context.summarizer`. "
+    "`autoplay_sdk.context.summarizer` has moved to `autoplay_sdk.context.summarizer`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

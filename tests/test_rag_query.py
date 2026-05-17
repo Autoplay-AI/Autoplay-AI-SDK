@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.rag_query — assembly, formatters, assemble_rag_chat_context."""
+"""Tests for autoplay_sdk.rag.query — assembly, formatters, assemble_rag_chat_context."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import logging
 import pytest
 
 from autoplay_sdk.prompts.adoption_copilot import RAG_SYSTEM_PROMPT, REASONING_PROMPT
-from autoplay_sdk.rag_query import (
+from autoplay_sdk.rag.query import (
     ChatContextAssembly,
     RagChatProviders,
     assemble_rag_chat_context,
@@ -157,7 +157,7 @@ async def test_assemble_rag_chat_context_failure_logs_warning_then_reraises(
         raise RuntimeError("provider down")
 
     providers = RagChatProviders(session_activity_local=boom)
-    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.rag_query.pipeline"):
+    with caplog.at_level(logging.WARNING, logger="autoplay_sdk.rag.query.pipeline"):
         with pytest.raises(RuntimeError, match="provider down"):
             await assemble_rag_chat_context(
                 product_id="p",
