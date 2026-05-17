@@ -115,6 +115,76 @@ Step-by-step guides for wiring Autoplay into your existing chatbot platform.
 | **PyPI** | [pypi.org/project/autoplay-sdk](https://pypi.org/project/autoplay-sdk) |
 
 ---
+## SDK Structure (0.7.4+)
+
+As of `0.7.4`, the SDK is organized into a domain-based layout. If you're
+upgrading from an earlier version, your existing imports continue to work
+— you'll see a `DeprecationWarning` guiding you to the new paths.
+
+### New import structure
+
+```python
+# Core primitives
+from autoplay_sdk.core.models import ActionsPayload, SlimAction
+from autoplay_sdk.core.metrics import SdkMetricsHook
+
+# Chat
+from autoplay_sdk.chat.chatbot import BaseChatbotWriter
+from autoplay_sdk.chat.chat_pipeline import compose_chat_pipeline
+
+# Context & memory
+from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
+from autoplay_sdk.context.context_store import AsyncContextStore
+from autoplay_sdk.context.user_index import UserSessionIndex
+from autoplay_sdk.context.summarizer import AsyncSessionSummarizer
+
+# Proactive triggers
+from autoplay_sdk.proactive.triggers import ProactiveTriggerRegistry
+from autoplay_sdk.proactive.triggers.defaults import DEFAULT_COOLDOWN_S
+from autoplay_sdk.proactive.resilience.resilience import ProactiveResilienceStore
+from autoplay_sdk.proactive.state.idle_expiry import run_proactive_idle_expiry
+
+# Agent state
+from autoplay_sdk.agent_state.v1.states import AgentStateMachine  # five-state FSM
+from autoplay_sdk.agent_state.v2.states import SessionState        # three-state FSM
+
+# RAG
+from autoplay_sdk.rag.ingest.ingest import RagPipeline
+from autoplay_sdk.rag.query import assemble_rag_chat_context
+
+# API / FastAPI
+from autoplay_sdk.api.fastapi import build_fastapi_app
+
+# Admin
+from autoplay_sdk.admin.onboarding import onboard_product
+```
+
+Top-level imports are unchanged and never require migration:
+
+```python
+from autoplay_sdk import AgentStateMachine, RagPipeline, ProactiveTriggerRegistry
+```
+
+### Upgrading from 0.7.3 and earlier
+
+Old import paths still work in `0.7.4` and emit a `DeprecationWarning`
+with the exact replacement. They will be removed in `1.0.0`.
+
+To migrate automatically, install the migration skill and run it in
+Cursor or Claude:
+
+```bash
+autoplay-install-skills --skill autoplay-migrate-imports
+```
+
+Then open your project and say:
+> *"Migrate my autoplay-sdk imports to 0.7.4"*
+
+The agent will find every deprecated import, rewrite it to the canonical
+path, and verify no deprecated paths remain.
+
+Full migration reference → [docs/sdk/migration-0.7.4.mdx](docs/sdk/migration-0.7.4.mdx)
+---
 
 ## 📋 Contributing
 
