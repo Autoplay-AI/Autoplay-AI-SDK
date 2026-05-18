@@ -20,6 +20,7 @@ rg "from autoplay_sdk\." -g "*.py" \
 
 Then update imports that are not already in canonical domains:
 `core`, `chat`, `context`, `proactive`, `agent_state`, `api`, `rag`, `admin`, `integrations`, `prompts`, `skills`, `compat`.
+For context-writer primitives (including `AsyncAgentContextWriter`), use `autoplay_sdk.context.*` paths.
 
 `autoplay_sdk.rag` remains a stable alias in `0.7.4` and should be left unchanged.
 
@@ -32,6 +33,7 @@ Then update imports that are not already in canonical domains:
 | `autoplay_sdk.agent_states` | `autoplay_sdk.agent_state.v1.states` |
 | `autoplay_sdk.agent_state_v2` | `autoplay_sdk.agent_state.v2.states` |
 | `autoplay_sdk.rag_query` | `autoplay_sdk.rag.query` |
+| `autoplay_sdk.agent_context` | `autoplay_sdk.context.agent_context` |
 | `autoplay_sdk.context_store` | `autoplay_sdk.context.context_store` |
 | `autoplay_sdk.models` | `autoplay_sdk.core.models` |
 

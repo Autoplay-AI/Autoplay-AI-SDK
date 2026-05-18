@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from autoplay_sdk.chatbot import BaseChatbotWriter, ConversationEvent
+from autoplay_sdk.chat.chatbot import BaseChatbotWriter, ConversationEvent
 
 
 def test_base_extract_returns_none_when_no_topics_configured() -> None:

@@ -1,10 +1,10 @@
-"""Tests for autoplay_sdk.models — SlimAction, ActionsPayload, SummaryPayload."""
+"""Tests for autoplay_sdk.core.models — SlimAction, ActionsPayload, SummaryPayload."""
 
 from __future__ import annotations
 
 import pytest
 
-from autoplay_sdk.models import ActionsPayload, SlimAction, SummaryPayload
+from autoplay_sdk.core.models import ActionsPayload, SlimAction, SummaryPayload
 
 # ---------------------------------------------------------------------------
 # Helpers

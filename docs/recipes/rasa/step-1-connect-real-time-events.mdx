@@ -4,36 +4,9 @@ sidebarTitle: "Step 1 — Connect real-time events"
 description: "Stream live user actions into a Rasa-aware bridge using the Autoplay SDK, expose them to Rasa over HTTP, and wire the chat widget."
 ---
 
-This page takes you from zero to a working Rasa bot that grounds its replies in real user activity. Plan to spend ~45 minutes the first time through. Every code file is included verbatim — copy-paste.
+This tutorial gets you from zero to a working Rasa bot with grounded replies in about 45 minutes.
 
-**What you'll build, end to end:**
-
-1. **Frontend (Step 1):** PostHog autocapture wired into your web app, identifying users with `posthog.identify()` and `posthog.register({email})`.
-2. **Onboarding (Step 2):** an Autoplay product registered via `onboard_product`, returning your webhook + SSE credentials.
-3. **PostHog → Autoplay (Step 3):** a HogQL HTTP Webhook destination that parses each click and forwards it to your Autoplay connector.
-4. **Bridge service (Steps 4–5):** a small FastAPI service running the SDK chat pipeline — `AsyncConnectorClient` → `AsyncAgentContextWriter` → `AsyncSessionSummarizer` → `AsyncContextStore` → `agent_state_v2.SessionState` — exposing a single `GET /reply/{user_id}` endpoint that builds an LLM prompt via `ChatContextAssembly` + `build_user_prompt_block`.
-5. **Rasa in Docker (Steps 6–8):** the Rasa server + a custom action server that reads `customData.userId` from the chat widget and HTTPs the bridge. Plus the Rasa training files (`domain.yml`, `nlu.yml`, `rules.yml`, `stories.yml`) wired so every unmatched question routes to the LLM-backed action.
-6. **Chat widget (Step 9):** `rasa-webchat` embedded in your app, talking to Rasa over WebSocket.
-7. **End-to-end test (Step 10):** click in your app, type in the chat, watch the bot reply grounded in what you just did.
-
-**The runtime loop:** user clicks something → ~1 second later the bridge has the enriched action in `AsyncContextStore` → user types in chat → Rasa's action handler calls the bridge → bridge assembles a prompt with the activity baked in → LLM replies grounded in what the user is actually doing.
-
-**Example action note** written into `ContextStore` (near real-time):
-
-```text
-1. Viewed Dashboard — https://yourapp.com/dashboard
-2. Clicked Upgrade plan — https://yourapp.com/dashboard
-3. Viewed Billing — https://yourapp.com/billing
-```
-
-**Example rolling summary** produced by `AsyncSessionSummarizer` after the threshold (default 10 actions):
-
-```text
-The user navigated to the Dashboard, attempted to upgrade their plan,
-and is now reviewing billing options.
-```
-
-### End-to-end walkthrough
+### End-to-end walkthrough (watch first)
 
 <div style={{ position: "relative", paddingBottom: "62.5%", height: 0 }}>
   <iframe
@@ -48,9 +21,20 @@ and is now reviewing billing options.
 
 ---
 
+**What you'll build:**
+
+1. Frontend autocapture with `posthog.identify()` + `posthog.register({email})`.
+2. Product onboarding with `onboard_product` for webhook + SSE credentials.
+3. PostHog destination forwarding events to your Autoplay connector.
+4. A small FastAPI bridge (`AsyncConnectorClient` -> `AsyncAgentContextWriter` -> `AsyncSessionSummarizer` -> `AsyncContextStore` -> `SessionState`).
+5. Rasa + action server in Docker, plus a widget connected over WebSocket.
+6. An end-to-end check where responses are grounded in recent user behavior.
+
+**Runtime loop:** click in app -> event lands in bridge context -> user sends message -> Rasa action calls bridge -> bridge assembles prompt -> LLM returns grounded answer.
+
 ## 🪝 Step 1 — Capture clicks in your web app with PostHog
 
-Install `posthog-js` in your frontend and initialise it on app load. The example below is React/Next.js, but the same shape works in any frontend.
+Install `posthog-js` and initialize it once on app load.
 
 ```bash
 npm install posthog-js
@@ -84,19 +68,19 @@ export default function PostHogProvider({ children }) {
 }
 ```
 
-Mount the provider once at the top of your component tree (`app/layout.js` for Next.js, your root component for Vue/SvelteKit/etc.). Autocapture starts firing immediately — every click, page view, and form submit becomes a PostHog event.
+Mount this provider once at the top of your app (`app/layout.js` in Next.js). Autocapture then sends clicks, page views, and form submits automatically.
 
 <Warning>
   Use your **Project API Key** (starts with `phc_`). The other keys PostHog surfaces (`phx_…`) are personal/admin keys and `posthog.init()` will reject them with a misleading `personal_api_key` error.
 </Warning>
 
-**Verify:** open your app, click around, then check **PostHog → Activity**. You should see `$autocapture` events attributed to your user. Optionally enable **Settings → Project → Session Replay → Record user sessions** for replays.
+**Verify:** open the app, click around, then check **PostHog → Activity** for `$autocapture` events on your user.
 
 ---
 
 ## 📝 Step 2 — Register your product with Autoplay
 
-The SDK ships a one-shot script that creates your webhook + SSE credentials.
+Run a one-time script to create your webhook + SSE credentials.
 
 ```bash
 mkdir -p ~/your-copilot/bridge && cd ~/your-copilot/bridge
@@ -142,14 +126,16 @@ It prints four values — save them. We'll use all four:
 
 ## 🔗 Step 3 — Wire PostHog → Autoplay via a HogQL destination
 
-PostHog needs to POST every autocapture event to Autoplay's webhook, after parsing the click target from `elements_chain`.
+Configure a PostHog destination to forward each autocapture event to your Autoplay webhook.
 
 1. PostHog UI → **Data pipeline → Destinations → + New destination → HTTP Webhook**.
 2. **Enable destination** = ON.
 3. **Webhook URL:** paste `webhook_url` from Step 2.
 4. **Method:** POST. **JSON Body:** clear it. **Headers:** remove the default `Content-Type` row (the Hog code below sets headers itself).
-5. Click **Edit source** and paste the script below, substituting `<WEBHOOK_SECRET>` and `<PRODUCT_ID>` from Step 2.
+5. Click **Edit source** and paste this script (replace `<WEBHOOK_SECRET>` and `<PRODUCT_ID>`).
 
+<AccordionGroup>
+<Accordion title="HogQL destination source (expand to copy)">
 ```js
 fun extractFromElementsChain(str, pattern) {
     try {
@@ -200,6 +186,8 @@ if (res.status >= 400) {
     throw Error(f'Webhook returned {res.status}: {res.body}')
 }
 ```
+</Accordion>
+</AccordionGroup>
 
 6. Click **Test function** — expect status 200 in under 200 ms.
 7. **Create & enable.**
@@ -208,13 +196,13 @@ if (res.status >= 400) {
   PostHog requires the **Webhook URL** field on the form even though the Hog source above overrides it. Paste the same `webhook_url` from Step 2 into both places.
 </Warning>
 
-Click around your app, then check the destination's **Logs** tab — every event should show a successful POST.
+**Verify:** click around your app, then check destination **Logs** for successful POSTs.
 
 ---
 
 ## 🧰 Step 4 — Scaffold the bridge project
 
-The bridge is the only place that touches the Autoplay SDK. Keeping it small and well-isolated means Rasa stays simple — and you can later swap Rasa for any other chat framework without rewriting your SDK logic.
+The bridge is the only service that touches the Autoplay SDK. Keep it small so Rasa remains a thin transport layer.
 
 You already created `~/your-copilot/bridge/` in Step 2. Add the remaining dependencies:
 
@@ -245,10 +233,12 @@ MAX_ACTIONS=30
 
 ## 🔌 Step 5 — Wire the SDK pipeline
 
-Create `bridge/copilot_server.py`. The whole file is ~250 lines but the SDK does the heavy lifting — your code is mostly configuration and a thin HTTP surface.
+Create `bridge/copilot_server.py`. Most of the code is configuration plus one `/reply/{user_id}` endpoint.
 
 ### 2a. Imports and config
 
+<AccordionGroup>
+<Accordion title="copilot_server.py imports and config (expand to copy)">
 ```python
 import asyncio, logging, os, time
 from contextlib import asynccontextmanager
@@ -284,6 +274,8 @@ MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "30"))
 
 _openai = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
 ```
+</Accordion>
+</AccordionGroup>
 
 ### 2b. The LLM callable
 
@@ -303,8 +295,10 @@ async def llm_summarise(prompt: str) -> str:
 
 ### 2c. Compose the SDK pipeline
 
-This is the heart of the integration. Six SDK primitives, no manual context handling.
+This is the core pipeline.
 
+<AccordionGroup>
+<Accordion title="copilot_server.py pipeline composition (expand to copy)">
 ```python
 summariser = AsyncSessionSummarizer(llm=llm_summarise, threshold=SUMMARY_THRESHOLD)
 
@@ -328,6 +322,8 @@ agent_writer = AsyncAgentContextWriter(
     debounce_ms=0,
 )
 ```
+</Accordion>
+</AccordionGroup>
 
 <Note>
   **`AsyncAgentContextWriter` enforces the SDK's ordering guarantee:** the rolling summary is delivered to your destination **before** the raw actions it replaces are removed. Your agent never sees a blank context window during a swap.
@@ -337,6 +333,8 @@ agent_writer = AsyncAgentContextWriter(
 
 `AsyncContextStore` keys actions by `session_id`. Chat copilots start from `user_id` (your auth ID, surfaced via the widget's `customData.userId`). The bridge maintains an index between them.
 
+<AccordionGroup>
+<Accordion title="copilot_server.py session indexing (expand to copy)">
 ```python
 _user_sessions: dict[str, list[tuple[str, float]]] = {}  # user_id -> [(session_id, ts), ...]
 _user_emails: dict[str, str] = {}
@@ -360,6 +358,8 @@ def _session_state(session_id):
         )
     return _session_states[session_id]
 ```
+</Accordion>
+</AccordionGroup>
 
 <Warning>
   **Pass `product_id` when reading from `ContextStore`.** Since v0.6.7, `AsyncContextStore` keys buckets by `(product_id, session_id)` when payloads carry a `product_id` — which they always do in practice. Calling `context_store.get(session_id)` without `product_id=` silently returns an empty string. Track `payload.product_id` per session on ingest and pass it on read.
@@ -382,6 +382,8 @@ async def on_actions(payload: ActionsPayload):
 
 ### 2f. FastAPI lifespan — start the client when the server boots
 
+<AccordionGroup>
+<Accordion title="copilot_server.py FastAPI lifespan (expand to copy)">
 ```python
 _stream_task: asyncio.Task | None = None
 _client: AsyncConnectorClient | None = None
@@ -406,9 +408,13 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Autoplay × Rasa bridge", lifespan=lifespan)
 ```
+</Accordion>
+</AccordionGroup>
 
 ### 2g. Helpers — name from email, current page hint
 
+<AccordionGroup>
+<Accordion title="copilot_server.py helper functions (expand to copy)">
 ```python
 def _name_from_email(email):
     if not email or "@" not in email:
@@ -427,16 +433,20 @@ def _user_recent_activity(user_id):
             chunks.append(text)
     return "\n\n".join(chunks).strip()
 ```
+</Accordion>
+</AccordionGroup>
 
 ### 2h. The `/reply` endpoint — SDK-assembled prompt + LLM call
 
-The system prompt is the **one piece of this tutorial you may want to tune for your product**. It teaches the LLM how to use the activity block that the SDK assembles. Two principles to keep:
+This system prompt is the part you’ll most likely customize later for your product.
 
 1. **Acknowledge the user's activity naturally** — don't recite a click log.
 2. **Pick up from the user's last action** — don't tell them to do something they just did.
 
-The prompt below is generic and copy-paste-safe — no app-specific button names or hardcoded flows. You can publish it alongside your tutorial without leaking anything about your UI.
+It stays generic and safe to copy as-is.
 
+<AccordionGroup>
+<Accordion title="copilot_server.py reply prompt and endpoint (expand to copy)">
 ```python
 SYSTEM_PROMPT = """You are a friendly and helpful assistant for users of this product.
 
@@ -560,6 +570,8 @@ async def get_reply(user_id: str, query: str) -> dict[str, Any]:
         "has_activity": bool(assembly.recent_activity.strip()),
     }
 ```
+</Accordion>
+</AccordionGroup>
 
 ### Start the bridge
 
@@ -589,7 +601,7 @@ curl "http://localhost:8090/reply/YOUR_USER_ID?query=what+did+i+just+do"
 # {"reply":"You're already on Billing — just pick Pro and hit Confirm.", "name":"Muhammad", "has_activity":true}
 ```
 
-That single curl proves: SDK is subscribed, events flowed, `ContextStore` has them, `build_user_prompt_block` assembled the prompt, your LLM returned a grounded reply.
+That confirms events are flowing and your reply path is grounded.
 
 ---
 
@@ -604,6 +616,8 @@ cd ~/your-copilot/rasa-bot
 
 Create `rasa-bot/docker-compose.yml`:
 
+<AccordionGroup>
+<Accordion title="rasa-bot/docker-compose.yml (expand to copy)">
 ```yaml
 services:
   rasa:
@@ -631,6 +645,8 @@ services:
     volumes:
       - ./actions:/app/actions
 ```
+</Accordion>
+</AccordionGroup>
 
 Create `rasa-bot/endpoints.docker.yml`:
 
@@ -655,8 +671,10 @@ socketio:
   **The `metadata_key: customData` line is the join key** between the chat widget's `customData.userId` and Rasa's `tracker.latest_message.metadata`. Without it, the action server can't tell users apart — every chat reply will read random socket UUIDs as `sender_id`.
 </Warning>
 
-Create `rasa-bot/config.yml` (NLU pipeline + dialogue policies):
+Create `rasa-bot/config.yml` (NLU + policies):
 
+<AccordionGroup>
+<Accordion title="rasa-bot/config.yml (expand to copy)">
 ```yaml
 recipe: default.v1
 language: en
@@ -694,9 +712,13 @@ policies:
 
 assistant_id: autoplay-copilot
 ```
+</Accordion>
+</AccordionGroup>
 
 Create `rasa-bot/domain.yml`:
 
+<AccordionGroup>
+<Accordion title="rasa-bot/domain.yml (expand to copy)">
 ```yaml
 version: "3.1"
 intents:
@@ -720,11 +742,15 @@ actions:
   - action_help_current_page
   - action_ask_llm
 ```
+</Accordion>
+</AccordionGroup>
 
 Now the three training files under `rasa-bot/data/`.
 
 Create `rasa-bot/data/nlu.yml`:
 
+<AccordionGroup>
+<Accordion title="rasa-bot/data/nlu.yml (expand to copy)">
 ```yaml
 version: "3.1"
 
@@ -774,9 +800,13 @@ nlu:
       - guide me
       - I don't know what to do
 ```
+</Accordion>
+</AccordionGroup>
 
 Create `rasa-bot/data/rules.yml`:
 
+<AccordionGroup>
+<Accordion title="rasa-bot/data/rules.yml (expand to copy)">
 ```yaml
 version: "3.1"
 
@@ -811,9 +841,13 @@ rules:
       - intent: nlu_fallback
       - action: action_ask_llm
 ```
+</Accordion>
+</AccordionGroup>
 
 Create `rasa-bot/data/stories.yml`:
 
+<AccordionGroup>
+<Accordion title="rasa-bot/data/stories.yml (expand to copy)">
 ```yaml
 version: "3.1"
 
@@ -832,6 +866,8 @@ stories:
       - intent: ask_help_current_page
       - action: action_help_current_page
 ```
+</Accordion>
+</AccordionGroup>
 
 The critical bit is the **last rule** in `rules.yml` — `nlu_fallback → action_ask_llm`. Rasa's `FallbackClassifier` (configured in `config.yml`) emits `nlu_fallback` for any message that doesn't match a known intent with high enough confidence. That rule routes those messages to the LLM-backed action, so the bot can answer free-form questions about your product.
 
@@ -841,6 +877,8 @@ The critical bit is the **last rule** in `rules.yml` — `nlu_fallback → actio
 
 Create `rasa-bot/actions/__init__.py` (empty) and `rasa-bot/actions/actions.py`:
 
+<AccordionGroup>
+<Accordion title="rasa-bot/actions/actions.py (expand to copy)">
 ```python
 """Rasa custom actions — autoplay-native.
 
@@ -921,13 +959,15 @@ class ActionHelpCurrentPage(Action):
         )
         return []
 ```
+</Accordion>
+</AccordionGroup>
 
 What it does per chat turn:
 1. Read `customData.userId` from the widget.
 2. HTTP GET the bridge `/reply/{user_id}?query=…`.
 3. Return whatever the bridge gave us.
 
-No SDK imports, no LLM keys, no context tracking — Rasa stays a thin chat surface.
+No SDK imports, no LLM keys, no context tracking: Rasa stays thin.
 
 ---
 
@@ -958,7 +998,7 @@ curl -s -X POST http://localhost:5005/webhooks/rest/webhook \
   }'
 ```
 
-Expected: a conversational reply that names actual buttons you clicked. If you see "I haven't seen activity," click some things in your app and try again — the bridge's `ContextStore` is empty until events flow.
+Expected: a conversational reply that references real recent actions. If you see “I haven't seen activity,” generate a few clicks first.
 
 ---
 
@@ -1007,14 +1047,11 @@ Mount it once in your root layout with the same `userId` you passed to `posthog.
 
 1. Open your app, click around for ~30 seconds — e.g. start an invite flow but leave the role dropdown empty, or open the upgrade modal but don't confirm.
 2. Open the chat bubble.
-3. Ask:
+3. Ask one of these:
    - **"how do I add a teammate?"** → if you're already on the Team page with the invite modal open, the bot points at the next missing field rather than walking you through the whole flow.
-   - **"can you help me upgrade?"** → if you've opened the upgrade modal, the bot prompts you with the specific next step instead of explaining where Billing lives.
-   - **"what features come with the Pro plan?"** → `nlu_fallback` → LLM-grounded reply that's tailored to the page the user is currently on.
+The bot should not recite click logs. Activity is a private signal used to improve answer relevance.
 
-Notice what the bot is **not** doing: it isn't reciting your click history. The activity is private signal that quietly shapes its answer; the user just gets a more relevant reply.
-
-If the bot's answers feel generic, check the bridge logs and the [troubleshooting matrix](#troubleshooting) below.
+If answers feel generic, check bridge logs and the [troubleshooting matrix](#troubleshooting).
 
 ---
 
@@ -1063,12 +1100,10 @@ After editing the bridge: re-run `uvicorn` (or use `--reload` during development
 
 ## What you've built
 
-You now have a Rasa chatbot whose every reply is **grounded in real user activity** — pulled from the Autoplay SDK in real time, summarised by an LLM, formatted into a prompt by the SDK's own assembly primitives.
+You now have a Rasa chatbot with replies grounded in real user activity.
 
-A few things worth noting:
-
-- **The bridge is reusable.** If you ever move off Rasa — to a custom FastAPI chat endpoint, Twilio webhooks, Botpress on-prem, anything — only the action handler changes. The bridge stays the same.
-- **You own the LLM.** The summariser and the reply call use whatever async `(str) -> str` callable you pass in. Swap providers any time.
-- **The SDK does the heavy lifting.** Reconnect logic, per-session backpressure, summary ordering, prompt assembly — none of that lives in your code.
+- **Reusable bridge:** switch chat frameworks later without rewriting SDK logic.
+- **Bring-your-own model:** swap LLM providers with the same async callable contract.
+- **SDK-managed plumbing:** reconnects, backpressure, summary ordering, and prompt assembly are handled for you.
 
 If anything in this tutorial wasn't clear, or you hit a snag the troubleshooting matrix didn't cover — please reply on the thread or open an issue in the [Autoplay SDK repo](https://github.com/Autoplay-AI/Autoplay-AI-SDK). Feedback shapes the next version of these docs.

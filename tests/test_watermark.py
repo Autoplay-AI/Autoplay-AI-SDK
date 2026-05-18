@@ -1,10 +1,10 @@
-"""Tests for autoplay_sdk.rag_query.watermark."""
+"""Tests for autoplay_sdk.rag.query.watermark."""
 
 from __future__ import annotations
 
 import pytest
 
-from autoplay_sdk.rag_query.watermark import (
+from autoplay_sdk.rag.query.watermark import (
     ChatWatermarkScope,
     InMemoryInboundWatermarkStore,
     cutoff_for_delta_activity,

@@ -6,6 +6,28 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.7.6] — 2026-05-18
+
+### Fixed
+
+- **`autoplay_sdk/skills/autoplay-migrate-imports/SKILL.md`** — tightened the discovery `rg` filter to require a word boundary (`(\.|\s)`) after the canonical-domain alternation group. Without it, deprecated sub-modules whose names start with a canonical prefix (`context_store`, `proactive_triggers`, `agent_state_v2`, `rag_query`) were silently excluded from results, leaving 4 of 6 legacy imports unflagged.
+
+### Changed
+
+- **`autoplay_sdk/skills/autoplay-migrate-imports/SKILL.md`** — inlined the full legacy→canonical path mapping table directly in the skill file. The previous wording ("see the changelog mapping table") referenced a doc that does not ship inside the wheel, so agents had no static replacement guidance and had to rely on runtime `DeprecationWarning` messages to discover new paths.
+
+---
+
+## [0.7.5] — 2026-05-17
+
+### Changed
+
+- Bumped package version to `0.7.5`.
+- Expanded the `test` optional dependency extra to include async/runtime test dependencies (`pytest-asyncio`, `fakeredis`, `respx`) so `pip install -e ".[serve,test]"` is sufficient for SDK CI and local test runs.
+- Enabled `asyncio_mode = "auto"` in pytest config so async test functions are discovered consistently without requiring explicit per-test markers.
+
+---
+
 ## [0.7.4] — 2026-05-16
 
 ### Summary

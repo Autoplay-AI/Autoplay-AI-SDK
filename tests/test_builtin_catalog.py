@@ -5,15 +5,15 @@ from __future__ import annotations
 import pytest
 
 from autoplay_sdk.core.exceptions import SdkConfigError
-from autoplay_sdk.proactive_triggers.builtin_catalog import (
+from autoplay_sdk.proactive.triggers.builtin_catalog import (
     BUILTIN_TRIGGER_CATALOG,
     list_builtin_trigger_catalog,
     registry_from_builtin_specs,
     resolve_builtin_specs,
 )
-from autoplay_sdk.proactive_triggers.defaults import TRIGGER_ID_CANONICAL_URL_PING_PONG
-from autoplay_sdk.proactive_triggers.judge import TRIGGERING_TYPE_LLM_JUDGE
-from autoplay_sdk.proactive_triggers.types import (
+from autoplay_sdk.proactive.triggers.defaults import TRIGGER_ID_CANONICAL_URL_PING_PONG
+from autoplay_sdk.proactive.triggers.judge import TRIGGERING_TYPE_LLM_JUDGE
+from autoplay_sdk.proactive.triggers.types import (
     DEFAULT_COOLDOWN_S,
     DEFAULT_INTERACTION_TIMEOUT_S,
 )
@@ -114,7 +114,7 @@ def test_unknown_builtin_id_raises() -> None:
 
 
 def test_registry_matches_default_singleton_equivalence() -> None:
-    from autoplay_sdk.proactive_triggers import default_proactive_trigger_registry
+    from autoplay_sdk.proactive.triggers import default_proactive_trigger_registry
 
     a = default_proactive_trigger_registry()
     b = registry_from_builtin_specs([_ping_row()])
