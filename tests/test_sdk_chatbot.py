@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.chatbot — BaseChatbotWriter delivery policy."""
+"""Tests for autoplay_sdk.chat.chatbot — BaseChatbotWriter delivery policy."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from autoplay_sdk.chatbot import BaseChatbotWriter, format_chatbot_note_header
+from autoplay_sdk.chat.chatbot import BaseChatbotWriter, format_chatbot_note_header
 
 
 # ---------------------------------------------------------------------------

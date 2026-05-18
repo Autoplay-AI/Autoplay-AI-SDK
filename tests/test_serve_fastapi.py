@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 _SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
 sys.path.insert(0, str(_SDK_DIR))
 
-from autoplay_sdk.models import ActionsPayload, SlimAction  # noqa: E402
-from autoplay_sdk.serve import fastapi as serve_fastapi  # noqa: E402
+from autoplay_sdk.core.models import ActionsPayload, SlimAction  # noqa: E402
+from autoplay_sdk.api import fastapi as serve_fastapi  # noqa: E402
 
 
 class _DummyClient:

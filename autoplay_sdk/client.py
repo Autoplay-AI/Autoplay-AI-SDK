@@ -164,7 +164,7 @@ class ConnectorClient:
                            connection is lost (before the reconnect backoff sleep).
         metrics:           Optional ``SdkMetricsHook`` implementation.  Receives
                            counters for dropped events and queue depth.  See
-                           ``autoplay_sdk.metrics`` for the full interface.
+                           ``autoplay_sdk.core.metrics`` for the full interface.
     """
 
     def __init__(

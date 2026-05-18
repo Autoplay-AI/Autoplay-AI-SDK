@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from autoplay_sdk.models import ActionsPayload, SummaryPayload
+from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
 from autoplay_sdk.webhook_receiver import WebhookReceiver
 
 # ---------------------------------------------------------------------------

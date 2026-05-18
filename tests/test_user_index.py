@@ -7,9 +7,9 @@ from pathlib import Path
 _SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
 sys.path.insert(0, str(_SDK_DIR))
 
-from autoplay_sdk.context_store import ContextStore  # noqa: E402
-from autoplay_sdk.models import ActionsPayload, SlimAction  # noqa: E402
-from autoplay_sdk.user_index import UserSessionIndex  # noqa: E402
+from autoplay_sdk.context.context_store import ContextStore  # noqa: E402
+from autoplay_sdk.core.models import ActionsPayload, SlimAction  # noqa: E402
+from autoplay_sdk.context.user_index import UserSessionIndex  # noqa: E402
 
 
 def _payload(

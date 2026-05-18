@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import time
 
-from autoplay_sdk.models import SlimAction
-from autoplay_sdk.proactive_triggers.defaults import TRIGGER_ID_USER_PAGE_DWELL
-from autoplay_sdk.proactive_triggers.types import ProactiveTriggerContext
-from autoplay_sdk.proactive_triggers.triggers.user_page_dwell import (
+from autoplay_sdk.core.models import SlimAction
+from autoplay_sdk.proactive.triggers.defaults import TRIGGER_ID_USER_PAGE_DWELL
+from autoplay_sdk.proactive.triggers.types import ProactiveTriggerContext
+from autoplay_sdk.proactive.triggers.triggers.user_page_dwell import (
     UserPageDwellTrigger,
 )
 
@@ -91,6 +91,6 @@ def test_user_page_dwell_under_threshold_time() -> None:
 
 
 def test_catalog_contains_user_page_dwell() -> None:
-    from autoplay_sdk.proactive_triggers.builtin_catalog import BUILTIN_TRIGGER_CATALOG
+    from autoplay_sdk.proactive.triggers.builtin_catalog import BUILTIN_TRIGGER_CATALOG
 
     assert TRIGGER_ID_USER_PAGE_DWELL in BUILTIN_TRIGGER_CATALOG
