@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from autoplay_sdk.buffer import BufferBackend, RedisEventBuffer, _payload_to_json
-from autoplay_sdk.metrics import SdkMetricsHook
-from autoplay_sdk.models import ActionsPayload, SlimAction, SummaryPayload
+from autoplay_sdk.core.metrics import SdkMetricsHook
+from autoplay_sdk.core.models import ActionsPayload, SlimAction, SummaryPayload
 
 # ---------------------------------------------------------------------------
 # Helpers / factories

@@ -7,7 +7,7 @@ implementations live **outside** this module — compose :class:`ProactiveTrigge
 in application code; the connector does not load arbitrary triggers from config.
 
 Invalid rows (bad types, unknown ``id``, empty ``builtins`` when non-empty list is required,
-etc.) raise :exc:`~autoplay_sdk.exceptions.SdkConfigError` and are logged at **ERROR** with
+etc.) raise :exc:`~autoplay_sdk.core.exceptions.SdkConfigError` and are logged at **ERROR** with
 ``extra["event"] == "proactive_builtin_spec_invalid"`` for operator visibility.
 """
 
@@ -266,7 +266,7 @@ def resolve_builtin_specs(
     host-supplied metadata (often aligned with :func:`list_builtin_trigger_catalog` defaults).
 
     On validation failure, logs **ERROR** with ``event=proactive_builtin_spec_invalid`` then
-    raises :exc:`~autoplay_sdk.exceptions.SdkConfigError`.
+    raises :exc:`~autoplay_sdk.core.exceptions.SdkConfigError`.
     """
     out: list[ResolvedBuiltinTriggerSpec] = []
     for i, raw in enumerate(specs):

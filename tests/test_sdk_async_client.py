@@ -16,7 +16,7 @@ _SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
 sys.path.insert(0, str(_SDK_DIR))
 
 from autoplay_sdk.async_client import AsyncConnectorClient  # noqa: E402
-from autoplay_sdk.models import ActionsPayload, SummaryPayload  # noqa: E402
+from autoplay_sdk.core.models import ActionsPayload, SummaryPayload  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -465,7 +465,7 @@ class TestReconnect:
 
 def _actions_data_payload(session_id: str = "sess1") -> "ActionsPayload":
     """Return a minimal ActionsPayload (parsed, not raw SSE)."""
-    from autoplay_sdk.models import ActionsPayload
+    from autoplay_sdk.core.models import ActionsPayload
 
     return ActionsPayload(
         product_id="p1",

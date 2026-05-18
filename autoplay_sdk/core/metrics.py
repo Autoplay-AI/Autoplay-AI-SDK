@@ -1,4 +1,4 @@
-"""autoplay_sdk.metrics — Pluggable metrics hook protocol.
+"""autoplay_sdk.core.metrics — Pluggable metrics hook protocol.
 
 Lets you wire Prometheus, Datadog, OpenTelemetry, or any other counters and
 histograms into the SDK without modifying library code.  Implement only the

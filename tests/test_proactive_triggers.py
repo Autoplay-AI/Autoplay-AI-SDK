@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.proactive_triggers registry and triggers."""
+"""Tests for autoplay_sdk.proactive.triggers registry and triggers."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import pytest
 from autoplay_sdk.integrations.intercom import (
     INTERCOM_PROACTIVE_QUICK_REPLY_DEFAULT_BODY,
 )
-from autoplay_sdk.models import ActionsPayload, SlimAction
-from autoplay_sdk.proactive_triggers import (
+from autoplay_sdk.core.models import ActionsPayload, SlimAction
+from autoplay_sdk.proactive.triggers import (
     CanonicalPingPongTrigger,
     PredicateProactiveTrigger,
     ProactiveScope,
@@ -20,13 +20,13 @@ from autoplay_sdk.proactive_triggers import (
     default_proactive_trigger_registry,
     get_proactive_trigger_ids,
 )
-from autoplay_sdk.proactive_triggers.types import (
+from autoplay_sdk.proactive.triggers.types import (
     DEFAULT_COOLDOWN_S,
     DEFAULT_INTERACTION_TIMEOUT_S,
     DEFAULT_PROACTIVE_CONTEXT_LOOKBACK_S,
     DEFAULT_PROACTIVE_CONTEXT_MAX_ACTIONS,
 )
-from autoplay_sdk.proactive_triggers.triggers.canonical_ping_pong import (
+from autoplay_sdk.proactive.triggers.triggers.canonical_ping_pong import (
     TRIGGER_ID_CANONICAL_URL_PING_PONG as TID_PING_PONG,
 )
 
@@ -73,7 +73,7 @@ def test_registry_evaluate_first_order() -> None:
 
         def evaluate(self, ctx: ProactiveTriggerContext):
             hits.append("b")
-            from autoplay_sdk.proactive_triggers.types import ProactiveTriggerResult
+            from autoplay_sdk.proactive.triggers.types import ProactiveTriggerResult
 
             return ProactiveTriggerResult(trigger_id="b", body="hi")
 
@@ -85,7 +85,7 @@ def test_registry_evaluate_first_order() -> None:
 
 
 def test_registry_evaluate_first_returns_first_hit() -> None:
-    from autoplay_sdk.proactive_triggers.types import ProactiveTriggerResult
+    from autoplay_sdk.proactive.triggers.types import ProactiveTriggerResult
 
     class First:
         trigger_id = "first"
@@ -106,7 +106,7 @@ def test_registry_evaluate_first_returns_first_hit() -> None:
 
 
 def test_registry_evaluate_all() -> None:
-    from autoplay_sdk.proactive_triggers.types import ProactiveTriggerResult
+    from autoplay_sdk.proactive.triggers.types import ProactiveTriggerResult
 
     class T:
         trigger_id = "t"

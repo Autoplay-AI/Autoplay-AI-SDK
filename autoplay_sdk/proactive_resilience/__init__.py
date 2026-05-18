@@ -4,7 +4,7 @@ import importlib
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.proactive_resilience` has moved to `autoplay_sdk.proactive.resilience.resilience`. "
+    "`autoplay_sdk.proactive.resilience.resilience` has moved to `autoplay_sdk.proactive.resilience.resilience`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

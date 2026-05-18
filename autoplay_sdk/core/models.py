@@ -1,4 +1,4 @@
-"""autoplay_sdk.models — Typed payload models for Autoplay SSE events.
+"""autoplay_sdk.core.models — Typed payload models for Autoplay SSE events.
 
 These dataclasses mirror the JSON payloads emitted by the Autoplay event
 connector pipeline.  All public fields match the wire format exactly so

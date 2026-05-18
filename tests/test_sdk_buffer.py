@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 from autoplay_sdk.buffer import EventBuffer
-from autoplay_sdk.models import ActionsPayload, SummaryPayload
+from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
 
 # ---------------------------------------------------------------------------
 # Helpers

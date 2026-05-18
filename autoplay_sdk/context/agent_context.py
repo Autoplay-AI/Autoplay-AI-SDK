@@ -1,4 +1,4 @@
-"""autoplay_sdk.agent_context — Push real-time event context to any agent destination.
+"""autoplay_sdk.context.agent_context — Push real-time event context to any agent destination.
 
 ``AsyncAgentContextWriter`` implements a **push model** for keeping an agent's
 context window current and bounded.  Raw UI actions are streamed to your chosen
@@ -27,7 +27,7 @@ is removed.  This prevents any window in which the agent has a blank context::
 
 If step 2 fails the summary is still visible and the agent is never left empty.
 This contract applies to any ``ConversationWriter`` backend, not just Intercom.
-See ``autoplay_sdk.chatbot.BaseChatbotWriter`` for a base class that handles the
+See ``autoplay_sdk.chat.chatbot.BaseChatbotWriter`` for a base class that handles the
 pre/post-link delivery routing while you implement only ``_post_note`` and
 ``_redact_part``.
 

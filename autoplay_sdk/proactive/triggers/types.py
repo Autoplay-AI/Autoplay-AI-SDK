@@ -19,7 +19,7 @@ DEFAULT_COOLDOWN_S = 30.0
 # Max length for user-visible proactive copy (LLM judge + deterministic triggers).
 PROACTIVE_BODY_MAX_CHARS = 150
 
-# Defaults aligned with typical :class:`~autoplay_sdk.context_store.AsyncContextStore`
+# Defaults aligned with typical :class:`~autoplay_sdk.context.context_store.AsyncContextStore`
 # connector deployments (2-minute window, 50 actions cap).
 DEFAULT_PROACTIVE_CONTEXT_LOOKBACK_S = 120.0
 DEFAULT_PROACTIVE_CONTEXT_MAX_ACTIONS = 50
@@ -47,7 +47,7 @@ def _trim_payloads_to_max_actions(
 ) -> list[ActionsPayload]:
     """Keep only the most recent ``max_actions`` :class:`SlimAction` rows (batch-aware).
 
-    Mirrors :meth:`autoplay_sdk.context_store._ContextStoreBase.get` — newest actions
+    Mirrors :meth:`autoplay_sdk.context.context_store._ContextStoreBase.get` — newest actions
     win; partial batches may be trimmed from the oldest side of that batch.
     """
     if max_actions is None or max_actions < 1:
@@ -79,8 +79,8 @@ class ProactiveTriggerTimings:
 
     **interaction_timeout_s** — if the user does not interact with the proactive
     UI within this window (definition is app-specific: tap, dismiss, message),
-    hide the offer and return the session FSM to **thinking** via
-    :meth:`autoplay_sdk.agent_state.v1.AgentStateMachine.expire_proactive_to_thinking_if_idle`.
+    hide the offer and return the session FSM to **thinking** via the
+    v2 session-state timeout tick path.
 
     **cooldown_s** — minimum spacing before the same trigger may fire again; apps
     typically store ``last_fired_at`` per ``(conversation_id, trigger_id)``.
@@ -95,7 +95,7 @@ class ProactiveTriggerContext:
     """Inputs available to proactive triggers.
 
     The **host application** fills this from SSE buffers, merged
-    :class:`~autoplay_sdk.models.ActionsPayload`, session summary stores, etc.
+    :class:`~autoplay_sdk.core.models.ActionsPayload`, session summary stores, etc.
     Defaults keep older call sites valid; extend fields in CHANGELOG when the
     shape changes incompatibly.
 
