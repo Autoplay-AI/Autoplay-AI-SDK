@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from autoplay_sdk.client import _WORKER_STOP, ConnectorClient
-from autoplay_sdk.models import ActionsPayload, SummaryPayload
+from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
 
 # ---------------------------------------------------------------------------
 # Helpers

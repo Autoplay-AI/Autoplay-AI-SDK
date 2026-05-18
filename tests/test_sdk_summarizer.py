@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.summarizer — SessionSummarizer and AsyncSessionSummarizer."""
+"""Tests for autoplay_sdk.context.summarizer — SessionSummarizer and AsyncSessionSummarizer."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ import pytest
 _SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
 sys.path.insert(0, str(_SDK_DIR))
 
-from autoplay_sdk.models import ActionsPayload, SlimAction  # noqa: E402
-from autoplay_sdk.summarizer import (  # noqa: E402
+from autoplay_sdk.core.models import ActionsPayload, SlimAction  # noqa: E402
+from autoplay_sdk.context.summarizer import (  # noqa: E402
     DEFAULT_PROMPT,
     AsyncSessionSummarizer,
     SessionSummarizer,

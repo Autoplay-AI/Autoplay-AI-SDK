@@ -1,4 +1,4 @@
-"""autoplay_sdk.summarizer — Client-side session summarizer for context-window management.
+"""autoplay_sdk.context.summarizer — Client-side session summarizer for context-window management.
 
 Accumulates real-time user actions per session.  When the number of actions
 reaches a configurable threshold, the summarizer calls your LLM with a
@@ -433,7 +433,7 @@ class AsyncSessionSummarizer:
                         cap memory under a slow-LLM / traffic-spike scenario.
         metrics:        Optional ``SdkMetricsHook`` implementation.  Receives
                         per-session LLM summarization latency after each
-                        successful call.  See ``autoplay_sdk.metrics``.
+                        successful call.  See ``autoplay_sdk.core.metrics``.
     """
 
     def __init__(

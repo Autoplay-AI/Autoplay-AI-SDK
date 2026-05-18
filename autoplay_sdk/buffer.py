@@ -425,7 +425,7 @@ class RedisEventBuffer:
                          unavailable.  Use for metrics or alerting.
         metrics:         Optional ``SdkMetricsHook`` implementation.  Receives
                          Redis operation latencies and semaphore-timeout counters.
-                         See ``autoplay_sdk.metrics`` for the full interface.
+                         See ``autoplay_sdk.core.metrics`` for the full interface.
 
     Example::
 

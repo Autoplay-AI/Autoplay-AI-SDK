@@ -4,7 +4,7 @@ import importlib
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.serve` has moved to `autoplay_sdk.api`. "
+    "`autoplay_sdk.api` has moved to `autoplay_sdk.api`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

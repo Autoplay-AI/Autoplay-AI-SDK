@@ -1,7 +1,7 @@
 """Intercom integration recipe — webhooks, proactive quick replies, optional connector LLM labels.
 
 Use these constants when configuring Intercom Developer Hub so your subscription
-matches what :class:`~autoplay_sdk.chatbot.BaseChatbotWriter` subclasses expect.
+matches what :class:`~autoplay_sdk.chat.chatbot.BaseChatbotWriter` subclasses expect.
 
 Session linking is driven by **outbound Intercom webhooks** to
 ``POST /chatbot-webhook/{product_id}`` (``conversation.user.created``,
@@ -37,7 +37,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from autoplay_sdk.proactive_triggers.defaults import DEFAULT_PROACTIVE_QUICK_REPLY_BODY
+from autoplay_sdk.proactive.triggers.defaults import DEFAULT_PROACTIVE_QUICK_REPLY_BODY
 
 # ---------------------------------------------------------------------------
 # Webhook topics (must stay aligned with IntercomChatbot parsing)

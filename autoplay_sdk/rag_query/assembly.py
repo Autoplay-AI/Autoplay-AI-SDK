@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.rag_query.assembly` has moved to `autoplay_sdk.rag.query.assembly`. "
+    "`autoplay_sdk.rag.query.assembly` has moved to `autoplay_sdk.rag.query.assembly`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

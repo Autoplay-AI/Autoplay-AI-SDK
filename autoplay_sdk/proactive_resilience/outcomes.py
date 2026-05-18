@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.proactive_resilience.outcomes` has moved to `autoplay_sdk.proactive.resilience.outcomes`. "
+    "`autoplay_sdk.proactive.resilience.outcomes` has moved to `autoplay_sdk.proactive.resilience.outcomes`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

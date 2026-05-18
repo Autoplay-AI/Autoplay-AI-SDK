@@ -1,5 +1,6 @@
 from autoplay_sdk.proactive.state.idle_expiry import (
     ProactiveIdleExpiryHooks,
+    ProactiveIdleExpiryResult,
     ProactiveIdleExpiryPipelineResult,
     ProactiveIdleExpiryPipelineStatus,
     run_proactive_idle_expiry,
@@ -7,6 +8,7 @@ from autoplay_sdk.proactive.state.idle_expiry import (
 
 __all__ = [
     "ProactiveIdleExpiryHooks",
+    "ProactiveIdleExpiryResult",
     "ProactiveIdleExpiryPipelineResult",
     "ProactiveIdleExpiryPipelineStatus",
     "run_proactive_idle_expiry",

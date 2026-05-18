@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.proactive_idle_expiry` has moved to `autoplay_sdk.proactive.state.idle_expiry`. "
+    "`autoplay_sdk.proactive.state.idle_expiry` has moved to `autoplay_sdk.proactive.state.idle_expiry`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,
