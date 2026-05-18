@@ -8,8 +8,7 @@ from enum import Enum
 class AgentStateV2(str, Enum):
     """Three operational states for the v2 session FSM.
 
-    Named ``AgentStateV2`` to avoid collision with the existing
-    ``autoplay_sdk.agent_state.v1.AgentState`` (5-state enum).
+    Named ``AgentStateV2`` for a stable explicit public type name.
     """
 
     THINKING = "thinking"

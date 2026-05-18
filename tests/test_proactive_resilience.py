@@ -1,10 +1,10 @@
-"""Unit tests for autoplay_sdk.proactive_resilience (pure helpers, no Redis)."""
+"""Unit tests for autoplay_sdk.proactive.resilience.resilience (pure helpers, no Redis)."""
 
 from __future__ import annotations
 
 import time
 
-from autoplay_sdk.proactive_resilience import (
+from autoplay_sdk.proactive.resilience.resilience import (
     DEFAULT_MIN_INTERVAL_SECONDS,
     CircuitBreakerConfig,
     InMemoryProactiveCircuitBreaker,

@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.rag_query.pipeline` has moved to `autoplay_sdk.rag.query.pipeline`. "
+    "`autoplay_sdk.rag.query.pipeline` has moved to `autoplay_sdk.rag.query.pipeline`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

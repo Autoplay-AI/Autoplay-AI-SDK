@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.agent_state_v2.SessionState (v3 spec).
+"""Tests for autoplay_sdk.agent_state.v2.states.SessionState (v3 spec).
 
 Covers:
 - ThinkingState cooldown tick / clear / active_cooldown_period_s
@@ -18,13 +18,13 @@ import time
 
 import pytest
 
-from autoplay_sdk.agent_state_v2 import (
+from autoplay_sdk.agent_state.v2.states import (
     AgentStateV2,
     InvalidTransitionError,
     SessionState,
     ThinkingState,
 )
-from autoplay_sdk.proactive_triggers.tour_registry import TourDefinition, TourRegistry
+from autoplay_sdk.proactive.triggers.tour_registry import TourDefinition, TourRegistry
 
 
 # ---------------------------------------------------------------------------

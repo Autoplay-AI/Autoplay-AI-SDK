@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from autoplay_sdk.proactive_triggers.judge import (
+from autoplay_sdk.proactive.triggers.judge import (
     LlmJudgeResult,
     META_TRIGGERING_TYPE,
     TRIGGERING_TYPE_INSTANT,
@@ -12,7 +12,7 @@ from autoplay_sdk.proactive_triggers.judge import (
     should_deliver_after_judge,
     validate_or_truncate_proactive_body,
 )
-from autoplay_sdk.proactive_triggers.types import (
+from autoplay_sdk.proactive.triggers.types import (
     PROACTIVE_BODY_MAX_CHARS,
     ProactiveTriggerResult,
 )

@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.agent_state_v2.session_state` has moved to `autoplay_sdk.agent_state.v2.session_state`. "
+    "`autoplay_sdk.agent_state.v2.session_state` has moved to `autoplay_sdk.agent_state.v2.session_state`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

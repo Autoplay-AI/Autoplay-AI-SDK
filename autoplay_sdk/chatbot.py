@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.chatbot` has moved to `autoplay_sdk.chat.chatbot`. "
+    "`autoplay_sdk.chat.chatbot` has moved to `autoplay_sdk.chat.chatbot`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

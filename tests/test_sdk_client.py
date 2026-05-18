@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from autoplay_sdk.client import _WORKER_STOP, ConnectorClient
-from autoplay_sdk.models import ActionsPayload, SummaryPayload
+from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -398,6 +398,7 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
+            t.join(timeout=2.0)  # ensure thread exits while patch is still active
 
         assert isinstance(t, threading.Thread)
 
@@ -414,6 +415,7 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
+            t.join(timeout=2.0)  # ensure thread exits while patch is still active
 
         assert t.daemon is True
 
@@ -434,8 +436,10 @@ class TestRunInBackground:
             patch("autoplay_sdk.client.httpx.Client"),
         ):
             start = time.monotonic()
-            client.run_in_background()
+            t = client.run_in_background()
             elapsed = time.monotonic() - start
+            connected.wait(timeout=2.0)  # wait for connect attempt while patch is active
+            t.join(timeout=2.0)          # ensure thread exits before patch is removed
 
         assert elapsed < 1.0  # returned immediately, did not wait for connection
 

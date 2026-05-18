@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from collections.abc import Awaitable, Callable
 
 from autoplay_sdk.async_client import AsyncConnectorClient
-from autoplay_sdk.chat_pipeline import compose_chat_pipeline
+from autoplay_sdk.chat.chat_pipeline import compose_chat_pipeline
 from autoplay_sdk.prompts import RAG_SYSTEM_PROMPT
 from autoplay_sdk.context.user_index import UserSessionIndex
 
