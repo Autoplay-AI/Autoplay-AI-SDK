@@ -176,7 +176,9 @@ def test_expire_proactive_to_thinking_if_idle_wrong_state_noop() -> None:
 
 @pytest.mark.asyncio
 async def test_run_proactive_idle_expiry_order_and_hooks() -> None:
-    from autoplay_sdk.agent_states.proactive_idle_expiry import (
+    from autoplay_sdk.agent_state.v2.session_state import SessionState
+    from autoplay_sdk.agent_state.v2.types import AgentStateV2
+    from autoplay_sdk.proactive.state.idle_expiry import (
         ProactiveIdleExpiryPipelineStatus,
         run_proactive_idle_expiry,
     )
@@ -191,9 +193,7 @@ async def test_run_proactive_idle_expiry_order_and_hooks() -> None:
         async def clear_local_chat_thread_state(self) -> None:
             order.append("clear")
 
-    sm = AgentStateMachine()
-    sm.transition_to(AgentState.PROACTIVE_ASSISTANCE)
-    sm.state_entered_at = 0.0
+    sm = SessionState(current_state=AgentStateV2.PROACTIVE, last_interaction_at=0.0)
 
     out = await run_proactive_idle_expiry(
         sm,
@@ -203,12 +203,14 @@ async def test_run_proactive_idle_expiry_order_and_hooks() -> None:
     )
     assert out.status == ProactiveIdleExpiryPipelineStatus.COMPLETED
     assert order == ["delete", "clear"]
-    assert sm.state == AgentState.THINKING
+    assert sm.current_state == AgentStateV2.THINKING
 
 
 @pytest.mark.asyncio
 async def test_run_proactive_idle_expiry_skips_when_delete_fails() -> None:
-    from autoplay_sdk.agent_states.proactive_idle_expiry import (
+    from autoplay_sdk.agent_state.v2.session_state import SessionState
+    from autoplay_sdk.agent_state.v2.types import AgentStateV2
+    from autoplay_sdk.proactive.state.idle_expiry import (
         ProactiveIdleExpiryPipelineStatus,
         run_proactive_idle_expiry,
     )
@@ -220,9 +222,7 @@ async def test_run_proactive_idle_expiry_skips_when_delete_fails() -> None:
         async def clear_local_chat_thread_state(self) -> None:
             raise AssertionError("clear must not run")
 
-    sm = AgentStateMachine()
-    sm.transition_to(AgentState.PROACTIVE_ASSISTANCE)
-    sm.state_entered_at = 0.0
+    sm = SessionState(current_state=AgentStateV2.PROACTIVE, last_interaction_at=0.0)
 
     out = await run_proactive_idle_expiry(
         sm,
@@ -231,7 +231,7 @@ async def test_run_proactive_idle_expiry_skips_when_delete_fails() -> None:
         hooks=Hooks(),
     )
     assert out.status == ProactiveIdleExpiryPipelineStatus.REMOTE_DELETE_FAILED
-    assert sm.state == AgentState.PROACTIVE_ASSISTANCE
+    assert sm.current_state == AgentStateV2.PROACTIVE
 
 
 def test_snapshot_round_trip() -> None:

@@ -100,40 +100,6 @@ class AgentStateMachine:
         self.flow_cooldowns: dict[str, float] = {}
 
         self.session_metrics = SessionMetrics()
-        self._interaction_timeout_s: float = 0.0
-
-    # ------------------------------------------------------------------
-    # v2 SessionState compatibility shim
-    # Required so run_proactive_idle_expiry (written for v2) accepts v1 SM.
-    # AgentStateV2 enum values are identical strings to AgentState values,
-    # so StrEnum equality checks work transparently across versions.
-    # ------------------------------------------------------------------
-
-    @property
-    def current_state(self) -> AgentState:
-        return self.state
-
-    @current_state.setter
-    def current_state(self, value: AgentState) -> None:
-        self.state = value
-
-    @property
-    def last_interaction_at(self) -> float:
-        return self.state_entered_at
-
-    @property
-    def interaction_timeout_s(self) -> float:
-        return self._interaction_timeout_s
-
-    @interaction_timeout_s.setter
-    def interaction_timeout_s(self, value: float) -> None:
-        self._interaction_timeout_s = value
-
-    def tick(self) -> None:
-        """v2-compatible tick: delegates to expire_proactive_to_thinking_if_idle."""
-        self.expire_proactive_to_thinking_if_idle(
-            time.time(), self._interaction_timeout_s
-        )
 
     def transition_to(
         self,
