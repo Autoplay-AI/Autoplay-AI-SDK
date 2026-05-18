@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 
-from autoplay_sdk.proactive_triggers.tour_registry import (
+from autoplay_sdk.proactive.triggers.tour_registry import (
     DEFAULT_COOLDOWN_PERIOD_S,
     DEFAULT_INTERACTION_TIMEOUT_S,
     TourDefinition,
     TourRegistry,
 )
-from autoplay_sdk.proactive_triggers.proactive_intercom_config import (
+from autoplay_sdk.proactive.triggers.proactive_intercom_config import (
     parse_tour_registry,
 )
 

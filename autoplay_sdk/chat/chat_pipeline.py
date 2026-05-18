@@ -1,4 +1,4 @@
-"""autoplay_sdk.chat_pipeline — safe composition helpers for chat integrations."""
+"""autoplay_sdk.chat.chat_pipeline — safe composition helpers for chat integrations."""
 
 from __future__ import annotations
 

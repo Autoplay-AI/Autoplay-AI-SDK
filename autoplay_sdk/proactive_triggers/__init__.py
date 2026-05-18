@@ -4,7 +4,7 @@ import importlib
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.proactive_triggers` has moved to `autoplay_sdk.proactive.triggers`. "
+    "`autoplay_sdk.proactive.triggers` has moved to `autoplay_sdk.proactive.triggers`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

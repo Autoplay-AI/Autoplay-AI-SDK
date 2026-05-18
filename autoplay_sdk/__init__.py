@@ -2,8 +2,6 @@
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
-from . import agent_state, async_client, client  # noqa: F401 — required for patch() to resolve submodule attributes
-
 from autoplay_sdk.agent_state import v2 as agent_state_v2
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.buffer import BufferBackend, EventBuffer, RedisEventBuffer
@@ -53,14 +51,6 @@ from autoplay_sdk.context.summarizer import (
     SessionSummarizer,
 )
 from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
-from autoplay_sdk.agent_state.v1.states import (
-    AgentState,
-    AgentStateMachine,
-    InvalidSnapshotError,
-    InvalidTransitionError,
-    SessionMetrics,
-    TaskProgress,
-)
 from autoplay_sdk.webhook_receiver import WebhookReceiver
 from autoplay_sdk.context.user_index import SessionRef, UserSessionIndex
 
@@ -99,12 +89,6 @@ __all__ = [
     "AsyncSessionSummarizer",
     "DEFAULT_PROMPT",
     "AsyncAgentContextWriter",
-    "AgentState",
-    "AgentStateMachine",
-    "InvalidSnapshotError",
-    "InvalidTransitionError",
-    "SessionMetrics",
-    "TaskProgress",
     "agent_state_v2",
     "ConversationWriter",
     "BaseChatbotWriter",

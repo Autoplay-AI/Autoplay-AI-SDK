@@ -9,8 +9,8 @@ import pytest
 _SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
 sys.path.insert(0, str(_SDK_DIR))
 
-from autoplay_sdk.chat_pipeline import compose_chat_pipeline  # noqa: E402
-from autoplay_sdk.models import ActionsPayload, SlimAction  # noqa: E402
+from autoplay_sdk.chat.chat_pipeline import compose_chat_pipeline  # noqa: E402
+from autoplay_sdk.core.models import ActionsPayload, SlimAction  # noqa: E402
 
 
 def _payload() -> ActionsPayload:

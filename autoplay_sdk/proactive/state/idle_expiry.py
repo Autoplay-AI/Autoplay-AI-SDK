@@ -7,11 +7,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
-from autoplay_sdk.agent_state.v1.state_machine import (
-    AgentStateMachine,
-    proactive_idle_eligible,
-)
-from autoplay_sdk.agent_state.v1.types import ProactiveIdleExpiryResult
+from autoplay_sdk.agent_state.v2.session_state import SessionState
+from autoplay_sdk.agent_state.v2.types import AgentStateV2
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +29,17 @@ class ProactiveIdleExpiryPipelineResult:
     fsm_result: ProactiveIdleExpiryResult | None = None
 
 
+@dataclass(frozen=True)
+class ProactiveIdleExpiryResult:
+    """Outcome of proactive idle transition attempt for v2 session state."""
+
+    transitioned: bool
+    reset_chat_thread_binding: bool = False
+
+    def __bool__(self) -> bool:
+        return self.transitioned
+
+
 @runtime_checkable
 class ProactiveIdleExpiryHooks(Protocol):
     """Host hooks for remote thread deletion and local connector cleanup."""
@@ -44,7 +52,7 @@ class ProactiveIdleExpiryHooks(Protocol):
 
 
 async def run_proactive_idle_expiry(
-    sm: AgentStateMachine,
+    sm: SessionState,
     *,
     now: float,
     interaction_timeout_s: float,
@@ -55,7 +63,12 @@ async def run_proactive_idle_expiry(
     Does not mutate the FSM when not eligible or when ``delete_remote_chat_thread`` returns
     ``False``.
     """
-    if not proactive_idle_eligible(sm, now, interaction_timeout_s):
+    if sm.current_state != AgentStateV2.PROACTIVE:
+        return ProactiveIdleExpiryPipelineResult(
+            status=ProactiveIdleExpiryPipelineStatus.SKIPPED_NOT_ELIGIBLE,
+        )
+
+    if now - sm.last_interaction_at < interaction_timeout_s:
         return ProactiveIdleExpiryPipelineResult(
             status=ProactiveIdleExpiryPipelineStatus.SKIPPED_NOT_ELIGIBLE,
         )
@@ -65,16 +78,31 @@ async def run_proactive_idle_expiry(
             status=ProactiveIdleExpiryPipelineStatus.REMOTE_DELETE_FAILED,
         )
 
-    fsm_result = sm.expire_proactive_to_thinking_if_idle(now, interaction_timeout_s)
+    current_state = sm.current_state
+    original_timeout = sm.interaction_timeout_s
+    try:
+        sm.interaction_timeout_s = interaction_timeout_s
+        sm.tick()
+    finally:
+        sm.interaction_timeout_s = original_timeout
+
+    transitioned = (
+        current_state == AgentStateV2.PROACTIVE
+        and sm.current_state == AgentStateV2.THINKING
+    )
+    fsm_result = ProactiveIdleExpiryResult(
+        transitioned=transitioned,
+        reset_chat_thread_binding=transitioned,
+    )
     if not fsm_result.transitioned:
         logger.error(
             "agent_states: proactive_idle_expiry FSM did not transition after successful "
             "remote delete (unexpected); proceeding with clear_local_chat_thread_state "
             "from_state=%s",
-            sm.state.value,
+            sm.current_state.value,
             extra={
                 "event_type": "proactive_idle_expiry_fsm_invariant",
-                "from_state": sm.state.value,
+                "from_state": sm.current_state.value,
             },
         )
 

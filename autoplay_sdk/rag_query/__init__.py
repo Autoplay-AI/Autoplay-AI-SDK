@@ -4,7 +4,7 @@ import importlib
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.rag_query` has moved to `autoplay_sdk.rag.query`. "
+    "`autoplay_sdk.rag.query` has moved to `autoplay_sdk.rag.query`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

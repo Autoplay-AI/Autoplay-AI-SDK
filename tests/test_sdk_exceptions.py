@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.exceptions — structured exception hierarchy.
+"""Tests for autoplay_sdk.core.exceptions — structured exception hierarchy.
 
 One test per exception type, asserting the correct subclass relationship.
 Also verifies that the exceptions are raised by the wired call sites.
@@ -93,7 +93,7 @@ class TestExceptionHierarchy:
 class TestExceptionWiring:
     def test_session_summarizer_threshold_raises_sdk_config_error(self):
         """SessionSummarizer raises SdkConfigError (not ValueError) for bad threshold."""
-        from autoplay_sdk.summarizer import SessionSummarizer
+        from autoplay_sdk.context.summarizer import SessionSummarizer
 
         _debug_log(
             run_id="pre-fix",
@@ -112,7 +112,7 @@ class TestExceptionWiring:
 
     def test_async_session_summarizer_threshold_raises_sdk_config_error(self):
         """AsyncSessionSummarizer raises SdkConfigError for threshold < 1."""
-        from autoplay_sdk.summarizer import AsyncSessionSummarizer
+        from autoplay_sdk.context.summarizer import AsyncSessionSummarizer
 
         with pytest.raises(SdkConfigError):
             AsyncSessionSummarizer(llm=MagicMock(), threshold=-1)
