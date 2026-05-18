@@ -398,6 +398,7 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
+            t.join(timeout=2.0)  # ensure thread exits while patch is still active
 
         assert isinstance(t, threading.Thread)
 
@@ -414,6 +415,7 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
+            t.join(timeout=2.0)  # ensure thread exits while patch is still active
 
         assert t.daemon is True
 
