@@ -7,7 +7,7 @@ as the field names; ``offers_tour`` and ``flow_id`` are back-compat properties.
 
 from __future__ import annotations
 
-from autoplay_sdk.proactive_triggers.proactive_intercom_config import (
+from autoplay_sdk.proactive.triggers.proactive_intercom_config import (
     TOUR_OFFER_QUICK_REPLY_BODY,
     ProactiveIntercomMessageRow,
     effective_tour_flow_id_for_row,

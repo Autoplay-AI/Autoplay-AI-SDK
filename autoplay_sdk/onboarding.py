@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.onboarding` has moved to `autoplay_sdk.admin.onboarding`. "
+    "`autoplay_sdk.admin.onboarding` has moved to `autoplay_sdk.admin.onboarding`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

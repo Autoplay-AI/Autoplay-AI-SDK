@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.agent_context — AsyncAgentContextWriter."""
+"""Tests for autoplay_sdk.context.agent_context — AsyncAgentContextWriter."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
-from autoplay_sdk.models import ActionsPayload, SlimAction
-from autoplay_sdk.summarizer import AsyncSessionSummarizer
+from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
+from autoplay_sdk.core.models import ActionsPayload, SlimAction
+from autoplay_sdk.context.summarizer import AsyncSessionSummarizer
 
 
 # ---------------------------------------------------------------------------

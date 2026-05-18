@@ -5,7 +5,7 @@ import sys as _sys
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.models` has moved to `autoplay_sdk.core.models`. "
+    "`autoplay_sdk.core.models` has moved to `autoplay_sdk.core.models`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

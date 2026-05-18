@@ -1,4 +1,4 @@
-"""Tests for autoplay_sdk.proactive_triggers.trigger_config.
+"""Tests for autoplay_sdk.proactive.triggers.trigger_config.
 
 Covers:
 - TriggerMessage validation and serialisation
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from autoplay_sdk.proactive_triggers.trigger_config import (
+from autoplay_sdk.proactive.triggers.trigger_config import (
     CriteriaGroup,
     CriteriaLeaf,
     ProactiveTriggerConfig,

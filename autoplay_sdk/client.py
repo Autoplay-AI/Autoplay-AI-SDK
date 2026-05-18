@@ -92,6 +92,9 @@ logger = logging.getLogger(__name__)
 _DEBUG_LOG_PATH = Path(
     "/Users/marieliesse/Desktop/CODE/real-time-chatbot-poc/.cursor/debug-a1da9d.log"
 )
+_DEBUG_LOG_PATH_C6 = Path(
+    "/Users/marieliesse/Desktop/CODE/real-time-chatbot-poc/.cursor/debug-c6d144.log"
+)
 
 _WORKER_STOP = object()  # sentinel that tells the worker thread to exit
 
@@ -111,6 +114,27 @@ def _debug_log(
     }
     try:
         with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    # endregion
+
+
+def _debug_log_c6(
+    *, run_id: str, hypothesis_id: str, location: str, message: str, data: dict
+) -> None:
+    # region agent log
+    payload = {
+        "sessionId": "c6d144",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG_PATH_C6.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(payload, sort_keys=True) + "\n")
     except OSError:
         pass
@@ -164,7 +188,7 @@ class ConnectorClient:
                            connection is lost (before the reconnect backoff sleep).
         metrics:           Optional ``SdkMetricsHook`` implementation.  Receives
                            counters for dropped events and queue depth.  See
-                           ``autoplay_sdk.metrics`` for the full interface.
+                           ``autoplay_sdk.core.metrics`` for the full interface.
     """
 
     def __init__(
@@ -322,6 +346,20 @@ class ConnectorClient:
         try:
             while self._running:
                 try:
+                    _debug_log_c6(
+                        run_id="pre-fix",
+                        hypothesis_id="H1",
+                        location="autoplay_sdk/client.py:run:before_connect",
+                        message="connect_attempt_start",
+                        data={
+                            "client_id": id(self),
+                            "retry_count": retry_count,
+                            "backoff": backoff,
+                            "thread_name": threading.current_thread().name,
+                            "max_retries": self._max_retries,
+                            "initial_backoff_s": self._initial_backoff_s,
+                        },
+                    )
                     logger.info(
                         "autoplay_sdk: connecting to %s",
                         self._url,
@@ -337,6 +375,18 @@ class ConnectorClient:
                             )
                             backoff = self._initial_backoff_s
                             retry_count = 0
+                            _debug_log_c6(
+                                run_id="pre-fix",
+                                hypothesis_id="H2",
+                                location="autoplay_sdk/client.py:run:connected_reset",
+                                message="retry_counter_reset_after_connect",
+                                data={
+                                    "client_id": id(self),
+                                    "retry_count": retry_count,
+                                    "backoff": backoff,
+                                    "thread_name": threading.current_thread().name,
+                                },
+                            )
                             self._fire_on_connect()
                             for sse in source.iter_sse():
                                 if not self._running:
@@ -374,6 +424,20 @@ class ConnectorClient:
                     break
                 except Exception as exc:
                     retry_count += 1
+                    _debug_log_c6(
+                        run_id="pre-fix",
+                        hypothesis_id="H3",
+                        location="autoplay_sdk/client.py:run:exception_retry_increment",
+                        message="transient_error_retry_incremented",
+                        data={
+                            "client_id": id(self),
+                            "retry_count": retry_count,
+                            "backoff": backoff,
+                            "thread_name": threading.current_thread().name,
+                            "exc_type": type(exc).__name__,
+                            "exc": str(exc),
+                        },
+                    )
                     logger.warning(
                         "autoplay_sdk: connection lost (%s) — retrying in %.0fs (attempt %d)",
                         exc,

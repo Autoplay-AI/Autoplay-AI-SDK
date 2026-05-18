@@ -1,6 +1,6 @@
 """autoplay_sdk.webhook_receiver — Typed push webhook receiver.
 
-Drop-in replacement for the ``push/receiver_example.py`` copy-paste pattern.
+Drop-in helper for push-mode webhook integrations.
 Gives push-mode customers the same typed ``ActionsPayload`` / ``SummaryPayload``
 interface that SSE users get from ``AsyncConnectorClient``.
 

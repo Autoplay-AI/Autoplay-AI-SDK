@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from autoplay_sdk.models import SlimAction
-from autoplay_sdk.proactive_triggers.section_activity import (
+from autoplay_sdk.core.models import SlimAction
+from autoplay_sdk.proactive.triggers.section_activity import (
     build_product_section_playbook,
     resolve_section_id,
     resolve_section_id_for_playbook,
     top_playbook_section_id,
     total_dwell_seconds,
 )
-from autoplay_sdk.proactive_triggers.triggers.section_playbook import (
+from autoplay_sdk.proactive.triggers.triggers.section_playbook import (
     SectionPlaybookTrigger,
 )
-from autoplay_sdk.proactive_triggers.types import ProactiveTriggerContext
+from autoplay_sdk.proactive.triggers.types import ProactiveTriggerContext
 
 
 def _action(
