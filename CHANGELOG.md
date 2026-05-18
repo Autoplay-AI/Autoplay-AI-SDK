@@ -6,6 +6,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.7.5] — 2026-05-17
+
+### Changed
+
+- Bumped package version to `0.7.5`.
+- Expanded the `test` optional dependency extra to include async/runtime test dependencies (`pytest-asyncio`, `fakeredis`, `respx`) so `pip install -e ".[serve,test]"` is sufficient for SDK CI and local test runs.
+- Enabled `asyncio_mode = "auto"` in pytest config so async test functions are discovered consistently without requiring explicit per-test markers.
+
+---
+
 ## [0.7.4] — 2026-05-16
 
 ### Summary

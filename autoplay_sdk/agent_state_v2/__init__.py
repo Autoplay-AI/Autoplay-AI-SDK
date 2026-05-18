@@ -4,7 +4,7 @@ import importlib
 import warnings as _warnings
 
 _warnings.warn(
-    "`autoplay_sdk.agent_state_v2` has moved to `autoplay_sdk.agent_state.v2.states`. "
+    "`autoplay_sdk.agent_state.v2.states` has moved to `autoplay_sdk.agent_state.v2.states`. "
     "Update your imports before 1.0.0, when the old path will be removed.",
     DeprecationWarning,
     stacklevel=2,

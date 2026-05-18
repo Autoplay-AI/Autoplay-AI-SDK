@@ -1,4 +1,4 @@
-"""autoplay_sdk.exceptions — Structured exception hierarchy for the SDK.
+"""autoplay_sdk.core.exceptions — Structured exception hierarchy for the SDK.
 
 Raises these instead of plain ``RuntimeError``/``ValueError`` so callers can
 distinguish configuration errors from transient upstream failures without

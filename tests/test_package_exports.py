@@ -11,7 +11,7 @@ import autoplay_sdk  # noqa: E402
 
 def test_agent_state_v2_module_is_exported() -> None:
     assert hasattr(autoplay_sdk, "agent_state_v2")
-    assert hasattr(autoplay_sdk.agent_state_v2, "SessionState")
+    assert hasattr(autoplay_sdk.agent_state.v2.states, "SessionState")
 
 
 def test_version_is_defined() -> None:

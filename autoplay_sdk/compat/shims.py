@@ -13,22 +13,6 @@ SHIM_MAP: list[dict[str, str]] = [
         "new_module": "autoplay_sdk.api.fastapi",
     },
     {
-        "old_module": "autoplay_sdk.agent_states",
-        "new_module": "autoplay_sdk.agent_state.v1.states",
-    },
-    {
-        "old_module": "autoplay_sdk.agent_states.state_machine",
-        "new_module": "autoplay_sdk.agent_state.v1.state_machine",
-    },
-    {
-        "old_module": "autoplay_sdk.agent_states.types",
-        "new_module": "autoplay_sdk.agent_state.v1.types",
-    },
-    {
-        "old_module": "autoplay_sdk.agent_states.proactive_idle_expiry",
-        "new_module": "autoplay_sdk.proactive.state.idle_expiry",
-    },
-    {
         "old_module": "autoplay_sdk.agent_state_v2",
         "new_module": "autoplay_sdk.agent_state.v2.states",
     },

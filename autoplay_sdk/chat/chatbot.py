@@ -1,4 +1,4 @@
-"""autoplay_sdk.chatbot — Base classes and protocol for building chatbot destinations.
+"""autoplay_sdk.chat.chatbot — Base classes and protocol for building chatbot destinations.
 
 This module provides the building blocks for connecting the Autoplay event connector
 to any chatbot platform.  Customers who want to deliver session actions to a platform
@@ -53,7 +53,7 @@ the delivery ordering must be:
     3. Redact / delete old raw-action notes only after step 2 confirms success.
 
 This guarantees the agent destination never has a blank context window.
-See ``autoplay_sdk.agent_context.AsyncAgentContextWriter`` for details.
+See ``autoplay_sdk.context.agent_context.AsyncAgentContextWriter`` for details.
 
 AsyncAgentContextWriter.debounce_ms interaction
 ------------------------------------------------
@@ -77,7 +77,7 @@ all chatbot destinations stay consistent.
 
 Quick-start (custom backend)::
 
-    from autoplay_sdk.chatbot import BaseChatbotWriter
+    from autoplay_sdk.chat.chatbot import BaseChatbotWriter
 
     class ZendeskChatbot(BaseChatbotWriter):
         def __init__(self, api_token, product_id, client,

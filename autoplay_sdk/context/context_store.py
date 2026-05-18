@@ -1,4 +1,4 @@
-"""autoplay_sdk.context_store — Query-time session context for RAG enrichment.
+"""autoplay_sdk.context.context_store — Query-time session context for RAG enrichment.
 
 Accumulates real-time user actions and LLM-generated session summaries per
 session so you can enrich a user's query with their current in-app context
