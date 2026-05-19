@@ -175,11 +175,11 @@ let payload := {
 
 let headers := {
     'Content-Type': 'application/json',
-    'x-posthog-secret': '<WEBHOOK_SECRET>'
+    'x-posthog-secret': inputs.headers['x-posthog-secret']
 }
 
 let req := { 'headers': headers, 'body': jsonStringify(payload), 'method': 'POST' }
-let url := 'https://event-connector-luda.onrender.com/webhook/<PRODUCT_ID>'
+let url := inputs.url
 
 let res := fetch(url, req)
 if (res.status >= 400) {
