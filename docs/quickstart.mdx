@@ -302,7 +302,7 @@ let payload := {
 
 let headers := {
     'Content-Type': 'application/json',
-    'x-posthog-secret': '{webhook_secret_from_step_3}'
+    'x-posthog-secret': inputs.headers['x-posthog-secret']
 }
 
 let req := {
