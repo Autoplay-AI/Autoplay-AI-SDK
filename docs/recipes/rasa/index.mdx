@@ -16,7 +16,7 @@ This tutorial shows you exactly how to wire it together using **Rasa 3.6** (open
 
 **Tech you'll use:** Rasa 3.6 (Docker), Python 3.10+ (host), PostHog (free tier), the Autoplay event connector (hosted), and any LLM with an async Python client (OpenAI, Anthropic, Gemini, local — your choice).
 
-**SDK primitives you'll touch:** `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, `agent_state_v2.SessionState`, and `ChatContextAssembly`. Each one is a single import; the SDK handles the heavy lifting (reconnects, backpressure, summarisation, prompt assembly).
+**SDK primitives you'll touch:** `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, `agent_state.v2.SessionState`, `ChatContextAssembly`, plus (in Step 2) `PredicateProactiveTrigger`, `ProactiveTriggerRegistry`, and `TourRegistry`. Each one is a single import; the SDK handles the heavy lifting (reconnects, backpressure, summarisation, prompt assembly, FSM transitions).
 
 ## ✨ Final result
 
@@ -102,7 +102,7 @@ That's all the setup. The rest of this tutorial walks through every code file st
          │             │       ↓                             │
          │             │  AsyncContextStore                  │
          │             │       ↓                             │
-         │             │  agent_state_v2.SessionState (FSM)  │
+         │             │  agent_state.v2.SessionState (FSM)  │
          │             │                                     │
          │             │  GET /reply/{user_id}?query=…       │
          │             │    → build_user_prompt_block        │
@@ -123,6 +123,8 @@ Four processes: your web app, a small Python bridge, Rasa, Rasa's action server.
 
 ## The tutorial
 
-1. **[Connect real-time events](./step-1-connect-real-time-events)** — Stream live user actions into a Rasa-aware bridge using the Autoplay SDK, expose them to Rasa over HTTP, and wire the chat widget to read them. This is what you'll do today.
+1. **[Step 1 — Connect real-time events](./step-1-connect-real-time-events)** — Stream live user actions into a Rasa-aware bridge using the Autoplay SDK, expose them to Rasa over HTTP, and wire the chat widget. Reactive answers grounded in real activity. ~45 minutes.
 
-A follow-up tutorial on proactive triggers — where the bot starts the conversation when the user reaches a key moment, using `agent_state_v2` and Autoplay's proactive trigger registry — is in progress and will land separately.
+2. **[Step 2 — Define proactive triggers](./step-2-define-proactive-triggers)** — Make the bot proactive: notice when a user is on the slow path of a workflow and surface a toast with two CTAs — *Show me* (visual tour via Usertour) or *Open chat* (proactive bot message with an LLM-grounded auto-followup). Uses `PredicateProactiveTrigger`, `agent_state.v2.SessionState`, and `TourRegistry`. ~45 minutes.
+
+Start with Step 1 — Step 2 builds directly on the bridge, Rasa, and widget you set up there.
