@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from autoplay_sdk.integrations.intercom import proactive_trigger_canonical_url_ping_pong
+from autoplay_sdk.proactive.triggers._url_predicates import (
+    proactive_trigger_canonical_url_ping_pong,
+)
 from autoplay_sdk.proactive.triggers.defaults import (
     DEFAULT_PROACTIVE_QUICK_REPLY_BODY,
     TRIGGER_ID_CANONICAL_URL_PING_PONG,

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autoplay-sdk"
-version = "0.7.6"
+version = "0.7.7"
 description = "Real-time event streaming client for Autoplay connectors"
 readme = "README.md"
 license = { text = "MIT" }

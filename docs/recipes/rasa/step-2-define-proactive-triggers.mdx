@@ -1,47 +1,1580 @@
 ---
 title: "Step 2 — Define proactive triggers"
 sidebarTitle: "Step 2 — Define proactive triggers"
-description: "Proactively message users in Rasa based on what they're doing in your product, using agent_state_v2 and the SDK's proactive trigger registry."
+description: "Make your Rasa copilot proactive — detect when a user is using the slow path of a workflow and surface a toast with two CTAs: 'Show me' (visual tour via Usertour) and 'Open chat' (proactive bot message with an LLM-grounded follow-up)."
 ---
 
-*Coming soon.*
+In [Step 1](./step-1-connect-real-time-events) you built a Rasa bot that gives **reactive** answers grounded in real activity. This page makes it **proactive** — the bot notices when a user is doing something the slow way and offers help without waiting to be asked.
 
-This page will show how to extend the bridge you built in [Step 1](./step-1-connect-real-time-events) so that Autoplay can **proactively** message the user — not only reactively answer their questions.
+The concrete example we'll build catches the **bulk-edit moment**: a user editing items one-by-one on a list page, unaware that a multi-select bulk-edit exists. The bot interrupts politely with a toast that offers two paths — **Show me** (a visual tour spotlights the hidden feature) or **Open chat** (the bot opens with the suggestion already in the conversation, followed immediately by an LLM-generated step-by-step grounded in your app's actual UI).
 
-You'll add:
+Plan to spend ~45 minutes the first time through. Every file is included verbatim.
 
-- **`agent_state_v2.SessionState`** — a 3-state FSM (`THINKING` / `PROACTIVE` / `REACTIVE`) per session that gates when an unsolicited nudge is allowed to fire. The session you're already creating in Step 1's bridge stays the source of truth here.
-- **`ProactiveTriggerRegistry`** — a registry of triggers (built-in or custom) that watch the action stream and decide whether to surface a message. The SDK ships ready-made triggers like `canonical_url_ping_pong` (user bouncing between two pages = stuck).
-- **A push channel back to the chat widget** — Rasa exposes `POST /conversations/{sender}/tracker/events`, which lets the bridge inject a bot message into an active chat session.
-- **(Optional) popup triggers** — surface guidance overlays in the app itself when the FSM transitions to `PROACTIVE`, so the user sees a hint without having to open the chat first.
+**What you'll add to the Step 1 build:**
 
-## Sketch of the flow
+1. **A custom proactive trigger** — `bulk_edit_opportunity`: 3+ "Save changes" clicks on the same list page within 120 seconds, where the user hasn't already discovered bulk-edit. Three SDK primitives turn this rule into a fire signal: `ProactiveTriggerContext`, `PredicateProactiveTrigger`, `ProactiveTriggerRegistry`.
+2. **A periodic driver** — a small `ProactiveDriver` class that ticks every 10 seconds, walks the context store, evaluates the registry, and gates each potential offer through `agent_state.v2.SessionState`.
+3. **A host-app toast surface** — an SSE endpoint on the bridge plus a `<ProactiveToast />` component in your Next.js app. The chat widget stays closed until the user opts in; the toast is its own surface.
+4. **Two CTAs on every toast**:
+   - **Show me** → starts a [Usertour](https://www.usertour.io/) flow that spotlights the actual UI elements in your app.
+   - **Open chat** → opens the Rasa widget with the proactive question already in the thread **and** an LLM-generated answer right behind it, grounded by per-trigger ground-truth text so the bot doesn't hallucinate UI elements.
+5. **FSM-driven tour state** — `SessionState.set_visual_guidance` and `record_tour_step` keep the bridge in sync with what's happening on screen during a tour, so other triggers don't interrupt mid-flow.
+
+**The runtime loop:**
 
 ```
-ActionsPayload arrives in bridge
-   ↓
-ProactiveTriggerRegistry.evaluate_first(context)
-   ↓ returns trigger_id if a trigger fires
-SessionState.transition_to_proactive(trigger_id)
-   ↓ returns False if cooldown blocks the offer
-bridge → Rasa POST /conversations/{user_id}/tracker/events
-   ↓ injects bot message
-Widget shows the proactive nudge in the open chat
-   (or: bridge → app frontend → popup overlay)
+PostHog events ──► Bridge (Step 1 pipeline + new ProactiveDriver)
+                     │
+                     ▼
+                Trigger fires → SSE → Toast appears (chat still closed)
+                     │
+        ┌────────────┴────────────┐
+        ▼                         ▼
+   "Show me"                  "Open chat"
+        │                         │
+        ▼                         ▼
+   Usertour flow            Rasa trigger_intent ×2:
+   spotlights UI            (1) proactive question
+   step by step             (2) LLM auto-followup, grounded
+                                in per-trigger how-to text
 ```
 
-## What you'll need
+**The customer story** the demo proves: a user on the `/projects` page bumps the priority of three projects one-by-one — `Edit → change → Save changes` for each one. About a minute in, a toast appears: *"Updating projects one by one? There's a multi-select bulk edit you might not have seen — want me to show you?"* The user picks **Show me** (tour) or **Open chat** (conversation with auto-followup). One trigger, two paths, one chat widget — chosen by the user, not pre-decided by the bot.
 
-- A working Step 1 bridge (this page builds on top of `copilot_server.py`).
-- Familiarity with `autoplay_sdk.proactive_triggers` — see the [proactive triggers reference](/sdk/proactive-triggers) and the [authoring guide](/sdk/proactive-triggers-authoring).
-- A handler in your web app for popup events if you want on-screen guidance in addition to chat nudges.
+### End-to-end walkthrough
 
-## Planned sections
+<div style={{ position: "relative", paddingBottom: "62.5%", height: 0 }}>
+  <iframe
+    src="https://www.loom.com/embed/091acdcbca43495c82b530d7511bd1b3"
+    title="Rasa tutorial — Step 2 walkthrough"
+    frameBorder={0}
+    loading="lazy"
+    allow="clipboard-write; fullscreen"
+    style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
+  />
+</div>
 
-1. **Wire the trigger registry into `on_actions`** — evaluate against `ProactiveTriggerContext.from_actions_payloads`.
-2. **Gate proactive offers with `SessionState`** — respect the FSM's cooldown rules so users aren't spammed.
-3. **Push a bot message into Rasa** — `bridge → POST /conversations/{user_id}/tracker/events` with the trigger's message body.
-4. **(Optional) trigger popups in the app** — server-sent event from the bridge to the frontend with a popup payload; React handler renders the overlay.
-5. **Author a custom trigger** — beyond the built-in registry, e.g. "user clicked Upgrade Plan twice in 60 seconds."
+<Note>
+  **Proactive is a host-app surface, not a chat-vendor surface.** The toast lives in your Next.js layout, not inside `rasa-webchat`. This is what Intercom, Drift, and Botpress all do — and it's the only architecture that lets the proactive nudge appear when the chat is closed. Routing proactive messages through the chat widget breaks structurally: the socket isn't always open, the session ID isn't always known, and the UX (a closed chat icon with no indicator) doesn't match the moment.
+</Note>
 
-Until this page lands, the [proactive triggers SDK reference](/sdk/proactive-triggers) and the [Intercom recipe's Step 2](/recipes/intercom-tutorial/step-2-define-proactive-triggers) cover the underlying primitives in detail. The Rasa-specific glue is the only piece this page will add.
+---
+
+## 📋 Before you start
+
+This page picks up exactly where Step 1 left off. From Step 1 you should already have:
+
+- **`bridge/copilot_server.py`** running on `:8090` with `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, and `SessionState` wired together
+- **`_user_sessions`, `_session_product`, `_session_states`** dicts populated by `on_actions`
+- **`_session_state(session_id)`** factory returning a `SessionState(interaction_timeout_s=10.0, cooldown_period_s=20.0)` *(the demo uses short values; production should use ~60s / ~120s)*
+- **`rasa-bot/`** with the Step 1 `domain.yml`, `data/*.yml`, and `actions/actions.py`
+- **`app/posthog-provider.js`, `app/rasa-widget.js`** mounted in `app/layout.js`
+
+The code blocks below extend those files — they don't replace them.
+
+### Frontend prerequisites (the UI the toast and tour will target)
+
+The `bulk_edit_opportunity` trigger fires from a real behavioral pattern, so the recipe assumes your app has a list page where:
+
+1. Users can edit individual items via a button labelled "Edit" that opens a dialog with a "Save changes" button.
+2. There is a (genuinely hidden) bulk-edit feature behind a kebab/options menu — selecting it puts the table into "checkbox mode" so the user can multi-select and apply a change to many rows at once.
+
+You can swap our `/projects` example for your own list page (orders, customers, invoices — anything). What the recipe needs is **stable DOM IDs** on the elements the tour will spotlight. The demo uses:
+
+| Demo ID | What it is | Tour step |
+|---|---|---|
+| `#projects-table-options` | The kebab (⋯) icon at the top of the table | 1 |
+| `#projects-bulk-edit-toggle` | The "Bulk edit" dropdown menu item inside the kebab | 2 |
+| `#project-checkbox-{rowId}` | Per-row checkbox in bulk mode (e.g. `#project-checkbox-P-1042`) | 3 |
+| `#bulk-apply` | The "Apply to N" button in the floating toolbar | 4 |
+| `#edit-save` | The single-edit dialog's "Save changes" button — fires the trigger predicate | n/a (predicate input) |
+
+Swap our IDs for your own — the recipe only references them by string.
+
+<Warning>
+  **The kebab SVG needs `pointer-events-none`.** If you wrap a Lucide / Heroicon SVG inside a `<button>`, the click event's `event.target` is the `<svg>`, not the button — and Usertour's "advance on click" trigger matches against the registered anchor's element. The tour appears to ignore your clicks. Fix: `<MoreHorizontal className="pointer-events-none h-4 w-4" />`. Cost us ~15 minutes the first time.
+</Warning>
+
+---
+
+## 🧠 Step 1 — Add the proactive trigger
+
+Inside `~/your-copilot/bridge/`, create `proactive.py`. This is where the trigger lives.
+
+```python
+"""Proactive triggers for the Rasa copilot.
+
+Single custom trigger: `bulk_edit_opportunity` — fires when the user is
+editing list items one-by-one and the SDK detects the pattern. The bot then
+offers to walk the user through the (hidden) bulk-edit feature.
+
+This is the SDK's actual value-prop in miniature: a multi-signal pattern
+across pages and time (3+ Save-changes clicks within a short window) that
+no single page or `setTimeout` could catch.
+
+Delivery contract: the caller passes an async
+`deliver(session_id, user_id, ProactiveTriggerResult)` coroutine that the
+driver invokes when the trigger fires AND the FSM allows it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
+from typing import Iterable
+
+from autoplay_sdk.agent_state.v2.states import AgentStateV2, SessionState
+from autoplay_sdk.proactive.triggers import (
+    PredicateProactiveTrigger,
+    ProactiveTriggerContext,
+    ProactiveTriggerRegistry,
+    ProactiveTriggerResult,
+)
+
+log = logging.getLogger("copilot.proactive")
+
+TRIGGER_ID_BULK_EDIT_OPPORTUNITY = "bulk_edit_opportunity"
+
+# Substring matched against `action.canonical_url` (case-insensitive). Swap
+# for your own list page.
+_PROJECTS_URL_FRAGMENT = "/projects"
+
+# Substring matched against `action.title` — the human-readable label PostHog
+# autocapture computes from the clicked element's text content.
+_SAVE_CLICK_HINT = "save changes"
+_BULK_TOGGLE_HINT = "bulk edit"
+
+_MIN_SAVES = 3
+_WINDOW_SECONDS = 120.0
+
+
+def _is_projects_page(action) -> bool:
+    return _PROJECTS_URL_FRAGMENT in (action.canonical_url or "").lower()
+
+
+def _is_save_changes_click(action) -> bool:
+    return _SAVE_CLICK_HINT in (action.title or "").lower()
+
+
+def _is_bulk_toggle_click(action) -> bool:
+    """Detect either entering bulk-edit mode OR clicking Apply.
+
+    If the user has already discovered the feature in this session, don't
+    nudge them about it.
+    """
+    title = (action.title or "").lower()
+    return _BULK_TOGGLE_HINT in title or "apply to" in title
+
+
+def _action_start_dt(action) -> datetime | None:
+    """SlimAction.timestamp_start → tz-aware datetime.
+
+    The SDK ships timestamps in two flavors depending on the source:
+      - UNIX epoch as a numeric string ("1779188762.919")  ← PostHog destination
+      - ISO-8601 ("2026-05-19T11:07:19.847Z")              ← other sources
+    Handle both.
+    """
+    raw = getattr(action, "timestamp_start", None)
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+    s = str(raw).strip()
+    try:
+        return datetime.fromtimestamp(float(s), tz=timezone.utc)
+    except (TypeError, ValueError):
+        pass
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_action_by_timestamp(actions):
+    """Return the action with the largest timestamp_start, or None.
+
+    PostHog batches don't always arrive in chronological order — `actions[-1]`
+    is NOT reliably the most recent action.
+    """
+    latest, latest_ts = None, float("-inf")
+    for a in actions:
+        try:
+            ts = float(a.timestamp_start) if a.timestamp_start else float("-inf")
+        except (TypeError, ValueError):
+            ts = float("-inf")
+        if ts > latest_ts:
+            latest_ts, latest = ts, a
+    return latest
+
+
+def _bulk_edit_opportunity_predicate(ctx: ProactiveTriggerContext) -> bool:
+    """Fire when the user is editing list items one-by-one — the bulk moment.
+
+    Logic:
+      1. The user must currently be on the list page (so the toast/tour land in
+         context). If they wandered off, no nudge.
+      2. The user must NOT have already discovered the bulk feature in the
+         recent window — if they clicked "Bulk edit" or "Apply to N" already,
+         they know about it and don't need the tutorial.
+      3. There must be ≥ _MIN_SAVES "Save changes" clicks on the list page
+         within the trailing _WINDOW_SECONDS — that's the slow-path pattern
+         we want to interrupt.
+    """
+    actions = ctx.recent_actions
+    if not actions:
+        return False
+
+    # 1. User must be on the list page right now.
+    latest = _latest_action_by_timestamp(actions)
+    if latest is None or not _is_projects_page(latest):
+        return False
+
+    # 2. Already used bulk-edit? Skip — they know.
+    if any(_is_bulk_toggle_click(a) for a in actions):
+        return False
+
+    # 3. Count "Save changes" clicks within the recent window.
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_WINDOW_SECONDS)
+    save_count = 0
+    for a in actions:
+        if not _is_projects_page(a):
+            continue
+        if not _is_save_changes_click(a):
+            continue
+        ts = _action_start_dt(a)
+        if ts is None or ts < cutoff:
+            continue
+        save_count += 1
+        if save_count >= _MIN_SAVES:
+            return True
+    return False
+
+
+def build_registry() -> ProactiveTriggerRegistry:
+    """One custom trigger: `bulk_edit_opportunity`.
+
+    The SDK ships several built-ins (`canonical_url_ping_pong`, `user_page_dwell`,
+    `section_playbook_match`) you can compose alongside via
+    `registry_from_builtin_specs` — see the [authoring guide](/sdk/proactive-triggers-authoring)
+    for examples.
+    """
+    bulk_edit = PredicateProactiveTrigger(
+        trigger_id=TRIGGER_ID_BULK_EDIT_OPPORTUNITY,
+        body=(
+            "Updating projects one by one? There's a multi-select bulk edit "
+            "you might not have seen — want me to show you?"
+        ),
+        predicate=_bulk_edit_opportunity_predicate,
+    )
+    return ProactiveTriggerRegistry([bulk_edit])
+```
+
+<Warning>
+  **`timestamp_start` is a string, not a number, and the format varies.** When the action comes through the PostHog destination it arrives as a UNIX-epoch string (`"1779188762.919"`). Other Autoplay destinations send ISO-8601 (`"2026-05-19T11:07:19.847Z"`). The `_action_start_dt` helper tolerates both — if you skip that defensive parse, your predicate silently returns `None` and the trigger never fires.
+</Warning>
+
+<Note>
+  **Why match on `action.title`, not selectors.** PostHog autocapture computes a human-readable title from the clicked element's text content — that's much more stable than a CSS selector or `attr__id`. The user could be on `/projects` or `/projects?status=open` and the click title stays `"Save changes"`. If your "save" button uses different text in different places (e.g. "Update" on one page, "Save" on another), use a list of hints and `any(...)` over them.
+</Note>
+
+---
+
+## ⚙️ Step 2 — Add the driver loop
+
+The SDK ships the registry, types, and FSM — but no driver. Every customer doing proactive ends up writing this same loop, so we keep it explicit in your own code.
+
+Add this to the bottom of `proactive.py`:
+
+```python
+# ---------------------------------------------------------------------------
+# Tick driver
+# ---------------------------------------------------------------------------
+
+DeliverFn = Callable[[str, str, ProactiveTriggerResult], Awaitable[None]]
+SessionContextFn = Callable[[str, str], ProactiveTriggerContext | None]
+SessionStateFn = Callable[[str], SessionState]
+UserSessionsFn = Callable[[], Iterable[tuple[str, str]]]
+
+
+class ProactiveDriver:
+    """Periodic tick loop that walks tracked sessions and fires proactive triggers."""
+
+    def __init__(
+        self,
+        *,
+        registry: ProactiveTriggerRegistry,
+        get_sessions: UserSessionsFn,
+        get_context: SessionContextFn,
+        get_state: SessionStateFn,
+        deliver: DeliverFn,
+        poll_seconds: float = 10.0,
+    ) -> None:
+        self._registry = registry
+        self._get_sessions = get_sessions
+        self._get_context = get_context
+        self._get_state = get_state
+        self._deliver = deliver
+        self._poll_seconds = poll_seconds
+        self._task: asyncio.Task | None = None
+        self._running = False
+
+    async def _tick_once(self) -> None:
+        for user_id, session_id in self._get_sessions():
+            try:
+                state = self._get_state(session_id)
+                state.tick()  # auto-exit PROACTIVE/REACTIVE on timeout
+
+                ctx = self._get_context(user_id, session_id)
+                if ctx is None:
+                    continue
+
+                result = self._registry.evaluate_first(ctx)
+                if result is None:
+                    continue
+
+                # FSM gate. `transition_to_proactive` raises
+                # InvalidTransitionError if we're already in PROACTIVE or
+                # REACTIVE — so check state first and only attempt the
+                # transition from THINKING (where it returns False on
+                # cooldown).
+                if state.current_state != AgentStateV2.THINKING:
+                    continue
+                if not state.transition_to_proactive(result.trigger_id):
+                    continue  # cooldown blocked it
+
+                log.info(
+                    "proactive: firing session=%s user=%s trigger=%s",
+                    session_id, user_id, result.trigger_id,
+                )
+                await self._deliver(session_id, user_id, result)
+            except Exception:
+                log.exception(
+                    "proactive: tick failed session=%s user=%s",
+                    session_id, user_id,
+                )
+
+    async def _loop(self) -> None:
+        log.info("proactive: driver started (poll=%.1fs)", self._poll_seconds)
+        while self._running:
+            try:
+                await self._tick_once()
+            except Exception:
+                log.exception("proactive: tick loop iteration crashed; continuing")
+            await asyncio.sleep(self._poll_seconds)
+        log.info("proactive: driver stopped")
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._task = asyncio.get_running_loop().create_task(self._loop())
+
+    async def stop(self) -> None:
+        self._running = False
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(self._task, timeout=self._poll_seconds + 2)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            self._task = None
+```
+
+<Warning>
+  **`transition_to_proactive` raises from non-`THINKING` states** — `InvalidTransitionError` if you call it while the FSM is in `PROACTIVE` or `REACTIVE`. The docs frame it as returning `False` on cooldown, but that's only true *from `THINKING`*. Always guard with `if state.current_state != AgentStateV2.THINKING: continue` before the transition call, as shown above. Without this guard your poll loop crashes every tick for the entire `interaction_timeout_s` window after each fire.
+</Warning>
+
+---
+
+## 🔌 Step 3 — Wire the driver into the bridge
+
+Extend `bridge/copilot_server.py` from Step 1. Six additions.
+
+### 3a. Imports and constants
+
+```python
+# Add to the imports at the top:
+from autoplay_sdk.context.context_store import actions_bucket_id
+from autoplay_sdk.proactive.triggers import (
+    ProactiveTriggerContext,
+    ProactiveTriggerResult,
+)
+from autoplay_sdk.proactive.triggers.tour_registry import TourRegistry
+
+from fastapi import Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+
+from proactive import ProactiveDriver, build_registry
+
+PROACTIVE_POLL_S = float(os.environ.get("PROACTIVE_POLL_S", "10"))
+RASA_URL = os.environ.get("RASA_URL", "http://localhost:5005")
+```
+
+### 3b. Build a `ProactiveTriggerContext` from `AsyncContextStore`
+
+Add these helpers near the bottom of the file, before the FastAPI route handlers:
+
+```python
+def _get_proactive_sessions():
+    """Yield (user_id, latest_session_id) for every tracked user.
+
+    Proactive ticks one session per user — the freshest one. Multi-session
+    users could be evaluated independently but for the demo one is plenty.
+    """
+    for user_id, sessions in _user_sessions.items():
+        if not sessions:
+            continue
+        latest_session_id, _ts = sorted(sessions, key=lambda x: -x[1])[0]
+        yield user_id, latest_session_id
+
+
+def _get_proactive_context(
+    user_id: str, session_id: str,
+) -> ProactiveTriggerContext | None:
+    """Build a ProactiveTriggerContext from the SDK's AsyncContextStore."""
+    product_id = _session_product.get(session_id, "")
+    key = actions_bucket_id(product_id, session_id)
+    payloads = context_store._actions.get(key)  # noqa: SLF001
+    if not payloads:
+        return None
+    slim_actions = tuple(a for p in payloads for a in p.actions)
+    if not slim_actions:
+        return None
+    return ProactiveTriggerContext.from_slim_actions(
+        slim_actions,
+        session_id=session_id,
+        product_id=product_id or "demo",
+        action_count=len(slim_actions),
+    )
+```
+
+<Note>
+  Reaching into `context_store._actions` is the only way to get raw `SlimAction` instances back out for trigger evaluation (the public `get()` method returns formatted prompt text, not raw actions). A public `AsyncContextStore.get_actions(session_id, product_id)` helper would replace this — it's been raised with the SDK team as upstream feedback.
+</Note>
+
+### 3c. Per-user SSE fan-out (the delivery channel)
+
+The proactive driver writes events into a per-user queue. Any tab the user has open with the host app subscribes to `/proactive/stream/{user_id}` and drains its own copy.
+
+```python
+_proactive_subscribers: dict[str, list[asyncio.Queue]] = {}
+
+
+def _publish_proactive(user_id: str, event: dict) -> int:
+    """Fan-out a proactive event to every live SSE subscriber for this user.
+
+    Returns the number of subscribers that received the event. Zero is fine —
+    it just means no tab is currently open; the trigger still fired (logged)
+    and the FSM is in PROACTIVE cooldown, which is the correct semantics.
+    """
+    queues = _proactive_subscribers.get(user_id) or []
+    for q in queues:
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            pass
+    return len(queues)
+
+
+# CORS — browser hits the bridge directly for the SSE stream.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/proactive/stream/{user_id}")
+async def proactive_stream(
+    user_id: str, request: Request,
+) -> StreamingResponse:
+    queue: asyncio.Queue = asyncio.Queue(maxsize=32)
+    _proactive_subscribers.setdefault(user_id, []).append(queue)
+    log.info("proactive: SSE subscriber connected user=%s total=%d",
+             user_id, len(_proactive_subscribers[user_id]))
+
+    async def event_gen():
+        try:
+            yield "retry: 3000\n\n"
+            yield ": connected\n\n"
+            import json as _json
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield f"event: proactive\ndata: {_json.dumps(event)}\n\n"
+        finally:
+            subs = _proactive_subscribers.get(user_id) or []
+            if queue in subs:
+                subs.remove(queue)
+            if not subs:
+                _proactive_subscribers.pop(user_id, None)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
+```
+
+### 3d. Per-trigger message + how-to ground truth
+
+The same trigger fires both surfaces — the toast and (if the user clicks Open chat) the LLM follow-up. We keep one canonical body per trigger, plus a separate "how-to" string that gets fed to the LLM as ground truth so the auto-followup doesn't invent button names.
+
+```python
+_PROACTIVE_MESSAGES: dict[str, str] = {
+    "bulk_edit_opportunity": (
+        "Updating projects one by one? There's a multi-select bulk edit "
+        "you might not have seen — want me to show you?"
+    ),
+}
+
+# Authoritative "how-to" text per trigger. When the user clicks Open chat,
+# this is fed to the LLM as ground truth so the follow-up reply has real
+# UI steps instead of plausibly-hallucinated ones. Without this hint the
+# LLM doesn't know what your buttons are called or where they live.
+_TRIGGER_HOW_TO: dict[str, str] = {
+    "bulk_edit_opportunity": (
+        "How bulk edit works on the Projects page:\n"
+        "1. At the top right of the table (next to the status filter), "
+        "click the small kebab menu icon (the three dots: ⋯).\n"
+        "2. A dropdown opens — pick 'Bulk edit'. Checkboxes appear on every "
+        "row.\n"
+        "3. Tick the projects you want to update.\n"
+        "4. A small toolbar appears at the bottom of the screen. Pick the "
+        "new priority from the dropdown.\n"
+        "5. Click 'Apply to N' — all selected projects update in one shot."
+    ),
+}
+```
+
+<Warning>
+  **Without the ground-truth `_TRIGGER_HOW_TO`, the LLM hallucinates UI.** Our first auto-followup confidently told the user to "click Edit Selected at the top" — a button that doesn't exist. The LLM was reading the trigger body ("multi-select bulk edit"), guessing plausible UI, and selling it with conviction. Always pass the authoritative steps when synthesising on the user's behalf.
+</Warning>
+
+### 3e. `_deliver_to_app` — fan out the trigger to the host app
+
+```python
+async def _deliver_to_app(
+    session_id: str, user_id: str, result: ProactiveTriggerResult,
+) -> None:
+    """Push a proactive message straight to the host app via SSE.
+
+    The host app (Next.js) subscribes per user_id on page load and renders
+    its own toast bubble. Rasa is intentionally NOT in this path — proactive
+    UX is owned by the app shell, not the chat vendor.
+    """
+    current_page = _current_page_hint(user_id)  # defined in Step 8
+    event = {
+        "trigger_id": result.trigger_id,
+        "body": _PROACTIVE_MESSAGES.get(result.trigger_id, result.body),
+        "session_id": session_id,
+        "tours": _tour_payload_for_trigger(result.trigger_id, current_page),  # Step 7
+    }
+    delivered = _publish_proactive(user_id, event)
+    log.info(
+        "proactive: published session=%s user=%s trigger=%s subscribers=%d",
+        session_id, user_id, result.trigger_id, delivered,
+    )
+```
+
+### 3f. Start the driver in the lifespan
+
+Extend your `lifespan` from Step 1 to start the driver alongside the connector client:
+
+```python
+_proactive: ProactiveDriver | None = None
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global _stream_task, _client, _proactive
+
+    _client = AsyncConnectorClient(url=STREAM_URL, token=UNKEY_TOKEN)
+    _client.on_actions(on_actions)
+    _stream_task = _client.run_in_background()
+    log.info("autoplay stream listening on %s", STREAM_URL)
+
+    _proactive = ProactiveDriver(
+        registry=build_registry(),
+        get_sessions=_get_proactive_sessions,
+        get_context=_get_proactive_context,
+        get_state=_session_state,
+        deliver=_deliver_to_app,
+        poll_seconds=PROACTIVE_POLL_S,
+    )
+    _proactive.start()
+
+    try:
+        yield
+    finally:
+        if _proactive is not None:
+            await _proactive.stop()
+        if _client is not None:
+            _client.stop()
+        if _stream_task is not None:
+            try:
+                await asyncio.wait_for(_stream_task, timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+```
+
+Restart the bridge. The startup log should show:
+
+```
+INFO copilot.proactive: proactive: driver started (poll=10.0s)
+```
+
+---
+
+## 🛣️ Step 4 — Capture SPA pageviews (and disable batching)
+
+`<Link>` navigations in Next.js use `pushState` and **don't** fire automatic `$pageview` events. Without manual capture, the bridge never learns the user is on `/projects` — your predicate looks for `/projects` in `canonical_url` and finds nothing, so it never fires.
+
+Two more tweaks for a proactive demo: disable PostHog client-side batching (so events ship immediately rather than every 30s, which would push our 120s window of "3 saves" outside the trigger horizon), and capture pageleave too.
+
+Update `app/posthog-provider.js`:
+
+```jsx
+"use client";
+
+import { useEffect } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import posthog from "posthog-js";
+
+export default function PostHogProvider({ children }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (typeof window === "undefined" || posthog.__loaded) return;
+    posthog.init("phc_YOUR_PROJECT_API_KEY", {
+      api_host: "https://us.i.posthog.com",
+      person_profiles: "identified_only",
+      session_idle_timeout_seconds: 120,
+      // SPA pageviews are captured manually below — PostHog's
+      // `capture_pageview: true` only catches the initial load.
+      capture_pageview: false,
+      capture_pageleave: true,
+      // For the demo: ship events immediately so the proactive pipeline
+      // isn't sitting on a 30s client-side batch. Production apps keep
+      // batching on.
+      request_batching: false,
+      loaded: (ph) => {
+        ph.identify("USER_ID_FROM_YOUR_AUTH", {
+          product_id: "YOUR_AUTOPLAY_PRODUCT_ID",
+          email: "user@theirdomain.com",
+        });
+        ph.register({ email: "user@theirdomain.com" });
+      },
+    });
+  }, []);
+
+  // Fire $pageview on every route change so canonical_url reflects where the
+  // user actually is — not where they last clicked.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = searchParams?.toString();
+    const url = qs ? `${pathname}?${qs}` : pathname;
+    posthog.capture("$pageview", {
+      $current_url: window.location.origin + url,
+    });
+  }, [pathname, searchParams]);
+
+  return children;
+}
+```
+
+<Warning>
+  Without the SPA pageview hook your trigger predicate looks for `/projects` in `canonical_url` and finds nothing — PostHog only auto-fires the initial pageview on first load, never on subsequent client-side navigations. Easy to miss; expensive to debug.
+</Warning>
+
+<Warning>
+  **`phc_` vs `phx_` keys.** Use the **Project API key** (starts with `phc_`). The other keys PostHog surfaces (`phx_…`) are personal/admin keys — `posthog.init()` will reject them with 401 + `"API key is not valid: personal_api_key"`. If your snippet returns 401 on every capture call but your code looks right, this is it.
+</Warning>
+
+---
+
+## 🍞 Step 5 — Render the toast in your Next.js app
+
+Create `app/proactive-toast.js`. Subscribes to the SSE stream on mount, renders each event as a dismissible bubble bottom-right, surfaces two CTAs.
+
+<Note>
+  **This file references two helpers we'll add in Steps 6 and 7** (`injectIntoChat` and `startTour`). Until then the buttons throw `ReferenceError` on click — the toast itself appears and auto-dismisses, but the CTAs don't work yet. That's expected.
+</Note>
+
+```jsx
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+
+const BRIDGE_URL =
+  process.env.NEXT_PUBLIC_BRIDGE_URL || "http://localhost:8090";
+// IMPORTANT: this MUST be the same value you pass to `posthog.identify(...)`
+// in `app/posthog-provider.js` AND to `customData.userId` in
+// `app/rasa-widget.js`. The bridge keys the SSE stream, the proactive FSM,
+// and the chat session by this id — if they don't match, the toast never
+// reaches the right tab and the LLM follow-up can't read the user's activity.
+const USER_ID = "demo-user-1";
+const AUTO_DISMISS_MS = 20_000;
+
+function openChatWidget() {
+  const launcher =
+    document.querySelector(".rw-launcher") ||
+    document.querySelector("[class*=launcher]");
+  if (launcher instanceof HTMLElement) launcher.click();
+}
+
+// injectIntoChat + startTour are added in Steps 6 and 7 (top of this file).
+
+export default function ProactiveToast() {
+  const [toasts, setToasts] = useState([]);
+
+  const dismiss = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const source = new EventSource(
+      `${BRIDGE_URL}/proactive/stream/${encodeURIComponent(USER_ID)}`
+    );
+    source.addEventListener("proactive", (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        const id = `${data.trigger_id}-${Date.now()}`;
+        setToasts((prev) => [
+          ...prev,
+          {
+            id,
+            triggerId: data.trigger_id,
+            body: data.body,
+            tours: Array.isArray(data.tours) ? data.tours : [],
+          },
+        ]);
+        setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
+      } catch {
+        // malformed event — ignore
+      }
+    });
+    return () => source.close();
+  }, [dismiss]);
+
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="pointer-events-none fixed bottom-24 right-6 z-50 flex flex-col gap-3">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className="pointer-events-auto w-80 rounded-xl border border-zinc-200 bg-white p-4 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">
+              💬
+            </div>
+            <div className="flex-1">
+              <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Copilot
+              </div>
+              <div className="mt-1 leading-snug">{t.body}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => dismiss(t.id)}
+              className="-mr-1 -mt-1 rounded p-1 text-zinc-400 hover:bg-zinc-100"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {t.tours.map((tour) => (
+              <button
+                key={tour.id}
+                type="button"
+                onClick={() => { startTour(tour); dismiss(t.id); }}
+                className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+              >
+                {tour.label || "Show me"}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                injectIntoChat(t.body, t.triggerId);
+                dismiss(t.id);
+              }}
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Open chat
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+Mount it once in `app/layout.js` (next to your existing providers):
+
+```jsx
+import ProactiveToast from "./proactive-toast";
+// ...
+<ProactiveToast />
+```
+
+---
+
+## 💬 Step 6 — The "Open chat" path with LLM auto-followup
+
+When the user clicks **Open chat** on the toast, two things happen in sequence:
+
+1. Push the proactive message into the Rasa conversation **as a bot bubble** (not a generic `/greet`).
+2. Treat the click as an implicit "yes" and **automatically follow up with an LLM-generated step-by-step**, grounded in the per-trigger `_TRIGGER_HOW_TO` text from Step 3d.
+
+The user lands in the open chat with the question + answer already there — no typing required.
+
+Rasa exposes `POST /conversations/{sender}/trigger_intent?output_channel=socketio`. Pair it with the widget's existing socket session ID (which `rasa-webchat` stores in `sessionStorage.chat_session.session_id`) and you can inject a typed bot utterance into the open SocketIO channel.
+
+### 6a. Rasa — accept an `EXTERNAL_proactive` intent
+
+Update `rasa-bot/domain.yml` (additive to Step 1):
+
+```yaml
+intents:
+  # existing intents from Step 1...
+  - EXTERNAL_proactive
+
+entities:
+  - proactive_text
+
+slots:
+  # existing slots from Step 1...
+  proactive_text:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: proactive_text
+
+actions:
+  # existing actions from Step 1...
+  - action_send_proactive
+```
+
+Add a rule to `rasa-bot/data/rules.yml`:
+
+```yaml
+  - rule: Proactive message pushed from bridge
+    steps:
+      - intent: EXTERNAL_proactive
+      - action: action_send_proactive
+```
+
+Add a single dummy NLU example so Rasa knows the intent exists (the real trigger comes from the bridge's `trigger_intent` API, not from user text — but Rasa requires at least one example per registered intent):
+
+```yaml
+# rasa-bot/data/nlu.yml
+  - intent: EXTERNAL_proactive
+    examples: |
+      - EXTERNAL_proactive
+```
+
+Add `ActionSendProactive` to `rasa-bot/actions/actions.py`:
+
+```python
+class ActionSendProactive(Action):
+    """Utter the proactive body the bridge supplied.
+
+    The bridge calls Rasa's
+    `POST /conversations/{sender}/trigger_intent?output_channel=socketio`
+    with `EXTERNAL_proactive` + entity `proactive_text=...`. This action
+    just utters whatever the bridge supplied — the SocketIO channel
+    forwards it to the open widget.
+    """
+
+    def name(self) -> str:
+        return "action_send_proactive"
+
+    async def run(self, dispatcher, tracker, domain):
+        text = tracker.get_slot("proactive_text") or ""
+        if text:
+            dispatcher.utter_message(text=text)
+        return []
+```
+
+Retrain Rasa and restart:
+
+```bash
+docker compose run --rm rasa train
+docker compose restart rasa action-server
+```
+
+<Warning>
+  **Drop the `greet` rule (or guard the bridge call).** Rasa's `action_listen` cycle delivers empty user events on session bootstrap and widget reconnects — those would otherwise classify as the closest text intent (often `greet`) and trigger a generic "Hi, I'm your assistant!" bubble that arrives *in front of* the proactive message you just injected. Either remove the `greet` intent/rule from Step 1 (the demo does this), or guard every action with `if not query.strip(): return`. The demo's `actions/actions.py` returns silently on empty queries.
+</Warning>
+
+### 6b. Bridge — `/proactive/inject` with LLM auto-followup
+
+Add to `copilot_server.py`. We reuse the `_build_assembly` and `SYSTEM_PROMPT` from Step 1 to keep the LLM grounded in the same activity context the reactive `/reply` endpoint uses.
+
+```python
+async def _push_bot_message(sender_id: str, text: str) -> None:
+    """Inject a single bot utterance into the widget's open SocketIO session."""
+    url = (
+        f"{RASA_URL}/conversations/{sender_id}/trigger_intent"
+        "?output_channel=socketio"
+    )
+    body = {
+        "name": "EXTERNAL_proactive",
+        "entities": {"proactive_text": text},
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(url, json=body)
+        r.raise_for_status()
+
+
+async def _llm_reply(user_id: str, query: str) -> str:
+    """Same prompt-assembly + OpenAI call /reply uses, reusable so the
+    proactive follow-up can synthesise a contextual answer without a
+    second HTTP hop."""
+    assembly = _build_assembly(user_id, query)
+    user_prompt = build_user_prompt_block(assembly)
+    name = _name_from_email(_user_emails.get(user_id))
+    sys_prompt = SYSTEM_PROMPT + (
+        f"\n\nUser's first name: {name}." if name else ""
+    )
+    resp = await _openai.chat.completions.create(
+        model=LLM_MODEL,
+        temperature=0.4,
+        max_tokens=250,
+        messages=[
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+
+@app.post("/proactive/inject")
+async def proactive_inject(payload: dict) -> dict[str, Any]:
+    """User clicked "Open chat" on the toast — open the chat with a
+    bot-driven mini-conversation:
+
+      1. Push the proactive question (the toast body) as a bot bubble.
+      2. Treat the click as an implicit "yes" and immediately push the
+         LLM-generated helpful reply as a second bot bubble.
+
+    The user lands in the chat with the offer + the answer already there;
+    they can ask follow-ups from there.
+
+    The frontend passes:
+      - sender_id  → rasa-webchat's socket session id (from sessionStorage)
+      - body       → the proactive message body (what the toast showed)
+      - user_id    → the auth user id (for the LLM activity context)
+      - trigger_id → which trigger fired (for the how-to lookup)
+    """
+    sender_id = str(payload.get("sender_id") or "")
+    body = str(payload.get("body") or "")
+    user_id = str(payload.get("user_id") or "")
+    trigger_id = str(payload.get("trigger_id") or "")
+    if not sender_id or not body:
+        raise HTTPException(400, "sender_id and body required")
+
+    # 1) Send the proactive question.
+    try:
+        await _push_bot_message(sender_id, body)
+        log.info("proactive: injected question sender=%s len=%d",
+                 sender_id, len(body))
+    except Exception as exc:
+        log.warning("proactive: question push failed: %s", exc)
+        raise HTTPException(502, f"rasa trigger_intent failed: {exc}")
+
+    # 2) Auto-follow-up with the LLM answer — the user clicked Open chat,
+    #    that IS the "yes." We bake the proactive question AND the
+    #    authoritative how-to text into the synthesised user message so
+    #    the LLM has ground truth for the UI steps. Without this it
+    #    hallucinates plausible-sounding button names that don't exist.
+    how_to = _TRIGGER_HOW_TO.get(trigger_id, "")
+    if user_id:
+        try:
+            synth = (
+                f'Yes, please walk me through it. You just offered: '
+                f'"{body}".\n\n'
+            )
+            if how_to:
+                synth += (
+                    "The exact steps for this feature in this app are:\n"
+                    f"{how_to}\n\n"
+                    "Rewrite those steps in a friendly tone, referencing "
+                    "what I've been doing on the page. Use the activity log "
+                    "to make it feel personal — but do NOT invent any "
+                    "button names or UI elements that are not in the steps "
+                    "above. Stay accurate to the steps."
+                )
+            else:
+                synth += (
+                    "Give me concrete, step-by-step instructions for the "
+                    "feature you mentioned. Reference what I have been "
+                    "doing on the page. Do NOT ask me to clarify."
+                )
+            followup = await _llm_reply(user_id, synth)
+            if followup:
+                # Small gap so the two bubbles don't render simultaneously
+                # and the user perceives a real back-and-forth pace.
+                await asyncio.sleep(0.6)
+                await _push_bot_message(sender_id, followup)
+                log.info("proactive: injected followup sender=%s len=%d",
+                         sender_id, len(followup))
+        except Exception as exc:
+            log.warning("proactive: followup failed: %s", exc)
+            # Non-fatal — at least the question landed.
+
+    return {"status": "ok"}
+```
+
+### 6c. Frontend — `injectIntoChat` + widget setup
+
+Add to the top of `app/proactive-toast.js`:
+
+```js
+function getRasaSessionId() {
+  try {
+    const raw = sessionStorage.getItem("chat_session");
+    return raw ? JSON.parse(raw)?.session_id || null : null;
+  } catch {
+    return null;
+  }
+}
+
+async function injectIntoChat(body, triggerId) {
+  const senderId = getRasaSessionId();
+  if (!senderId) {
+    openChatWidget();
+    return;
+  }
+  // Open the widget first so the bot bubbles land in a visible chat.
+  openChatWidget();
+  try {
+    await fetch(`${BRIDGE_URL}/proactive/inject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // user_id lets the bridge synthesise an auto-followup using the
+      // user's recent activity context. trigger_id lets it pick the
+      // matching authoritative how-to text so the LLM doesn't hallucinate.
+      body: JSON.stringify({
+        sender_id: senderId,
+        body,
+        user_id: USER_ID,
+        trigger_id: triggerId,
+      }),
+    });
+  } catch {
+    // non-fatal — chat is already open, user can ask manually
+  }
+}
+```
+
+And in `app/rasa-widget.js` — clear the chat session on each fresh page load so stale conversations don't bleed into the new one, and (if you copied the Step 1 widget verbatim) **drop the `initPayload: "/greet"`** so the chat doesn't double up with a generic greeting on top of the proactive message:
+
+```jsx
+"use client";
+
+import { useEffect } from "react";
+
+export default function RasaWidget() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Start every page load with a fresh chat. Run BEFORE the script-exists
+    // guard so soft refreshes also clear it. Messages still persist across
+    // in-app Link navigations because the layout (and this component) stays
+    // mounted.
+    sessionStorage.removeItem("chat_session");
+
+    if (document.getElementById("rasa-webchat-script")) return;
+
+    const script = document.createElement("script");
+    script.id = "rasa-webchat-script";
+    script.src =
+      "https://cdn.jsdelivr.net/npm/rasa-webchat@1.0.1/lib/index.js";
+    script.async = true;
+    script.onload = () => {
+      window.WebChat.default(
+        {
+          customData: { language: "en", userId: "demo-user-1" },
+          socketUrl: "http://localhost:5005",
+          title: "Demo Copilot",
+          subtitle: "Powered by Autoplay + Rasa",
+          inputTextFieldHint: "Ask me what you just did, or for help...",
+          showFullScreenButton: false,
+          params: { storage: "session" },
+        },
+        null,
+      );
+    };
+    document.body.appendChild(script);
+  }, []);
+
+  return null;
+}
+```
+
+### 6d. Bridge — also call `_mark_reactive` on `/reply`
+
+In Step 1's `/reply` endpoint, add a single call that flips the FSM into `REACTIVE` for the user's session whenever they send a chat message. This prevents new proactive triggers from interrupting mid-conversation.
+
+```python
+def _latest_session_for_user(user_id: str) -> str | None:
+    """Most-recent session for this user — used by _mark_reactive (below)
+    and by the tour-lifecycle endpoints in Step 7."""
+    sessions = _user_sessions.get(user_id) or []
+    if not sessions:
+        return None
+    session_id, _ts = sorted(sessions, key=lambda x: -x[1])[0]
+    return session_id
+
+
+def _mark_reactive(user_id: str) -> None:
+    """Tell the FSM the user just sent a chat message.
+
+    Two SDK calls per the agent-state-v2 contract:
+      - `transition_to_reactive()` moves THINKING → REACTIVE so future
+        proactive triggers are gated until the conversation ends.
+      - `record_user_interaction()` resets `interaction_timeout_s` so
+        the FSM doesn't drift back to THINKING mid-conversation.
+
+    Both are wrapped in try/except — the FSM's transition rules raise on
+    illegal moves (e.g. PROACTIVE → REACTIVE is never allowed; we already
+    know that's the case so we just record the interaction in that branch).
+    """
+    session_id = _latest_session_for_user(user_id)
+    if not session_id:
+        return
+    state = _session_state(session_id)
+    try:
+        if state.current_state == AgentStateV2.THINKING:
+            state.transition_to_reactive()
+    except Exception as exc:
+        log.debug("FSM transition_to_reactive skipped: %s", exc)
+    try:
+        state.record_user_interaction()
+    except Exception as exc:
+        log.debug("FSM record_user_interaction skipped: %s", exc)
+
+
+@app.get("/reply/{user_id}")
+async def get_reply(user_id: str, query: str) -> dict[str, Any]:
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+    _mark_reactive(user_id)   # ← new
+    # ... rest of the Step 1 implementation ...
+```
+
+<Warning>
+  **The Rasa session ID lives in sessionStorage**, keyed by `chat_session` → `session_id`. That's the value Rasa's SocketIO channel uses as `sender_id` — different from your auth user ID. If you pass your auth user ID to `trigger_intent`, the call returns 200 OK but the message never reaches the widget (it goes to the wrong channel). Always read the sender from sessionStorage.
+</Warning>
+
+---
+
+## 🗺️ Step 7 — The "Show me" path with Usertour
+
+For the visual-tour CTA we use [Usertour](https://www.usertour.io/) — it's open-source, has a free cloud tier, and the Autoplay SDK already ships a typed helper for its events (`autoplay_sdk.integrations.usertour_sse`).
+
+If you'd prefer a different tool ([Userpilot](/recipes/userpilot/how-to-setup), [Chameleon](/recipes/chameleon/how-to-setup), [Userflow](/recipes/userflow/how-to-setup), [Pendo](/recipes/pendo/how-to-setup), [UserGuiding](/recipes/userguiding/how-to-setup), [Told](/recipes/told/how-to-setup)), the same wiring applies — only the SDK init/identify call changes.
+
+### 7a. Sign up + build the flow
+
+1. Create a free Usertour account at [usertour.io](https://www.usertour.io/).
+2. **Settings → Environments** → copy the **Usertour.js token** (public, frontend-safe).
+3. **Flows → New flow** → name it **`projects-bulk-edit`**. Open `http://localhost:3000/projects` in another tab so Usertour's element picker has the live page to target.
+4. Build 4 steps on the `/projects` page targeting these selectors:
+
+   | # | Step name | CSS selector | Tooltip text | Advance trigger |
+   |---|---|---|---|---|
+   | 1 | Open table options | `#projects-table-options` | *Click the ⋯ icon to open the table-options menu — bulk edit hides here.* | Click on element → step 2 |
+   | 2 | Pick Bulk edit | `#projects-bulk-edit-toggle` | *Pick "Bulk edit" — checkboxes will appear on every row.* | Click on element → step 3 |
+   | 3 | Select projects | `#project-checkbox-P-1042` *(pick any row id from your seed data)* | *Tick the projects you want to update. Pick a few — five works for a quick demo.* | Click on element → step 4 |
+   | 4 | Apply | `#bulk-apply` | *Pick the new priority in the floating toolbar, then click here — all selected projects update at once.* | Click on element → Dismiss flow |
+
+5. **Settings:**
+   - **Auto-start:** OFF — we trigger this programmatically from the toast.
+   - **Skippable:** ON.
+   - **Theme:** whatever you prefer; the bridge has no opinion.
+6. **Publish** the flow.
+7. Copy the flow ID from the URL — `app.usertour.io/.../flows/<FLOW_ID>/detail`. You'll need this in Step 7c.
+
+<Warning>
+  **Step 2's anchor lives in a Radix portal.** `#projects-bulk-edit-toggle` is inside a dropdown menu that renders to a React portal (separate DOM subtree). Usertour's selector targeting **should** still find it by id — selectors hop portals — but if step 2 fails to attach, either: (Fix A) set the step's placement to "floating / freeform" so the tooltip isn't tied to the element's position, or (Fix B) collapse steps 1+2 into a single "Click ⋯ → Bulk edit" tooltip that points at the kebab and advances on any descendant click.
+</Warning>
+
+### 7b. Wire the Usertour SDK into your app
+
+```bash
+npm install usertour.js
+```
+
+Create `app/usertour-provider.js`:
+
+```jsx
+"use client";
+
+import { useEffect } from "react";
+import usertour from "usertour.js";
+
+const USERTOUR_TOKEN = "YOUR_USERTOUR_TOKEN";
+const USER_ID = "demo-user-1";
+const BRIDGE_URL =
+  process.env.NEXT_PUBLIC_BRIDGE_URL || "http://localhost:8090";
+
+function postTourEvent(path) {
+  fetch(`${BRIDGE_URL}/tour/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: USER_ID }),
+    keepalive: true,
+  }).catch(() => {
+    // non-fatal — the FSM will time out on its own if we miss the call
+  });
+}
+
+// Usertour's event API is not strongly typed in the npm wrapper; try a few
+// common shapes and quietly skip what's not there.
+function wireTourEventCallbacks(u) {
+  const tryOn = (event, handler) => {
+    if (typeof u.on === "function") {
+      try { u.on(event, handler); } catch { /* ignore */ }
+    }
+  };
+  tryOn("flow:step:complete", () => postTourEvent("step"));
+  tryOn("flow:step:advance",  () => postTourEvent("step"));
+  tryOn("step:complete",      () => postTourEvent("step"));
+  tryOn("flow:complete",      () => postTourEvent("end"));
+  tryOn("flow:end",           () => postTourEvent("end"));
+  tryOn("flow:dismiss",       () => postTourEvent("end"));
+}
+
+export default function UsertourProvider() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      usertour.init(USERTOUR_TOKEN);
+    } catch (e) {
+      console.warn("[usertour] init failed (non-fatal):", e);
+      return;
+    }
+    Promise.resolve(
+      usertour.identify(USER_ID, {
+        email: "user@theirdomain.com",
+        name: "Demo User",
+      })
+    ).catch((e) =>
+      console.warn("[usertour] identify failed (non-fatal):", e?.message || e)
+    );
+    if (window.usertour) wireTourEventCallbacks(window.usertour);
+  }, []);
+  return null;
+}
+```
+
+Mount in `app/layout.js`:
+
+```jsx
+import UsertourProvider from "./usertour-provider";
+// ...
+<UsertourProvider />
+```
+
+### 7c. Bridge — `TourRegistry` + lifecycle endpoints
+
+Extend `copilot_server.py`:
+
+```python
+TOUR_REGISTRY = TourRegistry.from_dict({
+    "product_id": "YOUR_AUTOPLAY_PRODUCT_ID",
+    "default_interaction_timeout_s": 60.0,
+    "default_cooldown_period_s": 120.0,
+    "tours": [
+        {
+            "id": "projects-bulk-edit",
+            "user_tour_id": "YOUR_USERTOUR_FLOW_ID",  # from Step 7a step 7
+            "user_tour_name": "Projects bulk edit",
+        },
+    ],
+})
+
+# Which tours are offered as a "Show me" CTA when each trigger fires.
+_TRIGGER_TOURS: dict[str, list[str]] = {
+    "bulk_edit_opportunity": ["projects-bulk-edit"],
+}
+
+# A tour only runs on pages where its anchors exist. Substring match against
+# the user's current canonical URL.
+_TOUR_PAGE_PATTERNS: dict[str, str] = {
+    "projects-bulk-edit": "/projects",
+}
+
+
+def _tour_payload_for_trigger(
+    trigger_id: str, current_page: str | None,
+) -> list[dict]:
+    """Return [{id, flow_id, label}] for tours we want to surface on this
+    trigger. Tours are filtered by `current_page` — a tour's anchors only
+    exist on its target page, so offering "Show me" anywhere else would
+    just spotlight thin air.
+    """
+    if not current_page:
+        return []
+    out: list[dict] = []
+    for tour_id in _TRIGGER_TOURS.get(trigger_id, []):
+        page_pattern = _TOUR_PAGE_PATTERNS.get(tour_id)
+        if page_pattern and page_pattern not in current_page:
+            continue
+        tour_def = TOUR_REGISTRY.get(tour_id)
+        if tour_def is None or not tour_def.user_tour_id:
+            continue
+        out.append({
+            "id": tour_def.id,
+            "flow_id": tour_def.user_tour_id,
+            "label": "Show me",
+        })
+    return out
+
+
+@app.post("/tour/start")
+async def tour_start(payload: dict) -> dict[str, Any]:
+    """User accepted the proactive "Show me" CTA; return the Usertour
+    flow_id and transition the FSM into visual-guidance mode."""
+    user_id = str(payload.get("user_id") or "")
+    tour_id = str(payload.get("tour_id") or "")
+    if not user_id or not tour_id:
+        raise HTTPException(400, "user_id and tour_id required")
+    tour_def = TOUR_REGISTRY.get(tour_id)
+    if tour_def is None or not tour_def.user_tour_id:
+        raise HTTPException(404, f"unknown tour {tour_id}")
+
+    session_id = _latest_session_for_user(user_id)
+    if session_id:
+        state = _session_state(session_id)
+        try:
+            state.set_visual_guidance(active=True, tour_id=tour_id)
+            log.info("tour: started user=%s tour=%s flow=%s session=%s",
+                     user_id, tour_id, tour_def.user_tour_id, session_id)
+        except Exception as exc:
+            log.warning("tour: set_visual_guidance failed: %s", exc)
+    else:
+        log.warning("tour: no session for user=%s", user_id)
+
+    return {"status": "ok", "flow_id": tour_def.user_tour_id, "tour_id": tour_id}
+
+
+@app.post("/tour/step")
+async def tour_step(payload: dict) -> dict[str, str]:
+    """Frontend pings here on each tour step so the FSM's interaction
+    timer keeps resetting and proactive triggers stay gated."""
+    user_id = str(payload.get("user_id") or "")
+    session_id = _latest_session_for_user(user_id)
+    if session_id is None:
+        return {"status": "no_session"}
+    state = _session_state(session_id)
+    try:
+        state.record_tour_step()
+    except Exception as exc:
+        log.warning("tour: record_tour_step failed: %s", exc)
+    return {"status": "ok"}
+
+
+@app.post("/tour/end")
+async def tour_end(payload: dict) -> dict[str, str]:
+    """Tour completed or was dismissed — clear the visual-guidance flag."""
+    user_id = str(payload.get("user_id") or "")
+    session_id = _latest_session_for_user(user_id)
+    if session_id is None:
+        return {"status": "no_session"}
+    state = _session_state(session_id)
+    try:
+        state.set_visual_guidance(active=False)
+        log.info("tour: ended user=%s session=%s", user_id, session_id)
+    except Exception as exc:
+        log.warning("tour: set_visual_guidance(end) failed: %s", exc)
+    return {"status": "ok"}
+```
+
+### 7d. Frontend — `startTour` helper
+
+Add to the top of `app/proactive-toast.js`:
+
+```js
+// Best-effort: try the public methods Usertour exposes for programmatic start.
+// `usertour.js` has shipped multiple shapes — pin the version you tested OR
+// keep this fallthrough so customers on older / newer minor versions still work.
+function startUsertourFlow(flowId) {
+  const u = window.usertour;
+  if (!u) return false;
+  if (typeof u.start === "function") {
+    u.start(flowId);
+    return true;
+  }
+  if (u.flow && typeof u.flow.start === "function") {
+    u.flow.start(flowId);
+    return true;
+  }
+  if (u.flows && typeof u.flows.start === "function") {
+    u.flows.start(flowId);
+    return true;
+  }
+  return false;
+}
+
+async function startTour(tour) {
+  // Flip the FSM into visual-guidance mode + log on the bridge.
+  try {
+    await fetch(`${BRIDGE_URL}/tour/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: USER_ID, tour_id: tour.id }),
+    });
+  } catch {
+    // non-fatal — still run the tour
+  }
+  const launched = startUsertourFlow(tour.flow_id);
+  if (!launched) {
+    console.warn(
+      "[proactive] Usertour SDK not ready; could not start flow",
+      tour.flow_id,
+    );
+  }
+}
+```
+
+---
+
+## 🧭 Step 8 — Current-page hint (the tour-gating fix)
+
+`_tour_payload_for_trigger` (Step 7c) needs to know which page the user is **currently** on so it can decide whether to offer the tour at all (no point spotlighting `/projects` anchors when the user is on `/dashboard`).
+
+Add this helper to `copilot_server.py`:
+
+```python
+def _current_page_hint(user_id: str) -> str | None:
+    """Latest URL the user is on — picked by `timestamp_start`, not array
+    order.
+
+    PostHog batches don't always arrive in chronological order, so the last
+    element in a payload is not necessarily the most recent action. We scan
+    all actions across all payloads and pick the one with the largest
+    `timestamp_start`.
+    """
+    sessions = _user_sessions.get(user_id) or []
+    latest_action = None
+    latest_ts = float("-inf")
+    for session_id, _ts in sorted(sessions, key=lambda x: -x[1]):
+        product_id = _session_product.get(session_id)
+        key = actions_bucket_id(product_id, session_id)
+        bucket = context_store._actions.get(key)  # noqa: SLF001
+        if not bucket:
+            continue
+        for payload in bucket:
+            for action in payload.actions:
+                if not action.canonical_url:
+                    continue
+                try:
+                    ts = (
+                        float(action.timestamp_start)
+                        if action.timestamp_start else 0.0
+                    )
+                except (TypeError, ValueError):
+                    ts = 0.0
+                if ts > latest_ts:
+                    latest_ts = ts
+                    latest_action = action
+        if latest_action is not None:
+            break  # most-recent session has actions; don't fall through
+    return latest_action.canonical_url if latest_action else None
+```
+
+<Warning>
+  **`reversed(actions)` is not the same as "most recent."** PostHog batches don't always arrive in chronological order — the last element in a payload can be older than items earlier in the same batch. Always pick by `timestamp_start` if you need the actual latest action.
+</Warning>
+
+---
+
+## ✅ Step 9 — End-to-end test
+
+1. Make sure the bridge, Rasa, action server, and Next.js dev server are all running.
+2. Open an **incognito window** (clean PostHog session, no stale `chat_session`) → `http://localhost:3000/projects`.
+3. Click around briefly (one click is enough to register the SSE subscriber).
+4. Edit three different projects' priorities one by one:
+   - Click **Edit** on project A → change Priority to High → **Save changes**.
+   - Click **Edit** on project B → change Priority to High → **Save changes**.
+   - Click **Edit** on project C → change Priority to High → **Save changes**.
+5. **Wait ~10–30 seconds** for the next poll tick. A toast appears bottom-right: *"Updating projects one by one? There's a multi-select bulk edit you might not have seen — want me to show you?"* with two CTAs: **Show me** and **Open chat**.
+6. **Path A — Show me.** Click it. Usertour spotlights the **⋯** kebab in the table header. Click it → dropdown opens → spotlight moves to "Bulk edit" → click that → checkboxes appear → spotlight moves to a row checkbox → tick several rows → the floating toolbar lights up → spotlight moves to **Apply to N** → click → tour ends, all selected projects updated in one shot.
+7. **Path B — Open chat.** In a fresh tab (so the FSM cooldown doesn't block), repeat steps 3–5. Click **Open chat**. The Rasa widget opens. Bubble 1: the proactive question. About 0.6s later, bubble 2: an LLM-generated step-by-step grounded in your `_TRIGGER_HOW_TO` — it references the actual kebab, the actual "Bulk edit" label, the actual "Apply to N" button, because it was given the ground truth.
+
+In the bridge log you should see, in order:
+
+```
+INFO copilot.proactive: proactive: firing   session=… user=demo-user-1 trigger=bulk_edit_opportunity
+INFO copilot:           proactive: published session=… user=demo-user-1 trigger=bulk_edit_opportunity subscribers=1
+INFO copilot:           tour: started user=demo-user-1 tour=projects-bulk-edit flow=…       ← if user clicked "Show me"
+INFO copilot:           proactive: injected question sender=…                              ← if user clicked "Open chat"
+INFO copilot:           proactive: injected followup sender=…                              ← LLM auto-followup landed
+```
+
+---
+
+## 🛠 Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Toast never fires, FSM stays in `THINKING` | Predicate is returning `False`. Add a debug log in the predicate and check `recent_actions` — likely no `/projects` URL (missing SPA pageview hook from Step 4), or fewer than 3 "Save changes" titles within 120s, or the user already clicked Bulk edit / Apply earlier in the session. |
+| Trigger fires on every page after the user visits `/projects` once | Predicate doesn't gate on *current* page. The recipe's predicate has the "latest action by timestamp must be a `/projects` page-view" guard — make sure it's still there. |
+| `InvalidTransitionError` from `transition_to_proactive` in the log | Missing `if state.current_state != AgentStateV2.THINKING: continue` before the transition call. The docs frame it as a bool gate, but it raises from non-`THINKING` states. |
+| Toast UI doesn't appear but `published subscribers=N>0` is logged | Frontend SSE connection dropped — check Network tab for the `/proactive/stream/{user_id}` request. If it's gone, the `ProactiveToast` component didn't mount. |
+| Toast UI doesn't appear and `subscribers=0` | No tab is open with the demo app. Open one. |
+| `Open chat` works but no bot bubble appears | Wrong `sender_id` — make sure you're reading `sessionStorage.chat_session.session_id`, not passing your auth user ID. Rasa keys SocketIO by the widget's random session id. |
+| `Open chat` works but the auto-followup is generic / hallucinated | Missing or empty `_TRIGGER_HOW_TO` entry for the trigger — the LLM is reading just the question body and guessing UI. Add the authoritative steps; restart the bridge. |
+| `Show me` button doesn't appear on the toast | Tour-gating filtered it out — `_current_page_hint` returned something that didn't contain `/projects`. Open `/healthz` or the new `/debug/users` endpoint to inspect what the bridge thinks the page is. |
+| Usertour spotlight ignores clicks on the kebab | The Lucide / Heroicon SVG inside the button has `pointer-events` enabled — clicks land on the `<svg>`, not the button. Add `className="pointer-events-none"` to the icon. |
+| Usertour step 2 (Bulk edit dropdown item) doesn't attach | Radix portal — see the Warning in Step 7a. Set step 2's placement to "floating" OR collapse steps 1+2. |
+| Usertour identify error in the console | Token mismatch — verify the env token in `usertour-provider.js` matches **Settings → Environments → Production** in the Usertour dashboard. |
+| Toast fires repeatedly even after user accepts the tour | The FSM cooldown is shorter than your test loop. The demo uses `interaction_timeout_s=10.0, cooldown_period_s=20.0` for fast iteration — production should be `60.0 / 120.0` or longer. |
+| Chat opens with a generic "Hi!" bubble in front of the proactive message | A `greet` rule is still firing on empty `action_listen` cycles. Either remove the `greet` intent/rule (the demo does), or guard `_reply_via_bridge` with `if not query.strip(): return`. |
+| `/projects` URL never appears in `canonical_url` | SPA pageviews not captured — Step 4 hooks `usePathname` and calls `posthog.capture("$pageview", ...)`. PostHog's `capture_pageview: true` flag only catches the initial load. |
+| Trigger fires 3 minutes late | PostHog client-side batching is still on. Set `request_batching: false` (Step 4) for the demo so events ship immediately. |
+
+---
+
+## 🔄 Day-2 operations
+
+```bash
+# Terminal 1 — your web app
+# Terminal 2 — bridge
+cd ~/your-copilot/bridge && uv run uvicorn copilot_server:app --port 8090
+
+# Terminal 3 — Rasa stack
+cd ~/your-copilot/rasa-bot && docker compose up -d
+```
+
+Same restart rules as Step 1: `docker compose restart action-server` after `actions.py` changes, `docker compose run --rm rasa train && docker compose restart rasa` after any `.yml` changes, `--reload` the bridge during development.
+
+---
+
+## What you've built
+
+You now have a Rasa chatbot that goes proactive *and* visual — driven by the SDK's trigger registry, gated by `agent_state.v2.SessionState`, surfaced through a host-app toast that gives the user a real choice between *show me* and *tell me*.
+
+A few things worth noting:
+
+- **The toast is owned by your app, not the chat vendor.** That's the only architecture that lets proactive nudges appear when the chat widget is closed — which is the only state most users spend their time in.
+- **Triggers are just predicates.** `bulk_edit_opportunity` is one rule; you can compose dozens. The SDK ships built-ins for common signals (`canonical_url_ping_pong`, `user_page_dwell`, `section_playbook_match`) — combine them in your registry.
+- **The visual layer is yours.** Usertour is one option among many ([Userpilot](/recipes/userpilot/how-to-setup), [Chameleon](/recipes/chameleon/how-to-setup), [Userflow](/recipes/userflow/how-to-setup), [Pendo](/recipes/pendo/how-to-setup), [UserGuiding](/recipes/userguiding/how-to-setup), [Told](/recipes/told/how-to-setup)). The SDK gives you the state and the trigger; the renderer is plug-in.
+- **The LLM auto-followup turns "Open chat" into a real conversation, not a dead-end.** The user doesn't have to type a follow-up — the bot reads the trigger context, looks up the ground-truth how-to, and walks them through it in one bubble. Without the ground-truth text the same path produces confident hallucinations; with it, the bot stays accurate to your actual UI.
+
+If anything in this tutorial wasn't clear, or you hit a snag the troubleshooting matrix didn't cover — please reply on the thread or open an issue in the [Autoplay SDK repo](https://github.com/Autoplay-AI/Autoplay-AI-SDK). Feedback shapes the next version of these docs.

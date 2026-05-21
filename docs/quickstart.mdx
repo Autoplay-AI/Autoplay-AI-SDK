@@ -21,6 +21,16 @@ Then install Autoplay skills for Cursor/Claude:
 autoplay-install-skills
 ```
 
+Or download the skills folder directly:
+
+<Card
+  title="Download skills folder"
+  icon="download"
+  href="https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/Autoplay-AI/Autoplay-AI-SDK/tree/main/autoplay_sdk/skills"
+>
+  Download the skills folder as a ZIP via DownGit.
+</Card>
+
 <Note>
   **SDK reorganization update (v0.7.6):** internal imports were reorganized into domain-based modules in `0.7.4`. Existing old paths still work (with deprecation warnings) and are removed in `1.0.0`.
 
@@ -302,7 +312,7 @@ let payload := {
 
 let headers := {
     'Content-Type': 'application/json',
-    'x-posthog-secret': '{webhook_secret_from_step_3}'
+    'x-posthog-secret': inputs.headers['x-posthog-secret']
 }
 
 let req := {
@@ -311,7 +321,7 @@ let req := {
     'method': 'POST'
 }
 
-let url := '{webhook_url_from_step_3}'
+let url := inputs.url
 
 if (inputs.debug) {
     print('Request payload', payload)

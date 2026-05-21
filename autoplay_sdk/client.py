@@ -70,6 +70,8 @@ Use ``on_connect`` and ``on_disconnect`` to react to connection events::
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import logging
 import queue
@@ -683,7 +685,9 @@ class ConnectorClient:
         session_id = getattr(typed, "session_id", None) or "_nosession"
         product_id = getattr(typed, "product_id", None)
         try:
-            cb(typed)
+            result = cb(typed)
+            if inspect.isawaitable(result):
+                asyncio.run(result)
         except Exception as exc:
             logger.error(
                 "autoplay_sdk: callback raised an error for event_type=%s session=%s: %s",
