@@ -2,6 +2,13 @@
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
+# Explicit submodule imports are required so that Python 3.10's
+# unittest.mock.patch() can resolve dotted paths like
+# "autoplay_sdk.client.connect_sse".  On 3.10, patch() uses getattr()
+# to walk the dotted path; without these imports the submodules are not
+# attributes of the package and patch() raises AttributeError.
+from . import agent_state, async_client, client  # noqa: F401
+
 from autoplay_sdk.agent_state import v2 as agent_state_v2
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.buffer import BufferBackend, EventBuffer, RedisEventBuffer
