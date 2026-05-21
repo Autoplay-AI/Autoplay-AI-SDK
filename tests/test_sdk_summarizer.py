@@ -555,7 +555,7 @@ class TestAsyncSummarizerBoundedQueue:
     async def test_idle_timeout_clears_history_and_counts(self):
         """After a worker idles out, _history and _counts for that session must be gone."""
         import asyncio as _asyncio
-        from autoplay_sdk import summarizer as summarizer_mod
+        from autoplay_sdk.context import summarizer as summarizer_mod
 
         original_timeout = summarizer_mod._WORKER_IDLE_TIMEOUT_S
         summarizer_mod._WORKER_IDLE_TIMEOUT_S = 0.05  # very short for the test

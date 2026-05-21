@@ -6,6 +6,23 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.7.8] — 2026-05-21
+
+### Changed
+
+- Bumped package version to `0.7.8`.
+
+---
+
+## [0.7.7] — 2026-05-21
+
+### Changed
+
+- Bumped package version to `0.7.7`.
+- Fixed circular import between `autoplay_sdk.integrations.intercom` and `autoplay_sdk.proactive.triggers` by moving `proactive_trigger_canonical_url_ping_pong` and `proactive_trigger_canonical_url_ping_pong_projects_either_leg` into `autoplay_sdk.proactive.triggers._url_predicates`. `intercom.py` re-exports both for backward compatibility.
+
+---
+
 ## [0.7.6] — 2026-05-18
 
 ### Fixed

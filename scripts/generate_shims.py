@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Generate legacy shim modules from autoplay_sdk.compat.shims.SHIM_MAP."""
+"""Legacy shim generator (no-op after shim removal)."""
 
 from __future__ import annotations
 
 from pathlib import Path
-
-from autoplay_sdk.compat.shims import SHIM_MAP
 
 TEMPLATE = '''"""Compatibility shim for autoplay-sdk 0.7.4 transition release."""
 
@@ -40,6 +38,7 @@ def module_to_path(module: str) -> Path:
 
 
 if __name__ == "__main__":
+    SHIM_MAP: list[dict[str, str]] = []
     for entry in SHIM_MAP:
         old = entry["old_module"]
         new = entry["new_module"]

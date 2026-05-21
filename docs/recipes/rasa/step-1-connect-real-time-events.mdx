@@ -85,7 +85,7 @@ Run a one-time script to create your webhook + SSE credentials.
 ```bash
 mkdir -p ~/your-copilot/bridge && cd ~/your-copilot/bridge
 uv init --no-readme .
-uv add 'autoplay-sdk==0.7.2'
+uv add 'autoplay-sdk==0.7.5'
 ```
 
 Create `bridge/register_product.py`:
@@ -175,11 +175,11 @@ let payload := {
 
 let headers := {
     'Content-Type': 'application/json',
-    'x-posthog-secret': '<WEBHOOK_SECRET>'
+    'x-posthog-secret': inputs.headers['x-posthog-secret']
 }
 
 let req := { 'headers': headers, 'body': jsonStringify(payload), 'method': 'POST' }
-let url := 'https://event-connector-luda.onrender.com/webhook/<PRODUCT_ID>'
+let url := inputs.url
 
 let res := fetch(url, req)
 if (res.status >= 400) {
@@ -209,18 +209,25 @@ You already created `~/your-copilot/bridge/` in Step 2. Add the remaining depend
 ```bash
 mkdir -p ~/your-copilot/rasa-bot
 cd ~/your-copilot/bridge
-uv add python-dotenv fastapi 'uvicorn[standard]' openai
+uv add python-dotenv fastapi 'uvicorn[standard]' openai httpx
 ```
 
 <Note>
   **Why two folders?** `bridge/` runs on your host with `autoplay-sdk` (pydantic v2). `rasa-bot/` runs in Docker because Rasa 3.x pins pydantic v1 — the two cannot share a venv. The HTTP boundary keeps them cleanly separated.
 </Note>
 
-Create `bridge/.env` with the four credentials returned by `onboard_product` plus your OpenAI key:
+Create `bridge/.env` with two of the four credentials returned by `onboard_product` plus your OpenAI key. Map them as follows:
+
+| `onboard_product` field | `.env` variable |
+|---|---|
+| `stream_url` | `STREAM_URL` |
+| `unkey_key` | `UNKEY_API_KEY` |
+| `webhook_url` | *(used in Step 3 — PostHog destination URL)* |
+| `webhook_secret` | *(used in Step 3 — PostHog destination header)* |
 
 ```ini
 STREAM_URL=https://event-connector-luda.onrender.com/stream/YOUR_PRODUCT_ID
-UNKEY_API_KEY=<unkey_key>
+UNKEY_API_KEY=<unkey_key from onboard_product output>
 OPENAI_API_KEY=sk-...
 # Optional tuning:
 LLM_MODEL=gpt-4o-mini
@@ -251,10 +258,10 @@ from autoplay_sdk import (
     AsyncContextStore,
     AsyncSessionSummarizer,
 )
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
-from autoplay_sdk.agent_state_v2 import SessionState
-from autoplay_sdk.context_store import actions_bucket_id
-from autoplay_sdk.rag_query.assembly import (
+from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
+from autoplay_sdk.agent_state.v2.states import SessionState
+from autoplay_sdk.context.context_store import actions_bucket_id
+from autoplay_sdk.rag.query.assembly import (
     ChatContextAssembly,
     build_user_prompt_block,
 )
@@ -353,8 +360,11 @@ def _index_session(user_id, session_id, email):
 
 def _session_state(session_id):
     if session_id not in _session_states:
+        # Demo-friendly timeouts so you can iterate quickly while testing
+        # Step 2's proactive triggers. Production: use ~60.0 / ~120.0 so
+        # the FSM doesn't drift out of REACTIVE mid-conversation.
         _session_states[session_id] = SessionState(
-            interaction_timeout_s=60.0, cooldown_period_s=120.0,
+            interaction_timeout_s=10.0, cooldown_period_s=20.0,
         )
     return _session_states[session_id]
 ```
@@ -598,7 +608,7 @@ Click around in your app for ~30 seconds, then re-check:
 
 ```bash
 curl "http://localhost:8090/reply/YOUR_USER_ID?query=what+did+i+just+do"
-# {"reply":"You're already on Billing — just pick Pro and hit Confirm.", "name":"Muhammad", "has_activity":true}
+# {"reply":"You're already on the upgrade page — just pick Pro and hit Confirm.", "name":"Casey", "has_activity":true}
 ```
 
 That confirms events are flowing and your reply path is grounded.
@@ -635,7 +645,9 @@ services:
     depends_on: [action-server]
 
   action-server:
-    image: rasa/rasa-sdk:3.6.2
+    build:
+      context: ./actions
+      dockerfile: Dockerfile
     platform: linux/amd64
     ports: ["5055:5055"]
     environment:
@@ -875,7 +887,22 @@ The critical bit is the **last rule** in `rules.yml` — `nlu_fallback → actio
 
 ## ⚡ Step 7 — Rasa action server: a thin HTTP wrapper
 
-Create `rasa-bot/actions/__init__.py` (empty) and `rasa-bot/actions/actions.py`:
+Create `rasa-bot/actions/__init__.py` (empty), `rasa-bot/actions/Dockerfile`, and `rasa-bot/actions/actions.py`:
+
+```dockerfile
+# rasa-bot/actions/Dockerfile — adds `httpx` (needed to call the bridge),
+# which the base `rasa/rasa-sdk:3.6.2` image doesn't ship.
+FROM rasa/rasa-sdk:3.6.2
+
+USER root
+RUN pip install --no-cache-dir httpx==0.27.2
+USER 1001
+```
+
+<Warning>
+  **`rasa/rasa-sdk:3.6.2` doesn't include `httpx`.** Without this Dockerfile, the action-server container starts but immediately fails to register the `actions` package with `ModuleNotFoundError: No module named 'httpx'` — `curl http://localhost:5055/health` returns connection refused even though `docker compose ps` shows the container "Up". The Dockerfile pip-installs httpx so `actions.py` can import it.
+</Warning>
+
 
 <AccordionGroup>
 <Accordion title="rasa-bot/actions/actions.py (expand to copy)">
@@ -1045,11 +1072,15 @@ Mount it once in your root layout with the same `userId` you passed to `posthog.
 
 ## ✅ Step 10 — Try it
 
-1. Open your app, click around for ~30 seconds — e.g. start an invite flow but leave the role dropdown empty, or open the upgrade modal but don't confirm.
+1. Open your app, click around for ~30 seconds — e.g. browse to `/projects`, open the **Edit** dialog on a row, change a field, click **Save changes**.
 2. Open the chat bubble.
 3. Ask one of these:
-   - **"how do I add a teammate?"** → if you're already on the Team page with the invite modal open, the bot points at the next missing field rather than walking you through the whole flow.
+   - **"what did I just do?"** → the bot recaps your last few clicks in your own words ("Looks like you've been updating projects — the most recent one was…").
+   - **"how do I change a project's priority?"** → if your activity log shows you're already in the edit dialog, the bot picks up *after* the click ("You're in the edit dialog now — use the priority dropdown and click 'Save changes' to apply") instead of re-explaining the whole flow.
+
 The bot should not recite click logs. Activity is a private signal used to improve answer relevance.
+
+In [Step 2](./step-2-define-proactive-triggers) we'll go further: the bot will notice when you're editing projects one-by-one and offer to show you the (hidden) bulk-edit feature before you finish — without you typing anything.
 
 If answers feel generic, check bridge logs and the [troubleshooting matrix](#troubleshooting).
 

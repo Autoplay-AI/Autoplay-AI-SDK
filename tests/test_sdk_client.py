@@ -398,7 +398,6 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
-            t.join(timeout=2.0)  # ensure thread exits while patch is still active
 
         assert isinstance(t, threading.Thread)
 
@@ -415,7 +414,6 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
-            t.join(timeout=2.0)  # ensure thread exits while patch is still active
 
         assert t.daemon is True
 
@@ -436,10 +434,12 @@ class TestRunInBackground:
             patch("autoplay_sdk.client.httpx.Client"),
         ):
             start = time.monotonic()
-            t = client.run_in_background()
+            client.run_in_background()
             elapsed = time.monotonic() - start
-            connected.wait(timeout=2.0)  # wait for connect attempt while patch is active
-            t.join(timeout=2.0)          # ensure thread exits before patch is removed
+            # Wait for the thread to reach connect_sse and receive KeyboardInterrupt
+            # so it exits cleanly before the patch is removed.  Without this, the
+            # thread stays alive into the next test and interferes with its patch.
+            connected.wait(timeout=2.0)
 
         assert elapsed < 1.0  # returned immediately, did not wait for connection
 
