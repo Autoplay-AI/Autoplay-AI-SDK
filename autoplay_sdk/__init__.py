@@ -2,6 +2,11 @@
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
+# Explicit submodule imports required for Python 3.10 mock.patch() compatibility.
+# On 3.10, patch() uses getattr() to walk dotted paths; without these the
+# submodules are not attributes of the package and patch() raises AttributeError.
+from . import agent_state, async_client, client  # noqa: F401
+
 from autoplay_sdk.agent_state import v2 as agent_state_v2
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.buffer import BufferBackend, EventBuffer, RedisEventBuffer
