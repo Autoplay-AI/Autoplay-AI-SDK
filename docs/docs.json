@@ -59,6 +59,16 @@
         "group": "Chatbot Tutorials",
         "pages": [
           {
+            "group": "Inkeep tutorial",
+            "icon": "/images/recipes/inkeep/logo.png",
+            "root": "recipes/inkeep",
+            "badge": "New",
+            "pages": [
+              "recipes/inkeep/step-1-connect-real-time-events",
+              "recipes/inkeep/step-2-proactive-guidance"
+            ]
+          },
+          {
             "group": "Botpress tutorial",
             "icon": "/images/recipes/botpress/logo.png",
             "root": "recipes/botpress",
@@ -116,6 +126,16 @@
             "pages": [
               "recipes/rasa/step-1-connect-real-time-events",
               "recipes/rasa/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Inkeep tutorial",
+            "icon": "/images/recipes/inkeep/logo.png",
+            "root": "recipes/inkeep/index",
+            "badge": "New",
+            "pages": [
+              "recipes/inkeep/step-1-connect-real-time-events",
+              "recipes/inkeep/step-2-define-proactive-triggers"
             ]
           },
           {

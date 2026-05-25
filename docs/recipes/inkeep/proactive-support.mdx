@@ -1,0 +1,65 @@
+---
+title: "Proactive support with Inkeep"
+sidebarTitle: "Proactive support"
+description: "Detect when users are stuck and surface contextual AI guidance — before they open a support ticket."
+---
+
+Most AI chat widgets wait for users to ask a question. Proactive support flips that: your app watches what users do in real time, detects friction patterns, and surfaces help automatically — in the right place, at the right moment, with the right context already loaded.
+
+## What you'll build
+
+A proactive guidance layer on top of `InkeepEmbeddedChat` that:
+
+- **Detects repetitive actions** — e.g. a user opening the same panel three times without completing it.
+- **Surfaces a contextual offer** — a popup appears with a summary of what the user is struggling with.
+- **Offers two resolution paths:**
+  - **Show me** — a step-by-step in-app tour that highlights exactly what needs attention.
+  - **Open chat** — `InkeepEmbeddedChat` opens with an `introMessage` already loaded from the user's session context, so the AI's first message references the exact issue.
+
+The AI never starts cold. It knows what the user was doing before they even typed a word.
+
+## How it works
+
+```
+User actions (clicks, page views, errors)
+        │
+        ▼
+   FastAPI bridge  ──  Autoplay SDK pipeline
+        │
+        │  ≥ 3 repetitive actions without completion?
+        ▼
+   SSE event → proactive popup appears in your app
+        │
+   ┌────┴────────────────────┐
+   ▼                         ▼
+Show me                  Open chat
+(in-app guided tour)     (InkeepEmbeddedChat +
+                          session context as introMessage)
+```
+
+The bridge owns all trigger and context logic. Inkeep stays a clean conversational layer — it receives context, not raw events.
+
+## Get started
+
+This integration is covered in two focused steps:
+
+<CardGroup cols={2}>
+  <Card
+    title="Step 1 — Connect real-time events"
+    icon="plug"
+    href="./step-1-connect-real-time-events"
+  >
+    Build the FastAPI bridge, subscribe to Autoplay SDK events, run the Inkeep agents framework in Docker, and embed `InkeepEmbeddedChat` in your frontend. **~45 min.**
+  </Card>
+  <Card
+    title="Step 2 — Define proactive triggers"
+    icon="bell"
+    href="./step-2-define-proactive-triggers"
+  >
+    Add repetitive-action detection, wire the SSE guidance channel to your frontend, and build the proactive popup with Show me and Open chat paths. **~45 min.**
+  </Card>
+</CardGroup>
+
+<Note>
+  These steps build on each other — complete Step 1 before Step 2.
+</Note>
