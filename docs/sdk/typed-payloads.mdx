@@ -9,6 +9,37 @@ every field, and each model has a `.to_text()` method that returns an embedding-
 
 ---
 
+## Data structures at a glance
+
+Use this map to understand which structure owns which concern:
+
+| Structure | Layer | Primary key / scope | Write path | Read path |
+|---|---|---|---|---|
+| `SessionState` | `agent_state.v2` | `session_id` | `SessionState` transitions + `on_conversation_linked(link)` | Delivery routing and state-machine decisions |
+| `ConversationLink` | `chat` | (`session_id`, `conversation_id`, `event`) | Created by `link_conversation(...)` | Transition input to `SessionState` and store sync |
+| `ConversationLinkStore` | `chat` | `conversation_id -> session_id` | `store.save(link)` inside `link_conversation(...)` | Webhook/reverse lookup only (not delivery hot path) |
+| `ConversationWebhookEvent` | `chat` webhook parsing | inbound platform payload | `extract_conversation_event(...)` parser output | Identity/session resolution before linking |
+| `ActionsPayload` | event stream payload | session batch | connector emits `actions` frame | `on_actions` callbacks, context writers, embeddings |
+| `SummaryPayload` | event stream payload | session summary | summarizer emits `summary` frame | `on_summary` callbacks and retrieval context |
+| `SlimAction` | action item payload | per-action within batch | included in `ActionsPayload.actions` | formatting, embeddings, and downstream replay |
+| `ProactiveTriggerContext` | proactive trigger evaluation | `session_id`, `product_id`, optional `conversation_id` | built each proactive tick from recent payloads | input to `ProactiveTriggerRegistry.evaluate_first(...)` |
+| `ProactiveTriggerResult` | proactive trigger output | `trigger_id` + delivery fields | returned by matching trigger | delivery layer (`body`, `reply_option_labels`, timings) |
+| `TriggerMessage` | proactive trigger config | stable chip `id` + `label` | configured in `ProactiveTriggerConfig.messages` | maps user chip selection to optional tour launch |
+| `TourDefinition` / `TourRegistry` | proactive visual-guidance registry | `id` / `user_tour_id` | parsed from `integration_config.tour_registry` | resolves per-tour timeout/cooldown and launch metadata |
+
+Directionality rules:
+
+- **Session-owned routing state:** `SessionState.conversation_linked` + `SessionState.conversation_id`
+- **Reverse index lookup:** `ConversationLinkStore` (`conversation_id -> session_id`)
+- **Inbound webhook parse DTO:** `ConversationWebhookEvent`
+- **Outbound action/summary transport:** `ActionsPayload`, `SummaryPayload`, `SlimAction`
+- **Proactive decision input/output:** `ProactiveTriggerContext` and `ProactiveTriggerResult`
+- **Proactive choice-to-tour mapping:** `TriggerMessage` with `TourRegistry`/`TourDefinition`
+
+See also: [Agent session states](/sdk/agent-states), [BaseChatbotWriter](/sdk/chatbot-writer), [Payload schema](/sdk/payload-schema), and [Proactive triggers](/sdk/proactive-triggers).
+
+---
+
 ## ActionsPayload
 
 Delivered when the connector forwards a batch of UI actions from a user session.

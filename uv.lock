@@ -45,7 +45,7 @@ wheels = [
 
 [[package]]
 name = "autoplay-sdk"
-version = "0.7.8"
+version = "0.7.9"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -55,6 +55,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+redis = [
+    { name = "redis" },
+]
 serve = [
     { name = "fastapi" },
 ]
@@ -73,11 +76,12 @@ requires-dist = [
     { name = "httpx-sse", specifier = ">=0.4.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.23" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0" },
     { name = "respx", marker = "extra == 'test'", specifier = ">=0.21" },
     { name = "rich", specifier = ">=13.7.0" },
     { name = "unkey-py", specifier = ">=3.0.1" },
 ]
-provides-extras = ["serve", "test"]
+provides-extras = ["serve", "redis", "test"]
 
 [[package]]
 name = "backports-asyncio-runner"

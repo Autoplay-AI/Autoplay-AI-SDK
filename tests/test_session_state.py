@@ -24,6 +24,7 @@ from autoplay_sdk.agent_state.v2.states import (
     SessionState,
     ThinkingState,
 )
+from autoplay_sdk.chat.chatbot import ConversationEventType, ConversationLink
 from autoplay_sdk.proactive.triggers.tour_registry import TourDefinition, TourRegistry
 
 
@@ -110,12 +111,12 @@ class TestThinkingStateCooldown:
 
 class TestSessionStateInteractionTimeout:
     def _session_in_proactive(self, timeout_s: float = 20.0) -> SessionState:
-        s = SessionState(interaction_timeout_s=timeout_s)
+        s = SessionState(session_id="test_session", interaction_timeout_s=timeout_s)
         assert s.transition_to_proactive("trig_1") is True
         return s
 
     def _session_in_reactive(self, timeout_s: float = 20.0) -> SessionState:
-        s = SessionState(interaction_timeout_s=timeout_s)
+        s = SessionState(session_id="test_session", interaction_timeout_s=timeout_s)
         s.transition_to_reactive()
         return s
 
@@ -151,7 +152,7 @@ class TestSessionStateInteractionTimeout:
         assert s.current_state == AgentStateV2.PROACTIVE
 
     def test_cooldown_auto_clears_after_cooldown_period(self) -> None:
-        s = SessionState(cooldown_period_s=1.0)
+        s = SessionState(session_id="test_session", cooldown_period_s=1.0)
         s.thinking.start_cooldown()
         s.thinking.cooldown_started_at = time.monotonic() - 100.0
         s.tick()
@@ -197,7 +198,7 @@ class TestSessionStateTickWithTourRegistry:
     def test_per_tour_timeout_used_when_active_tour_matches(self) -> None:
         # Session timeout = 9999 s (would never expire), tour timeout = 1 s (will expire).
         # active_tour_id holds the provider flow ID (user_tour_id).
-        s = SessionState(interaction_timeout_s=9999.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=9999.0)
         s.transition_to_proactive("trig_1")
         s.active_tour_id = "flow_abc"  # provider flow ID
         s.last_interaction_at = time.monotonic() - 10.0
@@ -215,7 +216,7 @@ class TestSessionStateTickWithTourRegistry:
     def test_session_default_timeout_used_when_tour_not_in_registry(self) -> None:
         # Session timeout = 1 s (will expire), tour timeout = 9999 s (wouldn't).
         # active_tour_id doesn't match any user_tour_id in registry → session default used.
-        s = SessionState(interaction_timeout_s=1.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=1.0)
         s.transition_to_proactive("trig_1")
         s.active_tour_id = "unknown_flow"
         s.last_interaction_at = time.monotonic() - 10.0
@@ -230,7 +231,7 @@ class TestSessionStateTickWithTourRegistry:
 
     def test_session_default_used_when_no_active_tour(self) -> None:
         # Session timeout = 1 s; no active tour even though registry is present
-        s = SessionState(interaction_timeout_s=1.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=1.0)
         s.transition_to_proactive("trig_1")
         s.last_interaction_at = time.monotonic() - 10.0
         assert s.active_tour_id is None
@@ -243,7 +244,7 @@ class TestSessionStateTickWithTourRegistry:
         assert s.current_state == AgentStateV2.THINKING
 
     def test_session_default_used_when_registry_is_none(self) -> None:
-        s = SessionState(interaction_timeout_s=1.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=1.0)
         s.transition_to_proactive("trig_1")
         s.active_tour_id = "some_flow"
         s.last_interaction_at = time.monotonic() - 10.0
@@ -258,50 +259,50 @@ class TestSessionStateTickWithTourRegistry:
 
 class TestSessionStateTransitions:
     def test_transition_to_proactive_from_thinking_no_cooldown_succeeds(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         result = s.transition_to_proactive("trig_1")
         assert result is True
         assert s.current_state == AgentStateV2.PROACTIVE
 
     def test_transition_to_proactive_blocked_by_cooldown(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.thinking.start_cooldown()
         result = s.transition_to_proactive("trig_1")
         assert result is False
         assert s.current_state == AgentStateV2.THINKING
 
     def test_transition_to_proactive_from_proactive_raises(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_proactive("trig_1")
         with pytest.raises(InvalidTransitionError):
             s.transition_to_proactive("trig_2")
 
     def test_transition_to_proactive_from_reactive_raises(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_reactive()
         with pytest.raises(InvalidTransitionError):
             s.transition_to_proactive("trig_1")
 
     def test_transition_to_reactive_from_thinking_succeeds(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_reactive()
         assert s.current_state == AgentStateV2.REACTIVE
 
     def test_transition_to_reactive_clears_cooldown(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.thinking.start_cooldown()
         assert s.thinking.cooldown_active is True
         s.transition_to_reactive()
         assert s.thinking.cooldown_active is False
 
     def test_transition_to_reactive_from_proactive_raises(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_proactive("trig_1")
         with pytest.raises(InvalidTransitionError):
             s.transition_to_reactive()
 
     def test_transition_to_reactive_from_reactive_raises(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_reactive()
         with pytest.raises(InvalidTransitionError):
             s.transition_to_reactive()
@@ -314,7 +315,11 @@ class TestSessionStateTransitions:
 
 class TestSessionStateTimeoutRoundTrip:
     def test_full_round_trip(self) -> None:
-        s = SessionState(interaction_timeout_s=0.001, cooldown_period_s=1.0)
+        s = SessionState(
+            session_id="test_session",
+            interaction_timeout_s=0.001,
+            cooldown_period_s=1.0,
+        )
         assert s.transition_to_proactive("trig_1") is True
         assert s.current_state == AgentStateV2.PROACTIVE
 
@@ -339,7 +344,7 @@ class TestSessionStateTimeoutRoundTrip:
 
 class TestSessionStateVisualGuidance:
     def test_set_visual_guidance_true_in_proactive(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_proactive("trig_1")
         before = s.last_interaction_at
         s.set_visual_guidance(True, tour_id="tour_1")
@@ -348,14 +353,14 @@ class TestSessionStateVisualGuidance:
         assert s.last_interaction_at >= before
 
     def test_set_visual_guidance_true_in_reactive(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_reactive()
         s.set_visual_guidance(True, tour_id="tour_2")
         assert s.visual_guidance_active is True
         assert s.active_tour_id == "tour_2"
 
     def test_set_visual_guidance_false_clears_both_fields(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_proactive("trig_1")
         s.set_visual_guidance(True, tour_id="tour_1")
         s.set_visual_guidance(False)
@@ -363,13 +368,13 @@ class TestSessionStateVisualGuidance:
         assert s.active_tour_id is None
 
     def test_set_visual_guidance_in_thinking_raises(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         assert s.current_state == AgentStateV2.THINKING
         with pytest.raises(InvalidTransitionError):
             s.set_visual_guidance(True)
 
     def test_set_visual_guidance_without_tour_id(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_proactive("trig_1")
         s.set_visual_guidance(True)
         assert s.visual_guidance_active is True
@@ -398,16 +403,16 @@ class TestSessionStatePersistence:
         assert restored.proactive.user_clicked_option == s.proactive.user_clicked_option
 
     def test_round_trip_thinking_state(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         self._assert_round_trip(s)
 
     def test_round_trip_thinking_with_cooldown(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.thinking.start_cooldown(override_period_s=90.0)
         self._assert_round_trip(s)
 
     def test_round_trip_proactive_state(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_proactive("trig_1")
         s.proactive.user_clicked_option = True
         s.visual_guidance_active = True
@@ -415,18 +420,82 @@ class TestSessionStatePersistence:
         self._assert_round_trip(s)
 
     def test_round_trip_reactive_state(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         s.transition_to_reactive()
         s.visual_guidance_active = True
         s.active_tour_id = "tour_y"
         self._assert_round_trip(s)
 
     def test_from_dict_raises_on_wrong_version(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         d = s.to_dict()
         d["_v"] = 99
         with pytest.raises(ValueError, match="Unknown SessionState snapshot version"):
             SessionState.from_dict(d)
+
+    def test_round_trip_conversation_fields(self) -> None:
+        s = SessionState(session_id="test_session")
+        s.conversation_linked = True
+        s.conversation_id = "conv_1"
+        restored = SessionState.from_dict(s.to_dict())
+        assert restored.conversation_linked is True
+        assert restored.conversation_id == "conv_1"
+
+    def test_from_dict_backward_compatible_defaults_for_conversation_fields(
+        self,
+    ) -> None:
+        s = SessionState(session_id="test_session")
+        d = s.to_dict()
+        d.pop("conversation_linked")
+        d.pop("conversation_id")
+        restored = SessionState.from_dict(d)
+        assert restored.conversation_linked is False
+        assert restored.conversation_id is None
+
+
+class TestSessionStateConversationLinkTransitions:
+    def test_on_conversation_linked_new_overwrites_existing_conversation(self) -> None:
+        s = SessionState(
+            session_id="test_session",
+            conversation_linked=True,
+            conversation_id="old_conv",
+        )
+        link = ConversationLink(
+            session_id="sess_1",
+            conversation_id="new_conv",
+            event=ConversationEventType.NEW,
+        )
+        s.on_conversation_linked(link)
+        assert s.conversation_linked is True
+        assert s.conversation_id == "new_conv"
+
+    def test_on_conversation_linked_reply_existing_sets_when_unlinked(self) -> None:
+        s = SessionState(session_id="test_session")
+        link = ConversationLink(
+            session_id="sess_1",
+            conversation_id="conv_1",
+            event=ConversationEventType.REPLY_EXISTING,
+        )
+        s.on_conversation_linked(link)
+        assert s.conversation_linked is True
+        assert s.conversation_id == "conv_1"
+
+    def test_on_conversation_linked_reply_existing_noop_when_already_linked(
+        self,
+    ) -> None:
+        s = SessionState(
+            session_id="test_session",
+            conversation_linked=True,
+            conversation_id="conv_primary",
+        )
+        link = ConversationLink(
+            session_id="sess_1",
+            conversation_id="conv_other",
+            event=ConversationEventType.REPLY_EXISTING,
+        )
+        s.on_conversation_linked(link)
+        assert s.conversation_linked is True
+        assert s.conversation_id == "conv_primary"
 
 
 # ---------------------------------------------------------------------------
@@ -436,41 +505,41 @@ class TestSessionStatePersistence:
 
 class TestRecordTourStep:
     def test_tour_step_in_proactive_resets_last_interaction_at(self) -> None:
-        s = SessionState(interaction_timeout_s=10.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=10.0)
         s.transition_to_proactive("trig_1")
         old_ts = s.last_interaction_at
         s.record_tour_step()
         assert s.last_interaction_at >= old_ts
 
     def test_tour_step_in_proactive_resets_per_state_timer(self) -> None:
-        s = SessionState(interaction_timeout_s=10.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=10.0)
         s.transition_to_proactive("trig_1")
         s.proactive._last_interaction_at_local -= 5.0
         s.record_tour_step()
         assert s.proactive.time_since_last_interaction_s == 0.0
 
     def test_tour_step_in_reactive_resets_last_interaction_at(self) -> None:
-        s = SessionState(interaction_timeout_s=10.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=10.0)
         s.transition_to_reactive()
         old_ts = s.last_interaction_at
         s.record_tour_step()
         assert s.last_interaction_at >= old_ts
 
     def test_tour_step_in_reactive_resets_per_state_timer(self) -> None:
-        s = SessionState(interaction_timeout_s=10.0)
+        s = SessionState(session_id="test_session", interaction_timeout_s=10.0)
         s.transition_to_reactive()
         s.reactive._last_interaction_at_local -= 5.0
         s.record_tour_step()
         assert s.reactive.time_since_last_interaction_s == 0.0
 
     def test_tour_step_in_thinking_does_not_crash(self) -> None:
-        s = SessionState()
+        s = SessionState(session_id="test_session")
         assert s.current_state == AgentStateV2.THINKING
         s.record_tour_step()
 
     def test_tour_steps_keep_proactive_session_alive_without_chat(self) -> None:
         """Visual guidance keeps session alive even with zero chat interaction."""
-        s = SessionState(interaction_timeout_s=0.05)
+        s = SessionState(session_id="test_session", interaction_timeout_s=0.05)
         s.transition_to_proactive("trig_1")
         s.visual_guidance_active = True
         assert not s.proactive.user_clicked_option
@@ -481,7 +550,7 @@ class TestRecordTourStep:
         assert s.current_state == AgentStateV2.PROACTIVE
 
     def test_tour_step_without_chat_prevents_timeout(self) -> None:
-        s = SessionState(interaction_timeout_s=0.05)
+        s = SessionState(session_id="test_session", interaction_timeout_s=0.05)
         s.transition_to_proactive("trig_1")
 
         time.sleep(0.03)
