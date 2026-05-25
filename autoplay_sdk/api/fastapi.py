@@ -51,7 +51,9 @@ def build_copilot_app(
         if payload.user_id:
             from autoplay_sdk.agent_state.v2 import SessionState
 
-            session_states.setdefault(payload.user_id, SessionState())
+            session_states.setdefault(
+                payload.user_id, SessionState(session_id=payload.user_id)
+            )
 
     @asynccontextmanager
     async def lifespan(_app):
