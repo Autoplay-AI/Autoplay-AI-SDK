@@ -75,6 +75,30 @@ Or message `#just-integrated` in the Autoplay Slack for managed setup.
 
 ---
 
+## Step 5 — Verify the webhook is firing
+
+After setting up the destination in PostHog, trigger a page event in your app
+and check the PostHog destination logs (PostHog → Data pipelines → your webhook
+destination → Logs). You should see a `200` response within a few seconds.
+
+If you see `401`:
+- Check that `X-PostHog-Secret` is copied verbatim (exact casing) — see Common mistakes below.
+
+If you see no delivery at all:
+- Confirm the destination is enabled and the filter is not excluding your events.
+
+---
+
+## Common mistakes
+
+**`X-PostHog-Secret` header lookup is case-sensitive.**
+PostHog delivers the secret in `inputs.headers["X-PostHog-Secret"]` (exact casing).
+Reading `inputs.headers["x-posthog-secret"]` or any other casing returns `None`
+and your webhook handler will return `401` on every request. Always copy the key
+name verbatim from the `onboard_product` response.
+
+---
+
 ## Reference
 
 - Quickstart: https://developers.autoplay.ai/quickstart

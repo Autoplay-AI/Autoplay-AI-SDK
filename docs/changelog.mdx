@@ -8,6 +8,79 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 ---
 
+## [0.8.4] — 2026-05-21
+
+### Changed
+
+- **`ConversationEvent` renamed to `ConversationEventType`** — the old name implied a data container rather than a type discriminator. A deprecated backward-compat alias `ConversationEvent = ConversationEventType` is exported from both `autoplay_sdk` and `autoplay_sdk.chat`; it will be removed in the next major version. Update any import of `ConversationEvent` to `ConversationEventType`.
+
+### Added
+
+- **`BaseChatbotWriter.__init_subclass__` enforcement** — raises `TypeError` at class-definition time when a subclass sets `SESSION_LINK_WEBHOOK_TOPICS` without overriding `_parse_session_link_webhook_payload`. Converts a silent production crash into a startup error. Subclasses that leave `SESSION_LINK_WEBHOOK_TOPICS = ()` are unaffected.
+
+---
+
+## [0.8.3] — 2026-05-21
+
+### Changed
+
+- `AutoplayChatbotManager.on_chatbot_event` always saves after linking, regardless of store type (no more `isinstance` guard). `on_actions` does not save — no `SessionState` mutation occurs during action delivery.
+- `InMemorySessionStateStore` gains a no-op `save()` for uniform call sites.
+
+### Added
+
+- `AutoplayChatbotManager.save_state(state)` — call after any external FSM transition to persist THINKING/PROACTIVE/REACTIVE state and all sub-state data to Redis.
+
+---
+
+## [0.8.2] — 2026-05-21
+
+### Documentation
+
+- `chatbot-writer.mdx`: leads with `AutoplayChatbotManager` as the recommended path, updated session-first linking section, added Production persistence section with `RedisSessionStateStore`.
+- `autoplay-core` skill: added **Integration Self-Reasoning Checklist** covering session identity, race conditions, chatbot linking, proactive triggers, and production persistence.
+
+---
+
+## [0.8.1] — 2026-05-21
+
+### Added
+
+- **`RedisSessionStateStore`** — Redis-backed `SessionState` store for production. Key pattern `autoplay:session_state:{session_id}`, configurable TTL (default 24 h), graceful fallback on Redis errors. Requires `pip install "autoplay-sdk[redis]"`.
+- **`AutoplayChatbotManager(session_store=...)`** — optional parameter to inject a custom store. Defaults to `InMemorySessionStateStore()`. Pass `RedisSessionStateStore(redis_url=...)` for production.
+- `AutoplayChatbotManager.on_chatbot_event` persists state back to Redis after linking so the conversation link survives restarts.
+
+---
+
+## [0.8.0] — 2026-05-21
+
+### Breaking changes
+
+- `SessionState.session_id` is now a **required** field — no default. `SessionState()` raises `TypeError`. Use `SessionState(session_id="...")` or `InMemorySessionStateStore.get_or_create(session_id)`. `from_dict()` still handles old snapshots gracefully via `.get("session_id", "")`.
+
+### Added
+
+- **`AutoplayChatbotManager`** — high-level wrapper that handles all session lifecycle automatically. Developers implement only `_post_note` and call two methods: `on_actions(payload)` from the Autoplay stream and `on_chatbot_event(session_id, conversation_id)` from the chatbot webhook.
+- **`InMemorySessionStateStore`** — canonical store for `SessionState` objects. `get_or_create(session_id)` is the first call in every handler. `async` interface for drop-in Redis-backed replacement.
+- `link_conversation` now auto-detects `ConversationEventType.NEW` vs `REPLY_EXISTING` from the store when `event` is not passed.
+- `link_conversation` raises `ValueError` if `session_id` is empty after resolution.
+- `AutoplayChatbotManager` and `InMemorySessionStateStore` exported from top-level `autoplay_sdk`.
+
+---
+
+## [0.7.9] — 2026-05-21
+
+### Added
+
+- `SessionState` now holds `session_id: str` (the only mandatory scope key) and `metadata: dict[str, Any]` (open bag for optional identity context — `user_id`, `email`, any future fields). Both fields are persisted via `to_dict()` / `from_dict()` and default to empty for backward compatibility.
+- `link_conversation()` now infers `session_id` from `state.session_id` when not passed explicitly. Existing callers that pass `session_id` are unaffected.
+
+### Documentation
+
+- Added **Universal Scoping Pattern** section to `autoplay-core` skill — the canonical 4-step flow (scope → parse webhook → link → deliver) that applies identically to every chatbot integration.
+
+---
+
 ## [0.7.8] — 2026-05-21
 
 ### Changed
@@ -22,6 +95,30 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 - Bumped package version to `0.7.7`.
 - Fixed circular import between `autoplay_sdk.integrations.intercom` and `autoplay_sdk.proactive.triggers` by moving `proactive_trigger_canonical_url_ping_pong` and `proactive_trigger_canonical_url_ping_pong_projects_either_leg` into `autoplay_sdk.proactive.triggers._url_predicates`. `intercom.py` re-exports both for backward compatibility.
+
+---
+
+## [0.7.6] — 2026-05-18
+
+### Fixed
+
+- **`autoplay_sdk/skills/autoplay-migrate-imports/SKILL.md`** — tightened the discovery `rg` filter to require a word boundary (`(\.|\s)`) after the canonical-domain alternation group. Without it, deprecated sub-modules whose names start with a canonical prefix (`context_store`, `proactive_triggers`, `agent_state_v2`, `rag_query`) were silently excluded from results, leaving 4 of 6 legacy imports unflagged.
+
+### Changed
+
+- **`autoplay_sdk/skills/autoplay-migrate-imports/SKILL.md`** — inlined the full legacy→canonical path mapping table directly in the skill file. The previous wording ("see the changelog mapping table") referenced a doc that does not ship inside the wheel, so agents had no static replacement guidance and had to rely on runtime `DeprecationWarning` messages to discover new paths.
+
+### Documentation
+
+- Updated [BaseChatbotWriter](/sdk/chatbot-writer) with a new **session-first linking** section covering:
+  - `ConversationEventType.NEW` vs `ConversationEventType.REPLY_EXISTING`
+  - canonical dual-write flow via `link_conversation(...)` (`ConversationLinkStore` write, then `SessionState.on_conversation_linked(...)`)
+  - hot-path routing with `resolve_linked_conversation_id(state)` from session-owned state.
+- Expanded [Agent session states](/sdk/agent-states) v2 docs with:
+  - explicit `SessionState` link fields (`conversation_linked`, `conversation_id`)
+  - `on_conversation_linked(link)` overwrite/no-op semantics and invariants
+  - a state/flag matrix for `THINKING`, `PROACTIVE`, and `REACTIVE`.
+- Added cross-SDK data-structure mapping in [Typed payloads](/sdk/typed-payloads) and [Payload schema](/sdk/payload-schema), clarifying boundaries between session state, link state, webhook parse models, and stream payloads.
 
 ---
 
@@ -292,7 +389,7 @@ None — new fields are optional (`None` when omitted).
 
 ### Added
 
-- **`ConversationEvent`** (`autoplay_sdk.chatbot`) — dataclass for chatbot session-link webhooks.
+- **`ConversationEventType`** (`autoplay_sdk.chatbot`) — enum for chatbot session-link event semantics (`NEW` / `REPLY_EXISTING`).
 - **`BaseChatbotWriter` session-link webhook flow** — `SESSION_LINK_WEBHOOK_TOPICS`, `extract_conversation_event()`, `_parse_session_link_webhook_payload()` (subclasses override parse only).
 - **`autoplay_sdk.integrations.intercom`** — webhook topic constants, `intercom_chatbot_webhook_url()`, optional `format_reactive_session_link_script` (no logging from this subpackage).
 

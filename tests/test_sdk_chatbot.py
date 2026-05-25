@@ -8,7 +8,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from autoplay_sdk.chat.chatbot import BaseChatbotWriter, format_chatbot_note_header
+from autoplay_sdk.agent_state.v2.states import SessionState
+from autoplay_sdk.chat.chatbot import (
+    BaseChatbotWriter,
+    ConversationEventType,
+    InMemoryConversationLinkStore,
+    format_chatbot_note_header,
+    link_conversation,
+    resolve_linked_conversation_id,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -307,3 +315,55 @@ class TestFormatChatbotNoteHeader:
         assert text.startswith("session_id: sid-1\n")
         assert "timestamp:" in text
         assert text.endswith("\n\n")
+
+
+class TestConversationLinkingSync:
+    def test_link_conversation_dual_writes_store_and_state(self) -> None:
+        state = SessionState(session_id="test_session")
+        store = InMemoryConversationLinkStore()
+
+        link = link_conversation(
+            state=state,
+            store=store,
+            session_id="sess_1",
+            conversation_id="conv_1",
+            event=ConversationEventType.NEW,
+        )
+
+        assert link.conversation_id == "conv_1"
+        assert state.conversation_linked is True
+        assert state.conversation_id == "conv_1"
+        assert store.get_session_id("conv_1") == "sess_1"
+
+    def test_reply_existing_does_not_overwrite_linked_state(self) -> None:
+        state = SessionState(
+            session_id="test_session",
+            conversation_linked=True,
+            conversation_id="conv_primary",
+        )
+        store = InMemoryConversationLinkStore()
+
+        link_conversation(
+            state=state,
+            store=store,
+            session_id="sess_1",
+            conversation_id="conv_reply",
+            event=ConversationEventType.REPLY_EXISTING,
+        )
+
+        assert state.conversation_linked is True
+        assert state.conversation_id == "conv_primary"
+
+    def test_routing_reads_session_state_without_store_lookup(self) -> None:
+        state = SessionState(
+            session_id="test_session",
+            conversation_linked=True,
+            conversation_id="conv_1",
+        )
+        assert resolve_linked_conversation_id(state) == "conv_1"
+
+    def test_routing_unlinked_session_returns_none(self) -> None:
+        state = SessionState(
+            session_id="test_session", conversation_linked=False, conversation_id=None
+        )
+        assert resolve_linked_conversation_id(state) is None

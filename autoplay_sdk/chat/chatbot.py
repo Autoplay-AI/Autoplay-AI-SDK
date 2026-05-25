@@ -106,9 +106,14 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import ClassVar, Protocol, runtime_checkable
+from enum import Enum
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from autoplay_sdk.agent_state.v2.session_state import SessionState
+    from autoplay_sdk.core.models import ActionsPayload
 
 
 def format_chatbot_note_header(session_id: str | None, timestamp_unix: float) -> str:
@@ -133,12 +138,32 @@ def format_chatbot_note_header(session_id: str | None, timestamp_unix: float) ->
 
 
 # ---------------------------------------------------------------------------
-# Session-link webhook DTO (shared by connector + BaseChatbotWriter)
+# Session-link models
 # ---------------------------------------------------------------------------
 
 
+class ConversationEventType(str, Enum):
+    """Conversation-link event semantics (type discriminator, not a data container)."""
+
+    NEW = "NEW"
+    REPLY_EXISTING = "REPLY_EXISTING"
+
+
+@dataclass(frozen=True)
+class ConversationLink:
+    """Session-owned conversation link record."""
+
+    session_id: str
+    conversation_id: str
+    event: ConversationEventType = ConversationEventType.NEW
+
+    @property
+    def is_reply_existing(self) -> bool:
+        return self.event == ConversationEventType.REPLY_EXISTING
+
+
 @dataclass
-class ConversationEvent:
+class ConversationWebhookEvent:
     """Normalised session-link payload extracted from a chatbot platform webhook.
 
     The connector uses this to look up the PostHog ``session_id`` and link it
@@ -155,6 +180,264 @@ class ConversationEvent:
     conversation_id: str
     external_id: str = field(default="")
     email: str = field(default="")
+
+
+@runtime_checkable
+class ConversationLinkStore(Protocol):
+    """Persistent reverse index for conversation_id -> session_id lookups."""
+
+    def save(self, link: ConversationLink) -> None: ...
+
+    def get_session_id(self, conversation_id: str) -> str | None: ...
+
+
+class InMemoryConversationLinkStore:
+    """Simple in-memory ConversationLinkStore implementation."""
+
+    def __init__(self) -> None:
+        self._by_conversation_id: dict[str, str] = {}
+
+    def save(self, link: ConversationLink) -> None:
+        self._by_conversation_id[link.conversation_id] = link.session_id
+
+    def get_session_id(self, conversation_id: str) -> str | None:
+        return self._by_conversation_id.get(conversation_id)
+
+
+class InMemorySessionStateStore:
+    """In-memory store for SessionState objects.
+
+    ``get_or_create`` is the canonical first call in every handler — before any
+    action processing, before any delivery, before anything else.  It is
+    ``async`` so Redis-backed implementations share the same interface without
+    callers needing to change.  The in-memory version completes in O(1) and
+    never blocks the event loop.
+
+    Usage::
+
+        session_store = InMemorySessionStateStore()
+
+        # Phase 1 — Autoplay stream
+        async def on_actions(payload):
+            if not payload.session_id:
+                return
+            state = await session_store.get_or_create(payload.session_id)
+            ...
+
+        # Phase 2 — Chatbot webhook
+        async def on_webhook(data):
+            session_id = data["custom_attributes"]["session_id"]
+            state = await session_store.get_or_create(session_id)
+            ...
+    """
+
+    def __init__(self) -> None:
+        self._store: dict[str, SessionState] = {}
+
+    async def get_or_create(
+        self,
+        session_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> SessionState:
+        """Return existing state or create a new one with ``session_id`` set immediately."""
+        if session_id not in self._store:
+            from autoplay_sdk.agent_state.v2.session_state import (  # avoid circular import
+                SessionState,
+            )
+
+            self._store[session_id] = SessionState(
+                session_id=session_id,
+                metadata=metadata or {},
+            )
+        return self._store[session_id]
+
+    async def get(self, session_id: str) -> SessionState | None:
+        """Return existing state or ``None`` if not found."""
+        return self._store.get(session_id)
+
+    async def save(self, state: SessionState) -> None:
+        """No-op — in-memory store always has a live reference."""
+        pass
+
+
+class RedisSessionStateStore:
+    """Redis-backed SessionState store for production use.
+
+    Persists every ``SessionState`` to Redis so sessions survive server
+    restarts and scale across multiple instances.  Uses the same
+    ``to_dict()`` / ``from_dict()`` serialization as the in-memory store.
+
+    Key pattern : ``autoplay:session_state:{session_id}``
+    Serialization: ``json.dumps(state.to_dict())``
+    TTL          : configurable, defaults to 24 h
+
+    On Redis errors the store logs a warning and falls back to a fresh
+    ``SessionState`` — the server never crashes.
+
+    Requires the ``redis`` extra::
+
+        pip install "autoplay-sdk[redis]"
+
+    Usage::
+
+        from autoplay_sdk import AutoplayChatbotManager, RedisSessionStateStore
+
+        manager = AutoplayChatbotManager(
+            writer=MyWriter(),
+            session_store=RedisSessionStateStore(redis_url=os.environ["REDIS_URL"]),
+        )
+    """
+
+    _KEY = "autoplay:session_state:{session_id}"
+    _DEFAULT_TTL_S = 86_400  # 24 h
+
+    def __init__(self, redis_url: str, ttl_s: int = _DEFAULT_TTL_S) -> None:
+        try:
+            import redis.asyncio as aioredis  # type: ignore[import]
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError(
+                "RedisSessionStateStore requires the redis package. "
+                'Install it with: pip install "autoplay-sdk[redis]"'
+            ) from exc
+        self._redis = aioredis.from_url(redis_url, decode_responses=True)
+        self._ttl_s = ttl_s
+
+    def _key(self, session_id: str) -> str:
+        return self._KEY.format(session_id=session_id)
+
+    async def get_or_create(
+        self,
+        session_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> SessionState:
+        """Load from Redis or create a new state and persist it immediately."""
+        import json
+
+        from autoplay_sdk.agent_state.v2.session_state import (
+            SessionState,
+        )  # avoid circular import
+
+        key = self._key(session_id)
+        redis_error: Exception | None = None
+        try:
+            raw = await self._redis.get(key)
+            if raw:
+                state = SessionState.from_dict(json.loads(raw))
+                return state
+        except Exception as exc:  # noqa: BLE001
+            redis_error = exc
+
+        # Key not found (expected: new session or expired TTL) or Redis error
+        # (unexpected: key may exist but is unreachable).  Both produce a clean
+        # reset state: THINKING, conversation_linked=False, conversation_id=None.
+        state = SessionState(session_id=session_id, metadata=metadata or {})
+        if redis_error is not None:
+            logger.warning(
+                "autoplay_sdk: RedisSessionStateStore get failed — session=%s reset to "
+                "THINKING/unlinked. conversation_linked and conversation_id are lost "
+                "for this request. error=%s",
+                session_id,
+                redis_error,
+                extra={
+                    "event_type": "session_state_reset",
+                    "session_id": session_id,
+                    "conversation_linked_after_reset": False,
+                },
+            )
+        await self._save(state)
+        return state
+
+    async def get(self, session_id: str) -> SessionState | None:
+        """Load from Redis; return ``None`` if not found or Redis unavailable."""
+        import json
+
+        from autoplay_sdk.agent_state.v2.session_state import (
+            SessionState,
+        )  # avoid circular import
+
+        key = self._key(session_id)
+        try:
+            raw = await self._redis.get(key)
+            if raw:
+                return SessionState.from_dict(json.loads(raw))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "autoplay_sdk: RedisSessionStateStore get failed session=%s: %s",
+                session_id,
+                exc,
+            )
+        return None
+
+    async def save(self, state: SessionState) -> None:
+        """Persist a ``SessionState`` snapshot to Redis."""
+        await self._save(state)
+
+    async def _save(self, state: SessionState) -> None:
+        import json
+
+        key = self._key(state.session_id)
+        try:
+            await self._redis.set(key, json.dumps(state.to_dict()), ex=self._ttl_s)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "autoplay_sdk: RedisSessionStateStore save failed session=%s: %s",
+                state.session_id,
+                exc,
+            )
+
+
+def link_conversation(
+    *,
+    state: SessionState,
+    store: ConversationLinkStore,
+    conversation_id: str,
+    event: ConversationEventType | None = None,
+    session_id: str | None = None,
+) -> ConversationLink:
+    """Canonical dual-write sync: store first, then SessionState transition.
+
+    ``session_id`` is inferred from ``state.session_id`` when not passed
+    explicitly.  Pass it explicitly only when the caller manages session
+    identity outside of ``SessionState`` (legacy pattern).
+
+    ``event`` is auto-detected from ``store`` when not passed:
+    - ``REPLY_EXISTING`` if ``conversation_id`` is already in the store.
+    - ``NEW`` otherwise.
+
+    Raises
+    ------
+    ValueError
+        If the resolved ``session_id`` is empty — indicates ``SessionState``
+        was created without a ``session_id``.  Set ``state.session_id`` (or
+        use ``InMemorySessionStateStore.get_or_create``) before calling this.
+    """
+    sid = session_id or state.session_id
+    if not sid:
+        raise ValueError(
+            "link_conversation: session_id is required. "
+            "Set state.session_id before calling link_conversation, "
+            "or use InMemorySessionStateStore.get_or_create() to initialise the state."
+        )
+    resolved_event = event or (
+        ConversationEventType.REPLY_EXISTING
+        if store.get_session_id(conversation_id)
+        else ConversationEventType.NEW
+    )
+    link = ConversationLink(
+        session_id=sid,
+        conversation_id=conversation_id,
+        event=resolved_event,
+    )
+    store.save(link)
+    state.on_conversation_linked(link)
+    return link
+
+
+def resolve_linked_conversation_id(state: SessionState) -> str | None:
+    """Routing hot-path helper using only SessionState-derived link state."""
+    if state.conversation_linked and state.conversation_id:
+        return state.conversation_id
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +518,7 @@ class BaseChatbotWriter:
         Set :attr:`SESSION_LINK_WEBHOOK_TOPICS` to the vendor topic strings that
         may trigger linking (typically "new conversation" + "user replied").
         Override :meth:`_parse_session_link_webhook_payload` to map JSON to
-        :class:`ConversationEvent`. Do not override :meth:`extract_conversation_event`.
+        :class:`ConversationWebhookEvent`. Do not override :meth:`extract_conversation_event`.
 
     Delivery modes:
 
@@ -268,6 +551,19 @@ class BaseChatbotWriter:
     #: Empty tuple means this integration does not use the generic chatbot webhook path.
     SESSION_LINK_WEBHOOK_TOPICS: ClassVar[tuple[str, ...]] = ()
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        if (
+            cls.SESSION_LINK_WEBHOOK_TOPICS
+            and cls._parse_session_link_webhook_payload
+            is BaseChatbotWriter._parse_session_link_webhook_payload
+        ):
+            raise TypeError(
+                f"{cls.__qualname__} sets SESSION_LINK_WEBHOOK_TOPICS but does not "
+                "override _parse_session_link_webhook_payload. "
+                "Add a classmethod override that returns ConversationWebhookEvent | None."
+            )
+
     def __init__(
         self,
         product_id: str,
@@ -295,8 +591,10 @@ class BaseChatbotWriter:
     # ------------------------------------------------------------------
 
     @classmethod
-    def extract_conversation_event(cls, payload: dict) -> ConversationEvent | None:
-        """Return a :class:`ConversationEvent` when ``topic`` is link-eligible.
+    def extract_conversation_event(
+        cls, payload: dict
+    ) -> ConversationWebhookEvent | None:
+        """Return a :class:`ConversationWebhookEvent` when ``topic`` is link-eligible.
 
         Subclasses should not override this method; implement
         :meth:`_parse_session_link_webhook_payload` instead.
@@ -312,8 +610,8 @@ class BaseChatbotWriter:
     @classmethod
     def _parse_session_link_webhook_payload(
         cls, payload: dict
-    ) -> ConversationEvent | None:
-        """Map vendor webhook JSON to :class:`ConversationEvent`.
+    ) -> ConversationWebhookEvent | None:
+        """Map vendor webhook JSON to :class:`ConversationWebhookEvent`.
 
         Default returns ``None``. Platform integrations override when
         :attr:`SESSION_LINK_WEBHOOK_TOPICS` is non-empty.
@@ -562,3 +860,127 @@ class BaseChatbotWriter:
             action_lines.append(f"[{i}] {a.get('description', '')}")
 
         return header + "\n".join(action_lines)
+
+
+# ---------------------------------------------------------------------------
+# AutoplayChatbotManager — high-level wrapper for any chatbot integration
+# ---------------------------------------------------------------------------
+
+
+class AutoplayChatbotManager:
+    """High-level wrapper that handles all session lifecycle automatically.
+
+    Hides ``InMemorySessionStateStore``, ``InMemoryConversationLinkStore``,
+    ``link_conversation``, and ``on_session_linked`` from integration authors.
+    The only platform-specific work is subclassing ``BaseChatbotWriter`` and
+    implementing ``_post_note``.
+
+    Usage::
+
+        # 1. Implement _post_note for your platform (the only platform-specific code)
+        class MyWriter(BaseChatbotWriter):
+            async def _post_note(self, conversation_id, text): ...
+
+        # 2. Initialize once at server startup
+        manager = AutoplayChatbotManager(writer=MyWriter())
+
+        # 3. Autoplay stream handler — identical for every platform
+        async def on_actions(payload):
+            await manager.on_actions(payload)
+
+        # 4. Chatbot webhook handler — only the extraction lines differ per platform
+        async def on_webhook(data):
+            session_id = data["custom_attributes"]["session_id"]  # platform-specific
+            conversation_id = data["id"]                          # platform-specific
+            await manager.on_chatbot_event(session_id, conversation_id)
+
+    Once ``on_chatbot_event`` completes, all proactive triggers, reactive notes,
+    and future ``write_actions`` calls route to ``conversation_id`` permanently
+    for the lifetime of the session.
+    """
+
+    def __init__(
+        self,
+        writer: BaseChatbotWriter,
+        session_store: InMemorySessionStateStore | RedisSessionStateStore | None = None,
+    ) -> None:
+        self._session_store = session_store or InMemorySessionStateStore()
+        self._link_store = InMemoryConversationLinkStore()
+        self._writer = writer
+
+    async def on_actions(self, payload: ActionsPayload) -> None:
+        """Call from your Autoplay stream handler.
+
+        Creates ``SessionState`` on first sight of a ``session_id`` (PostHog
+        is the ground truth).  Actions are buffered until
+        ``on_chatbot_event`` links a ``conversation_id``.
+        """
+        if not payload.session_id:
+            return
+        state = await self._session_store.get_or_create(payload.session_id)
+        await self._writer.write_actions(
+            conversation_id=state.conversation_id,
+            session_id=payload.session_id,
+            slim_actions=[
+                a.model_dump() if hasattr(a, "model_dump") else dict(a)
+                for a in payload.actions
+            ],
+            user_id=payload.user_id,
+        )
+
+    async def on_chatbot_event(
+        self,
+        session_id: str,
+        conversation_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Call from your chatbot webhook with the two extracted IDs.
+
+        Looks up (or creates) the ``SessionState`` for this ``session_id``,
+        links it to ``conversation_id`` (event auto-detected), and flushes
+        all buffered actions accumulated before the link.  Persists the
+        updated state back to the store so the link survives restarts when
+        using ``RedisSessionStateStore``.
+
+        Parameters
+        ----------
+        session_id:
+            PostHog session identifier — the same value stored in the chatbot
+            widget's metadata (e.g. ``custom_attributes.session_id``).
+        conversation_id:
+            Chatbot platform's conversation identifier.
+        metadata:
+            Optional identity context to attach to the session (e.g.
+            ``{"user_id": "u_123", "email": "user@example.com"}``).
+            Ignored if the state already exists.
+        """
+        state = await self._session_store.get_or_create(session_id, metadata)
+        link_conversation(
+            state=state,
+            store=self._link_store,
+            conversation_id=conversation_id,
+        )
+        await self._session_store.save(state)
+        await self._writer.on_session_linked(session_id, conversation_id)
+
+    async def save_state(self, state: SessionState) -> None:
+        """Persist state after an external FSM transition or interaction event.
+
+        Call this after any mutation that should survive a restart::
+
+            state.transition_to_proactive(trigger_id="my_trigger")
+            await manager.save_state(state)
+
+            state.transition_to_reactive()
+            await manager.save_state(state)
+
+            state.tick()
+            await manager.save_state(state)
+
+            state.thinking.start_cooldown()
+            await manager.save_state(state)
+
+        ``on_chatbot_event`` calls this automatically after linking.
+        ``on_actions`` does NOT save state — it only routes actions, no mutation.
+        """
+        await self._session_store.save(state)

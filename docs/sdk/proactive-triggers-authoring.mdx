@@ -28,7 +28,7 @@ Your event buffer (actions, summaries)
                     │  interaction_timeout_s,
                     │  cooldown_s
                     ▼
-          can_show_proactive_with_reason(fsm_state)?
+          SessionState_v2_gating?
                     │
                     ▼
            Deliver to user
@@ -213,14 +213,22 @@ result = registry.evaluate_first(ctx)
 
 ## Step 4 — Gate on FSM state and deliver
 
-Before firing, check that the FSM allows proactive assistance:
+Before firing, check that `SessionState` allows proactive assistance:
 
 ```python
-from autoplay_sdk.agent_states import can_show_proactive_with_reason
+from autoplay_sdk.agent_state.v2 import AgentStateV2, SessionState
 
-allowed, reason = can_show_proactive_with_reason(fsm_state)
-if result and allowed:
-    deliver(result)   # your delivery layer
+def can_deliver_proactive(state: SessionState) -> bool:
+    return (
+        state.current_state == AgentStateV2.THINKING
+        and state.thinking.can_go_proactive
+    )
+
+if result and can_deliver_proactive(session_state):
+    # transition before delivery so state reflects proactive mode
+    fired = session_state.transition_to_proactive(result.trigger_id)
+    if fired:
+        deliver(result)   # your delivery layer
 ```
 
 **Delivery options:**
@@ -247,7 +255,7 @@ expiry_result = expire_proactive_to_thinking_if_idle(
 )
 ```
 
-See [Agent session states](/sdk/agent-states) for `run_proactive_idle_expiry`, `ProactiveIdleExpiryHooks`, and `ProactiveIdleExpiryResult`.
+See [Agent session states](/sdk/agent-states) for `SessionState` and [Proactive state helpers](/sdk/proactive-triggers) for idle-expiry integration references.
 
 ---
 
@@ -286,7 +294,7 @@ from autoplay_sdk.proactive_triggers import (
     ProactiveTriggerTimings,
     default_proactive_trigger_registry,
 )
-from autoplay_sdk.agent_states import can_show_proactive_with_reason
+from autoplay_sdk.agent_state.v2 import AgentStateV2, SessionState
 
 # --- Define triggers ---
 
@@ -316,7 +324,7 @@ def on_tick(
     product_id: str,
     conversation_id: str,
     latest_summary: str,
-    fsm_state,
+    session_state: SessionState,
 ):
     ctx = ProactiveTriggerContext(
         session_id=session_id,
@@ -330,9 +338,13 @@ def on_tick(
 
     result = registry.evaluate_first(ctx)
 
-    allowed, reason = can_show_proactive_with_reason(fsm_state)
-    if result and allowed:
-        deliver_to_user(result)   # your delivery layer
+    if (
+        result
+        and session_state.current_state == AgentStateV2.THINKING
+        and session_state.thinking.can_go_proactive
+    ):
+        if session_state.transition_to_proactive(result.trigger_id):
+            deliver_to_user(result)   # your delivery layer
 ```
 
 ---
@@ -340,6 +352,6 @@ def on_tick(
 ## Related pages
 
 - **[Proactive triggers](/sdk/proactive-triggers)** — Module reference: types, constants, built-in IDs, connector JSON schema.
-- **[Agent session states](/sdk/agent-states)** — `can_show_proactive_with_reason`, `run_proactive_idle_expiry`, FSM gating.
+- **[Agent session states](/sdk/agent-states)** — `SessionState` v2 transitions, cooldown gating, and routing fields.
 - **[Intercom integration](/integrations/intercom)** — `quick_reply` HTTP shape, delete-conversation helpers, connector LLM labels.
 - **[Typed payloads](/sdk/typed-payloads)** — `SlimAction`, `ActionsPayload`, `SummaryPayload`.

@@ -1,0 +1,891 @@
+---
+title: "Step 2 — Define proactive triggers"
+sidebarTitle: "Step 2 — Define proactive triggers"
+description: "Add repetitive-action detection to the bridge, push guidance events over SSE, and build the proactive popup with a guided tour and context-aware chat."
+---
+
+In [Step 1](./step-1-connect-real-time-events) you built an onboarding dashboard with an embedded Inkeep AI chat that answers product questions. This page makes it **proactive** — the bridge notices when a user keeps opening the "Connect Data Source" step without completing it, and surfaces a targeted offer before they give up and open a support ticket.
+
+The concrete example we'll build catches the **stuck-connection moment**: a user opening the first onboarding step three or more times within two minutes without ever reaching a successful connection. The bridge interrupts politely with a popup that offers two paths — **Show me how to fix the connection** (a four-step in-app guide highlighting each configuration field in sequence) or **Open chat** (Inkeep chat opens with the user's full Autoplay context already loaded into the `introMessage`).
+
+Plan to spend ~45 minutes the first time through. Every file is included verbatim.
+
+**What you'll add to the Step 1 build:**
+
+1. **`bridge/proactive.py`** — a dedicated module with `ProactiveState`, `GuidanceEvent`, `ProactiveOffer`, and the `_detect_stuck_onboarding` predicate. Keeping trigger logic separate from the SDK pipeline (in `copilot_server.py`) follows the same pattern as the [Rasa tutorial](/recipes/rasa/step-2-define-proactive-triggers) and makes each layer independently testable.
+2. **Demo-action tracking in the bridge** — `POST /demo/actions` accepts explicit onboarding events from the frontend (`data_source_open`, `data_source_complete`). Unlike the PostHog autocapture pipeline from Step 1, these events are sent directly from UI components that know exactly when the panel opens and closes.
+3. **SSE guidance channel** — `GET /guidance/stream/{session_id}` delivering `guidance_offer` and `guidance_start` events in real time.
+4. **Updated context endpoint** — `GET /context/{session_id}` (replaces the Step 1 version) now merges the Autoplay SDK activity summary with the stuck-connection narrative so the `introMessage` is maximally specific.
+5. **Frontend proactive popup component** — a dismissible card with two CTAs, rendered outside the chat overlay so it appears whether or not the chat is open.
+6. **Two resolution paths**:
+   - **Show me** → a step-by-step pulsing overlay that walks through the four connection fields.
+   - **Open chat** → `InkeepEmbeddedChat` remounts with a new `introMessage` containing the live Autoplay context.
+
+**The runtime loop:**
+
+```
+User opens "Connect Data Source" × 3 without completing
+        │
+        ▼
+Bridge: _detect_stuck_onboarding fires
+        │
+        ▼
+guidance_offer → SSE → proactive popup appears
+        │
+        ┌────────────────────┴────────────────────┐
+        ▼                                          ▼
+ "Show me how to fix                         "Open chat"
+  the connection"                                  │
+        │                                          ▼
+        ▼                              GET /context/{session_id}
+  guideStep state machine              → merged SDK + demo context
+  step1 → step2 → step3 → step4        → introMessage on
+  API Endpoint → API Key →              InkeepEmbeddedChat
+  Test Connection → Mark Complete
+```
+
+---
+
+## 📋 Before you start
+
+This page picks up exactly where Step 1 left off. From Step 1 you should already have:
+
+- **`bridge/copilot_server.py`** running on `:8787` with `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, `SessionState`, and `GET /context/{session_id}`
+- **`_user_sessions`, `_session_product`, `_session_states`** dicts populated by `on_actions`
+- **`frontend/`** Next.js app with `InkeepWidget` and `InkeepEmbeddedChat` mounted, plus the PostHog provider
+- **Inkeep agents framework** running on `:3002` with the `nexus-cloud` project, `onboarding-support` agent, and `onboarding-support-worker` sub-agent
+
+The code blocks below extend those files — they don't replace them.
+
+---
+
+## 🧠 Step 1 — Create `bridge/proactive.py`
+
+Create a new file `bridge/proactive.py`. Keeping proactive state and trigger logic in its own module means `copilot_server.py` only needs to import and wire it — the same separation used in the [Rasa tutorial's `proactive.py`](/recipes/rasa/step-2-define-proactive-triggers).
+
+<AccordionGroup>
+<Accordion title="bridge/proactive.py — proactive state and trigger detection (expand to copy)">
+```python
+"""Proactive guidance state and trigger detection for the Inkeep onboarding bridge.
+
+ProactiveState is kept separate from the Autoplay SDK pipeline (AsyncContextStore)
+so the two state models don't interfere: AsyncContextStore owns the rolling event
+window for chat grounding; ProactiveState owns the explicit demo-action counts
+and SSE fan-out for trigger delivery.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from collections import defaultdict, deque
+from dataclasses import asdict, dataclass
+from typing import Any
+from uuid import uuid4
+
+TRIGGER_WINDOW_SECONDS = 120
+DATA_SOURCE_OPEN_THRESHOLD = 3
+
+
+@dataclass
+class GuidanceEvent:
+    type: str          # "guidance_offer" or "guidance_start"
+    session_id: str
+    message: str
+    target: str
+    tour_id: str
+    reason: str
+    created_at: float
+
+
+@dataclass
+class ProactiveOffer:
+    id: str
+    session_id: str
+    user_id: str | None
+    email: str | None
+    message: str
+    target: str
+    tour_id: str
+    reason: str
+    created_at: float
+
+
+class ProactiveState:
+    """Lightweight in-memory store for the proactive guidance layer."""
+
+    def __init__(self) -> None:
+        self.recent_actions: dict[str, deque[dict[str, Any]]] = defaultdict(
+            lambda: deque(maxlen=30)
+        )
+        self.pending_offer_by_session: dict[str, ProactiveOffer] = {}
+        self.guidance_subscribers: dict[str, set[asyncio.Queue[GuidanceEvent]]] = defaultdict(set)
+
+    def store_actions(self, session_id: str, actions: list[dict[str, Any]]) -> None:
+        bucket = self.recent_actions[session_id]
+        now = time.time()
+        for action in actions:
+            item = dict(action)
+            item.setdefault("timestamp_start", now)
+            bucket.append(item)
+
+    async def publish_guidance(self, event: GuidanceEvent) -> None:
+        for queue in list(self.guidance_subscribers[event.session_id]):
+            await queue.put(event)
+
+
+def _is_data_source_open(action: dict[str, Any]) -> bool:
+    return action.get("type", "") == "data_source_open"
+
+
+def _detect_stuck_onboarding(
+    *, session_id: str, user_id: str | None, email: str | None, state: ProactiveState
+) -> ProactiveOffer | None:
+    # Guard: fire at most once per session
+    if session_id in state.pending_offer_by_session:
+        return None
+
+    cutoff = time.time() - TRIGGER_WINDOW_SECONDS
+    recent = [
+        a for a in state.recent_actions[session_id]
+        if float(a.get("timestamp_start") or 0) >= cutoff
+    ]
+
+    # If the user already completed the step in this window, don't nudge them
+    completed = any(
+        a.get("type") == "data_source_complete" for a in recent
+    )
+    if completed:
+        return None
+
+    open_clicks = [a for a in recent if _is_data_source_open(a)]
+    if len(open_clicks) < DATA_SOURCE_OPEN_THRESHOLD:
+        return None
+
+    return ProactiveOffer(
+        id=f"offer_{uuid4().hex}",
+        session_id=session_id,
+        user_id=user_id,
+        email=email,
+        message=(
+            "Having trouble connecting your data source? "
+            "The most common issue is IP whitelisting — "
+            "want me to walk you through it?"
+        ),
+        target="[data-guide='connect-data-source']",
+        tour_id="data-source-connection",
+        reason=f"{len(open_clicks)} data_source_open actions in {TRIGGER_WINDOW_SECONDS}s without completion",
+        created_at=time.time(),
+    )
+```
+</Accordion>
+</AccordionGroup>
+
+<Note>
+  The `completed` guard is the most important part. Without it the trigger fires even for users who successfully connected their data source and then reopened the step out of curiosity. Always check whether the goal action happened before deciding the user is stuck.
+</Note>
+
+---
+
+## 🧰 Step 2 — Extend `bridge/copilot_server.py` with demo-action tracking
+
+Add the following imports at the top of `bridge/copilot_server.py` (after the existing ones):
+
+```python
+import json
+from dataclasses import asdict
+
+from fastapi import Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from proactive import GuidanceEvent, ProactiveOffer, ProactiveState, _detect_stuck_onboarding
+```
+
+Add the CORS middleware and create the proactive state singleton after the existing FastAPI app and SDK pipeline setup:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+proactive_state = ProactiveState()
+```
+
+Add new models after the existing imports section:
+
+```python
+class DemoActionsPayload(BaseModel):
+    session_id: str
+    actions: list[dict]
+    user_id: str = "demo-user"
+    email: str | None = None
+
+
+class InkeepReply(BaseModel):
+    session_id: str
+    offer_id: str | None = None
+    text: str
+```
+
+Add the demo-action handler after the existing `on_actions` callback:
+
+```python
+async def handle_demo_actions(payload: DemoActionsPayload) -> None:
+    proactive_state.store_actions(payload.session_id, list(payload.actions))
+
+    offer = _detect_stuck_onboarding(
+        session_id=payload.session_id,
+        user_id=payload.user_id,
+        email=payload.email,
+        state=proactive_state,
+    )
+    if not offer:
+        return
+
+    proactive_state.pending_offer_by_session[payload.session_id] = offer
+    await proactive_state.publish_guidance(GuidanceEvent(
+        type="guidance_offer",
+        session_id=offer.session_id,
+        message=offer.message,
+        target=offer.target,
+        tour_id=offer.tour_id,
+        reason=offer.reason,
+        created_at=offer.created_at,
+    ))
+```
+
+<Note>
+  **Two separate action pipelines:** `on_actions` feeds `AsyncContextStore` with PostHog autocapture events for SDK-grounded chat context. `handle_demo_actions` feeds `ProactiveState` with explicit frontend events (`data_source_open`, `data_source_complete`) for trigger detection. They are intentionally separate — PostHog events are too noisy for precise completion detection, while explicit events give you a clean predicate.
+</Note>
+
+---
+
+## 📡 Step 3 — Add the SSE, context, and reply routes
+
+Add these routes to `bridge/copilot_server.py`.
+
+| Route | Direction | Purpose |
+|---|---|---|
+| `GET /guidance/stream/{session_id}` | Bridge → Frontend | SSE channel delivering `guidance_offer` and `guidance_start` events |
+| `GET /context/{session_id}` | Frontend → Bridge | Merged SDK + demo context for `InkeepEmbeddedChat` injection (replaces the Step 1 version) |
+| `POST /inkeep/reply` | Frontend → Bridge | User accepted the offer; emits `guidance_start` |
+| `POST /demo/actions` | Frontend → Bridge | Explicit onboarding events; also returns `pending_offer` |
+
+<AccordionGroup>
+<Accordion title="bridge/copilot_server.py — new SSE, context, and reply routes (expand to copy)">
+```python
+@app.get("/guidance/stream/{session_id}")
+async def guidance_stream(session_id: str, request: Request) -> StreamingResponse:
+    queue: asyncio.Queue[GuidanceEvent] = asyncio.Queue()
+    proactive_state.guidance_subscribers[session_id].add(queue)
+
+    async def events():
+        try:
+            # Send a ready event immediately so the client knows it's connected
+            yield "event: ready\ndata: {}\n\n"
+            while not await request.is_disconnected():
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: {event.type}\ndata: {json.dumps(asdict(event))}\n\n"
+                except asyncio.TimeoutError:
+                    yield "event: heartbeat\ndata: {}\n\n"
+        finally:
+            proactive_state.guidance_subscribers[session_id].discard(queue)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@app.get("/context/{session_id}")
+async def get_context(session_id: str) -> dict[str, Any]:
+    """Return assembled context for injection into InkeepEmbeddedChat.
+
+    Merges two sources:
+    1. SDK context from AsyncContextStore (PostHog autocapture events via Step 1).
+    2. Demo-specific stuck-connection narrative (explicit data_source_open events).
+
+    Replaces the Step 1 version of this endpoint with one that is also
+    aware of the proactive guidance state.
+    """
+    # Source 1 — Autoplay SDK activity context (assembled rolling summary)
+    product_id = _session_product.get(session_id)
+    sdk_context = context_store.get(session_id, product_id=product_id)
+
+    # Source 2 — explicit demo actions tracked by ProactiveState
+    demo_actions = list(proactive_state.recent_actions.get(session_id, []))
+
+    if not sdk_context and not demo_actions:
+        return {"context": "", "has_activity": False, "session_id": session_id}
+
+    lines = []
+    for a in demo_actions[-10:]:  # last 10 explicit events
+        atype = a.get("type", "")
+        title = a.get("title", "")
+        ts_raw = a.get("timestamp_start", 0)
+        try:
+            ts = float(ts_raw)
+        except (TypeError, ValueError):
+            ts = 0.0
+        lines.append(f"- [{atype}] {title} (t={ts:.0f})")
+
+    parts = []
+    if sdk_context:
+        parts.append(sdk_context)
+    if lines:
+        parts.append(
+            "The user is working through the Nexus Cloud onboarding. "
+            "Here is what they have been doing recently:\n"
+            + "\n".join(lines)
+            + "\n\nThey appear to be struggling with the Connect Data Source step. "
+            "Start by acknowledging this and offer specific guidance."
+        )
+
+    context = "\n\n".join(parts)
+    return {
+        "context": context,
+        "has_activity": bool(context.strip()),
+        "session_id": session_id,
+    }
+
+
+@app.post("/inkeep/reply")
+async def inkeep_reply(reply: InkeepReply) -> dict[str, Any]:
+    offer = proactive_state.pending_offer_by_session.pop(reply.session_id, None)
+    if offer is None:
+        raise HTTPException(
+            status_code=404, detail="No pending offer for this session"
+        )
+    if reply.offer_id and offer.id != reply.offer_id:
+        raise HTTPException(status_code=409, detail="Offer ID does not match")
+
+    accepted = GuidanceEvent(
+        type="guidance_start",
+        session_id=offer.session_id,
+        message="Start the data source connection guide.",
+        target=offer.target,
+        tour_id=offer.tour_id,
+        reason=offer.reason,
+        created_at=time.time(),
+    )
+    await proactive_state.publish_guidance(accepted)
+    return {"accepted": True, "guidance": asdict(accepted)}
+
+
+@app.post("/demo/actions")
+async def demo_actions(payload: DemoActionsPayload) -> dict[str, Any]:
+    await handle_demo_actions(payload)
+    offer = proactive_state.pending_offer_by_session.get(payload.session_id)
+    return {
+        "stored": len(payload.actions),
+        "pending_offer": offer is not None,
+        "offer": asdict(offer) if offer else None,
+    }
+```
+</Accordion>
+</AccordionGroup>
+
+Two SSE event names flow from bridge to frontend:
+
+| Event name | When | Frontend action |
+|---|---|---|
+| `guidance_offer` | Bridge crossed the 3-open threshold | Show proactive popup |
+| `guidance_start` | User accepted offer via `POST /inkeep/reply` | Start the four-step guided tour |
+
+Restart the bridge:
+
+```bash
+cd ~/nexus-cloud/bridge
+uv run uvicorn copilot_server:app --host 0.0.0.0 --port 8787 --reload
+```
+
+---
+
+## 🔥 Step 4 — Smoke test the trigger chain
+
+Simulate three data source opens for the same session:
+
+```bash
+SESSION="test-$(date +%s)"
+
+for i in 1 2 3; do
+  curl -s -X POST http://localhost:8787/demo/actions \
+    -H "Content-Type: application/json" \
+    -d "{\"session_id\":\"$SESSION\",\"actions\":[{\"type\":\"data_source_open\",\"title\":\"Open step 1\",\"timestamp_start\":$(date +%s)}]}"
+  echo
+done
+```
+
+The third response should include `"pending_offer": true` and a full `"offer": {...}` object. Now verify the context endpoint:
+
+```bash
+curl -s http://localhost:8787/context/$SESSION | python3 -m json.tool
+```
+
+You should see a `"context"` string describing the three `data_source_open` events. Now accept the offer:
+
+```bash
+curl -s -X POST http://localhost:8787/inkeep/reply \
+  -H "Content-Type: application/json" \
+  -d "{\"session_id\": \"$SESSION\", \"text\": \"yes\"}"
+# {"accepted":true,"guidance":{...}}
+```
+
+The full trigger → offer → accept → `guidance_start` chain works. Now wire the frontend.
+
+---
+
+## 🔔 Step 5 — Add SSE subscription to the frontend
+
+Add a `useEffect` to your page component that subscribes to the guidance SSE stream. The `EventSource` API fires named events — `guidance_offer` and `guidance_start` are matched by their event name on the stream.
+
+```tsx
+useEffect(() => {
+  if (!sessionId) return;
+  const es = new EventSource(guidanceStreamUrl(sessionId));
+
+  es.addEventListener("guidance_offer", (e) => {
+    const event = JSON.parse((e as MessageEvent).data) as GuidanceEvent;
+    setProactiveOffer(event);
+  });
+
+  es.addEventListener("guidance_start", (e) => {
+    const event = JSON.parse((e as MessageEvent).data) as GuidanceEvent;
+    // Bridge confirmed the user accepted — start the guided tour
+    setGuideStep("step1");
+    setProactiveOffer(null);
+  });
+
+  return () => es.close();
+}, [sessionId]);
+```
+
+<Warning>
+  The SSE listener must use `addEventListener("guidance_offer", ...)` with the exact event name, **not** `es.onmessage`. The bridge emits named events (`event: guidance_offer\ndata: ...\n\n`) — `onmessage` only fires for unnamed events (`data: ...\n\n`). If the popup never appears despite the bridge logging a published offer, check this first.
+</Warning>
+
+Also add a `sendDataSourceOpen` helper to `lib/demo-api.ts` so the frontend can report explicit onboarding events:
+
+<AccordionGroup>
+<Accordion title="frontend/lib/demo-api.ts — bridge API helpers (expand to copy)">
+```ts
+const API_BASE = process.env.NEXT_PUBLIC_BRIDGE_URL ?? "http://localhost:8787";
+
+export async function sendDataSourceOpen(sessionId: string): Promise<void> {
+  await fetch(`${API_BASE}/demo/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      actions: [
+        {
+          type: "data_source_open",
+          title: "Connect Data Source — opened",
+          canonical_url: "https://app.example.com/onboarding",
+        },
+      ],
+    }),
+  });
+}
+
+export function guidanceStreamUrl(sessionId: string): string {
+  return `${API_BASE}/guidance/stream/${encodeURIComponent(sessionId)}`;
+}
+
+export async function fetchContext(sessionId: string): Promise<string> {
+  const response = await fetch(
+    `${API_BASE}/context/${encodeURIComponent(sessionId)}`
+  );
+  if (!response.ok) return "";
+  const data = await response.json();
+  return (data as { context?: string }).context ?? "";
+}
+
+export async function acceptInkeepOffer(
+  sessionId: string,
+  offerId: string | undefined,
+): Promise<void> {
+  await fetch(`${API_BASE}/inkeep/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, offer_id: offerId, text: "yes" }),
+  });
+}
+```
+</Accordion>
+</AccordionGroup>
+
+Call `sendDataSourceOpen(sessionId)` in your onboarding component whenever the user opens the Connect Data Source panel:
+
+```tsx
+// Call this when the Connect Data Source panel opens
+async function handleDataSourcePanelOpen() {
+  if (sessionId) {
+    await sendDataSourceOpen(sessionId).catch(() => {});
+  }
+}
+```
+
+---
+
+## 🪟 Step 6 — The proactive popup component
+
+Add the popup render to your page component. It lives outside the chat overlay so it can appear whether or not the chat is open:
+
+```tsx
+{proactiveOffer && !chatOpen && (
+  <div className="proactivePopup">
+    <button
+      className="proactivePopup__x"
+      onClick={() => setProactiveOffer(null)}
+      aria-label="Dismiss"
+    >
+      ×
+    </button>
+    <div className="proactivePopup__header">
+      <div className="proactivePopup__icon">
+        <Bot size={13} />
+      </div>
+      <strong>COPILOT</strong>
+    </div>
+    <p className="proactivePopup__msg">{proactiveOffer.message}</p>
+    <div className="proactivePopup__actions">
+      <button
+        className="crmBtn crmBtn--primary"
+        onClick={handleShowMe}
+      >
+        Show me how to fix the connection
+      </button>
+      <button
+        className="crmBtn crmBtn--outline"
+        onClick={handleOpenChat}
+      >
+        Open chat
+      </button>
+    </div>
+  </div>
+)}
+```
+
+Add the popup styles to `frontend/app/styles.css`:
+
+<AccordionGroup>
+<Accordion title="frontend/app/styles.css — proactive popup styles (expand to copy)">
+```css
+.proactivePopup {
+  position: fixed;
+  bottom: 84px;
+  right: 24px;
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.14);
+  padding: 14px 16px;
+  z-index: 300;
+  animation: popIn 180ms ease;
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.proactivePopup__x {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+}
+.proactivePopup__x:hover { color: var(--ink); }
+
+.proactivePopup__header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--primary);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.proactivePopup__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.proactivePopup__msg {
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+  padding-right: 20px;
+}
+.proactivePopup__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+```
+</Accordion>
+</AccordionGroup>
+
+---
+
+## 🗺 Step 7 — The `guideStep` state machine
+
+The guided tour is driven by a `guideStep` state variable. Each state causes a different element on the page to pulse and show a tooltip:
+
+```ts
+type GuideStep = "idle" | "step1" | "step2" | "step3" | "step4" | "done";
+```
+
+| State | What pulses | Tooltip |
+|---|---|---|
+| `step1` | API Endpoint field | "Paste your API endpoint URL here — check your provider's integration settings page." |
+| `step2` | API Key field | "Enter the API key from your provider dashboard — it usually starts with `sk-` or `api_`." |
+| `step3` | Test Connection button | "Click to verify the connection — most failures at this stage are IP whitelist related. Make sure your provider has whitelisted your server's outbound IP." |
+| `step4` | Mark Complete button | "Connection verified — click here to mark this step as done and move on to Invite Team." |
+| `done` | Nothing | Guide complete. |
+
+Apply the `crmBtn--pulse` class (defined in Step 6's CSS) to the element matching the current `guideStep`, and render a `<GuideTooltip>` next to it. Advance the step on the user's click:
+
+```tsx
+function handleTestConnection() {
+  // your existing connection logic...
+  if (guideStep === "step3") setGuideStep("step4");
+}
+
+function handleMarkComplete() {
+  // mark the step complete in your onboarding state...
+  if (guideStep === "step4") setGuideStep("done");
+}
+```
+
+Add the data source complete action to the bridge payload when the user marks the step complete:
+
+```ts
+export async function sendDataSourceComplete(sessionId: string) {
+  await fetch(`${API_BASE}/demo/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      actions: [
+        {
+          type: "data_source_complete",
+          title: "Connect Data Source — completed",
+          canonical_url: "https://app.example.com/onboarding",
+        },
+      ],
+    }),
+  });
+}
+```
+
+This is what `_detect_stuck_onboarding` checks — once a `data_source_complete` action is in the window, future opens won't trigger the popup.
+
+---
+
+## 💬 Step 8 — The "Open chat" path
+
+When the user clicks **Open chat** on the proactive popup:
+
+1. Call `acceptInkeepOffer(sessionId, offer.id)` — this hits `POST /inkeep/reply`, which publishes the `guidance_start` SSE event and removes the offer from `pending_offer_by_session`.
+2. Fetch the merged context from `GET /context/{session_id}`.
+3. Set a `contextKey` state that changes, forcing `InkeepEmbeddedChat` to remount with the new `introMessage`.
+
+```tsx
+const [contextKey, setContextKey] = useState(0);
+const [contextMessage, setContextMessage] = useState<string | undefined>();
+
+async function handleOpenChat() {
+  setProactiveOffer(null);
+
+  // 1. Tell the bridge the user accepted (publishes guidance_start)
+  if (offer) {
+    await acceptInkeepOffer(sessionId, offer.id).catch(() => {});
+  }
+
+  // 2. Fetch merged Autoplay + demo context
+  const ctx = await fetchContext(sessionId);
+  if (ctx) {
+    setContextMessage(ctx);
+    // 3. Bump key to force InkeepEmbeddedChat remount with new introMessage
+    setContextKey((k) => k + 1);
+  }
+
+  setChatOpen(true);
+}
+```
+
+Pass `contextKey` and `contextMessage` into `InkeepWidget`:
+
+```tsx
+<InkeepWidget
+  key={contextKey}
+  sessionId={sessionId}
+  userId={userId}
+  email={email}
+  onStatusChange={() => {}}
+  chatOpen={chatOpen}
+  contextMessage={contextMessage}
+/>
+```
+
+Inside `InkeepWidget`, the `introMessage` derives from `contextMessage`:
+
+```tsx
+const introMessage = chatOpen && contextMessage
+  ? contextMessage
+  : chatOpen
+  ? "I noticed you may be having trouble connecting your data source. What can I help you with?"
+  : "Hi! I'm your AI assistant. Ask me anything about Nexus Cloud.";
+```
+
+<Warning>
+  The `key` prop must change for `InkeepEmbeddedChat` to pick up the new `introMessage`. A changed `key` tells React to unmount the old instance and mount a fresh one — without this, the chat re-opens with whatever `introMessage` it was initialized with. If you see the old generic greeting after clicking "Open chat," check that `contextKey` is incrementing and that `key={contextKey}` is on the `InkeepEmbeddedChat` element (or its parent `InkeepWidget`).
+</Warning>
+
+---
+
+## ✅ Step 9 — End-to-end walkthrough
+
+Start all three services:
+
+```bash
+# Terminal 1 — Inkeep agents API
+cd ~/inkeep-agents
+pnpm --filter agents-api dev
+
+# Terminal 2 — Bridge
+cd nexus-cloud/bridge
+uv run uvicorn copilot_server:app --reload --port 8787
+
+# Terminal 3 — Frontend
+cd nexus-cloud/frontend
+npm run dev
+```
+
+Then exercise the full flow:
+
+1. Open `http://localhost:3000`.
+2. The onboarding dashboard renders with five steps. "Connect Data Source" is the first.
+3. Click to expand the **Connect Data Source** step — `sendDataSourceOpen` fires, the first `data_source_open` action is sent to the bridge.
+4. Close the step panel without completing it.
+5. Expand it again — second action sent.
+6. Close it again without completing.
+7. Expand it a third time — third action sent. The bridge crosses the threshold and publishes `guidance_offer` over SSE.
+8. The proactive popup appears bottom-right: *"Having trouble connecting your data source? The most common issue is IP whitelisting — want me to walk you through it?"*
+
+**Path A — Show me how to fix the connection:**
+
+9. Click **Show me how to fix the connection**. The popup dismisses. The API Endpoint field starts pulsing with a tooltip: *"Paste your API endpoint URL here..."*
+10. Focus the API Endpoint field (or click through the tooltip) — the step advances to `step2`. The API Key field pulses.
+11. Focus the API Key field — step advances to `step3`. The Test Connection button pulses.
+12. Click **Test Connection** — step advances to `step4`. The Mark Complete button pulses.
+13. Click **Mark Complete** — `guideStep` becomes `done`. A `data_source_complete` action is sent to the bridge. The step is marked done.
+
+**Path B — Open chat (reload first to reset the session):**
+
+9. Click **Open chat**. The frontend fetches `GET /context/{session_id}` and gets the merged activity + stuck-connection summary.
+10. The chat overlay opens. `InkeepEmbeddedChat` initializes with the context as `introMessage` — something like: *"The user is working through the Nexus Cloud onboarding. Here is what they have been doing recently: [data_source_open × 3] They appear to be struggling with the Connect Data Source step. Start by acknowledging this and offer specific guidance."*
+11. The AI's first reply references the connection struggle directly. Ask a follow-up question — the AI responds in context.
+
+In the bridge log you should see, in order:
+
+```
+INFO:     stored 1 action session=crm-demo-xxx
+INFO:     stored 1 action session=crm-demo-xxx
+INFO:     _detect_stuck_onboarding: firing offer_id=offer_abc session=crm-demo-xxx
+INFO:     published guidance_offer to 1 subscriber(s) session=crm-demo-xxx
+```
+
+---
+
+## 🛠 Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Popup never appears after 3 opens | `sendDataSourceOpen` not called, or SSE stream not connected. Check bridge logs for `"published guidance_offer to 0 subscriber(s)"` — if subscribers=0, the frontend's `EventSource` isn't open yet. |
+| SSE stream closes immediately | Missing CORS on bridge; check that `CORSMiddleware` in `copilot_server.py` includes `http://localhost:3000` in `allow_origins`. |
+| `guidance_offer` event fires but guided tour doesn't start | The `guidance_start` SSE event isn't wired — check that `POST /inkeep/reply` is called on the "Show me" click and that `handleShowMe` sets `guideStep("step1")` on success. |
+| Context injection empty even with activity | `GET /context/{session_id}` returns `""` — confirm (1) `sendDataSourceOpen` is sending the same `session_id` as the SSE subscription, and (2) the bridge is running with the `proactive.py` import in scope (no `ModuleNotFoundError` at startup). |
+| `InkeepEmbeddedChat` shows old `introMessage` after proactive open | `key` prop not changing — set `key={contextKey}` on `InkeepWidget` (or directly on `InkeepEmbeddedChat`) and ensure `setContextKey((k) => k + 1)` is called in `handleOpenChat`. |
+| `ModuleNotFoundError: No module named 'proactive'` at bridge startup | `proactive.py` must be in the same directory as `copilot_server.py`. Run `uvicorn` from `~/nexus-cloud/bridge/`. |
+| `PATCH defaultSubAgentId` returns 404 | Sub-agent ID typo; verify with `GET /manage/tenants/default/projects/nexus-cloud/agents/onboarding-support` and confirm the sub-agent exists. |
+| Anonymous session JWT fails (401) | `allowAnonymous` not set; re-run the `UPDATE apps SET config = ...` SQL from Step 1, or verify with `SELECT config FROM apps WHERE id = 'app_playground'`. |
+| `introMessage` is always the generic greeting | `fetchContext` returned an empty string. Check (1) `proactive_state.recent_actions[session_id]` is populated (bridge should log `"stored N actions"`), and (2) the `session_id` in `sendDataSourceOpen` matches the one passed to `fetchContext`. |
+| PostHog SDK context is empty even after clicking around | `context_store.get()` was called without `product_id=`. Pass `_session_product[session_id]` on read — this was also covered in Step 1's troubleshooting table. |
+
+---
+
+## 🔄 Day-2 operations
+
+```bash
+# Docker backing services (if they stopped)
+docker compose -f ~/inkeep-agents/docker-compose.yml up -d
+
+# Inkeep agents API
+cd ~/inkeep-agents && pnpm --filter agents-api dev
+
+# Bridge (with auto-reload for development)
+cd nexus-cloud/bridge && uv run uvicorn copilot_server:app --reload --port 8787
+
+# Frontend
+cd nexus-cloud/frontend && npm run dev
+```
+
+To update the onboarding agent's system prompt without restarting:
+
+```bash
+curl -s -X PATCH \
+  http://localhost:3002/manage/tenants/default/projects/nexus-cloud/agents/onboarding-support/sub-agents/onboarding-support-worker \
+  -H "Authorization: Bearer test-bypass-secret-for-ci" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "YOUR UPDATED PROMPT"}'
+```
+
+Prompts are loaded per-conversation from the manage DB — no service restart needed.
+
+To change the trigger threshold (number of opens before the popup fires):
+
+```python
+# bridge/proactive.py
+TRIGGER_WINDOW_SECONDS     = 120  # look-back window in seconds
+DATA_SOURCE_OPEN_THRESHOLD = 3    # number of opens before firing
+```
+
+Restart the bridge with `--reload` to pick up the change. The change only affects new sessions; any session that already received an offer won't be re-triggered.
+
+To add a second trigger — for example, repeated failed syncs when users reach step 5 — add a new `_detect_stuck_sync` function to `proactive.py` and call it from `handle_demo_actions` alongside `_detect_stuck_onboarding`. The SSE channel, popup, and guided-tour machinery are already in place.
+
+---
+
+## What you've built
+
+You now have an onboarding dashboard that goes proactive at the exact moment a user gets stuck — driven by a simple action-count predicate, gated by a completion check, and surfaced through a popup that gives the user a real choice between *show me* and *tell me*.
+
+A few things worth noting:
+
+- **The popup is owned by your app, not the chat vendor.** It appears whether or not the chat is open — the only architecture that lets proactive nudges land in context.
+- **Two separate pipelines, one bridge.** The Autoplay SDK pipeline (from Step 1) grounds reactive chat replies in real PostHog activity. The `ProactiveState` pipeline tracks explicit onboarding events for trigger detection. They coexist in `copilot_server.py` without interfering.
+- **The trigger is just a predicate.** `_detect_stuck_onboarding` is one rule covering one step. Add a second trigger by adding a new detection function to `proactive.py` and calling it from `handle_demo_actions` — no other changes required.
+- **Context injection makes the first AI message personal.** The updated `GET /context/{session_id}` endpoint returns a merge of SDK activity and the stuck-connection narrative; that string becomes the `introMessage` on `InkeepEmbeddedChat`. The user doesn't have to explain their problem — the AI already knows.
+- **Self-hosted AI.** The Inkeep agents framework runs entirely on your infrastructure. LLM keys, conversation history, and system prompts never leave it.
+
+If anything in this tutorial wasn't clear, or you hit a snag the troubleshooting matrix didn't cover — please reply on the thread or open an issue in the [Autoplay SDK repo](https://github.com/Autoplay-AI/Autoplay-AI-SDK). Feedback shapes the next version of these docs.

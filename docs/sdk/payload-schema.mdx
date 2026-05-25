@@ -10,6 +10,33 @@ The SDK parses these automatically into typed Python objects — you rarely need
 to work with the raw JSON directly, but this reference is useful when debugging
 or building your own client.
 
+## Data structure boundaries
+
+Payload frames are only one part of the full session-linking model:
+
+| Concern | Canonical structure | Notes |
+|---|---|---|
+| Session routing state | `SessionState` (`agent_state.v2`) | `session_id` is primary scope; `conversation_id` is derived state |
+| Conversation link transition | `ConversationLink` + `ConversationEventType` | `NEW` and `REPLY_EXISTING` semantics are applied by `SessionState.on_conversation_linked(...)` |
+| Reverse lookup | `ConversationLinkStore` | Persistent `conversation_id -> session_id` index for webhook resolution |
+| Inbound webhook parse | `ConversationWebhookEvent` | Parsed from platform webhook topic/payload |
+| Outbound stream payloads | `ActionsPayload`, `SummaryPayload`, `SlimAction` | Used for delivery, summarization, and embedding context |
+| Proactive trigger input | `ProactiveTriggerContext` | Built from recent payloads + optional summary/context extras |
+| Proactive trigger output | `ProactiveTriggerResult` | Returns `body`, optional `reply_option_labels`, and timing hints |
+| Proactive choice/tour mapping | `TriggerMessage`, `TourRegistry`, `TourDefinition` | Maps selected quick reply to optional tour metadata and per-tour timing overrides |
+
+Hot-path rule: delivery decisions should read session-owned fields (`conversation_linked`, `conversation_id`) from `SessionState`, not query `ConversationLinkStore` on every send.
+
+See [Typed payloads](/sdk/typed-payloads), [Agent session states](/sdk/agent-states), and [BaseChatbotWriter](/sdk/chatbot-writer).
+
+### If the user selects a proactive option
+
+1. Delivery surface sends back the selected quick-reply/chip id.
+2. Resolve that id to `TriggerMessage` (`id`, `label`, `user_tour_exists`, `user_tour_id`).
+3. Update `SessionState` interaction path (`record_option_click()` and related state updates).
+4. If `user_tour_exists=True`, resolve the matching `TourDefinition` in `TourRegistry` (by `id` or `user_tour_id`) and start visual guidance with the tour id.
+5. Continue routing by session-owned state (`session_id` primary; `conversation_id` derived).
+
 ## Event type reference
 
 | SSE frame/event type | Description | SDK handling |

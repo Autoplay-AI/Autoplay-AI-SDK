@@ -2,22 +2,24 @@
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
-# Explicit submodule imports are required so that Python 3.10's
-# unittest.mock.patch() can resolve dotted paths like
-# "autoplay_sdk.client.connect_sse".  On 3.10, patch() uses getattr()
-# to walk the dotted path; without these imports the submodules are not
-# attributes of the package and patch() raises AttributeError.
-from . import agent_state, async_client, client  # noqa: F401
-
 from autoplay_sdk.agent_state import v2 as agent_state_v2
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.buffer import BufferBackend, EventBuffer, RedisEventBuffer
 from autoplay_sdk.chat.chatbot import (
+    AutoplayChatbotManager,
     BaseChatbotWriter,
-    ConversationEvent,
+    ConversationLink,
+    ConversationEventType,
+    ConversationWebhookEvent,
     ConversationWriter,
+    InMemoryConversationLinkStore,
+    InMemorySessionStateStore,
+    RedisSessionStateStore,
     format_chatbot_note_header,
+    link_conversation,
+    resolve_linked_conversation_id,
 )
+
 from autoplay_sdk.chat.chat_pipeline import AsyncChatPipeline, compose_chat_pipeline
 from autoplay_sdk.client import ConnectorClient
 from autoplay_sdk.context.context_store import AsyncContextStore, ContextStore
@@ -99,8 +101,16 @@ __all__ = [
     "agent_state_v2",
     "ConversationWriter",
     "BaseChatbotWriter",
-    "ConversationEvent",
+    "ConversationLink",
+    "ConversationEventType",
+    "ConversationWebhookEvent",
+    "AutoplayChatbotManager",
+    "InMemoryConversationLinkStore",
+    "InMemorySessionStateStore",
+    "RedisSessionStateStore",
     "format_chatbot_note_header",
+    "link_conversation",
+    "resolve_linked_conversation_id",
     "AsyncChatPipeline",
     "compose_chat_pipeline",
     "UserSessionIndex",
@@ -118,3 +128,17 @@ try:
     __version__ = _pkg_version("autoplay-sdk")
 except PackageNotFoundError:
     __version__ = "0.0.0+local"
+
+
+def __getattr__(name: str) -> object:
+    if name == "ConversationEvent":
+        import warnings
+
+        warnings.warn(
+            "ConversationEvent is deprecated and will be removed in the next major version. "
+            "Update your import: from autoplay_sdk import ConversationEventType",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ConversationEventType
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

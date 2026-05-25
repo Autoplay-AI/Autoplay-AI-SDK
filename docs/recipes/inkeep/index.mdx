@@ -1,0 +1,142 @@
+---
+title: "Inkeep tutorial"
+sidebarTitle: "Inkeep tutorial"
+description: "Give Inkeep's AI chat live awareness of what users are doing — so it can explain blockers, surface missing steps, and guide the next action in context."
+icon: "/images/recipes/inkeep/logo.png"
+---
+
+Without context, your customer support chat has to ask what the user was doing and what went wrong. With Autoplay wired in, Inkeep already knows — and can explain the real blocker, point to the right next step, and link directly to the relevant workflow instead of giving a generic answer.
+
+This tutorial shows you how to build that flow using the Inkeep agents framework and `InkeepEmbeddedChat` from `@inkeep/agents-ui`. Your events, conversation history, and LLM keys never leave your infrastructure.
+
+**Who this is for:** Teams using or evaluating Inkeep who want chat to react to what users actually do — not just answer generic questions. Assumes comfort with Python, TypeScript/React, and a small FastAPI service.
+
+**Stack:** Inkeep agents framework (Docker), `@inkeep/agents-ui`, Next.js 14, Python 3.10\+, FastAPI, `uv`, and Anthropic or OpenAI. [https://developers.autoplay.ai/recipes/inkeep](https://developers.autoplay.ai/recipes/inkeep)
+
+## ✨ Final result
+
+<Tabs>
+  <Tab title="Without real-time context">
+    ```text
+    Admin: why can't I unblock this vendor?
+    
+    Bot: Vendors may be blocked for several reasons, including policy
+    violations, expired approvals, or missing compliance information.
+    Check the vendor details page for more information.
+    
+    (Generic reply — the bot doesn't know which vendor the admin is viewing
+    or that the unblock attempt just failed.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    Admin: why can't I unblock this vendor?
+    
+    Bot: It looks like you just tried to [complete action] on [item],
+    but it's blocked because [specific reason]. To move forward,
+    [next concrete step]. Here's where to do that: [link].
+    
+    (Same question — but the bot already knows what the user was
+    on, what they attempted, and exactly what's in the way.)
+    ```
+  </Tab>
+</Tabs>
+
+**Video walkthrough** — [Open on Loom](https://www.loom.com/share/1bfd0fd1f326484f85c11fc381f58b69) if the player does not load.
+
+<div style={{ position: "relative", paddingBottom: "62.5%", height: 0 }}>
+  <iframe src="https://www.loom.com/embed/1bfd0fd1f326484f85c11fc381f58b69" title="Inkeep tutorial — finished workflow and final result" frameBorder={0} loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }} />
+</div>
+
+---
+
+## 📋 Prerequisites
+
+Before you start, you need:
+
+- **Node.js 18\+** and **Python 3.10\+** on the host.
+- **`uv`** — the Python package manager used in this tutorial.
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- **`pnpm`** — the Inkeep agents monorepo uses pnpm workspaces.
+  ```bash
+  npm i -g pnpm
+  ```
+- **Docker Desktop** — for running Inkeep's backing services (PostgreSQL, Doltgres, SpiceDB).
+- **An Anthropic or OpenAI API key** — the Inkeep agents framework calls your LLM directly; no Inkeep cloud key required.
+
+That's it. The tutorial covers every code file step by step — copy-paste runnable.
+
+<Note>
+  The Inkeep CDN widget (`@inkeep/cxkit-js`) requires a paid Inkeep cloud API key. This tutorial uses the open-source **Inkeep agents framework** (`@inkeep/agents-ui`) which you self-host with your own LLM key — no per-seat or per-call fee to Inkeep for the chat itself.
+</Note>
+
+---
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────┐
+│  VendorOps  (Next.js, :3000)                        │
+│                                                     │
+│  ┌────────────────────────────────────────────────┐ │
+│  │  Vendor profile                                │ │
+│  │  Status: blocked                               │ │
+│  │  Missing docs: W-9, certificate of insurance   │ │
+│  └────────────────────────────────────────────────┘ │
+│       │ sendVendorUnblockAttempt()                  │
+│       │ POST /demo/actions                          │
+│       ▼                                             │
+│  ┌───────────────────────────────────────────────┐  │
+│  │  Context fetch                                 │  │
+│  │  GET /context/{session_id}                     │  │
+│  └───────────────────────────────────────────────┘  │
+│       │                                             │
+│       ▼                                             │
+│  ┌───────────────────────────────────────────────┐  │
+│  │  InkeepEmbeddedChat                           │  │
+│  │  → explains missing compliance documents      │  │
+│  │  → points admin to request-documents flow     │  │
+│  └───────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+               │ POST /demo/actions
+               │ GET  /context/{session_id}
+               ▼
+┌─────────────────────────────────────────────────────┐
+│  Bridge  (FastAPI, :8787)                           │
+│                                                     │
+│  AsyncConnectorClient → AsyncContextStore           │
+│    + AsyncSessionSummarizer (rolling 30-event window│
+│      per session)                                   │
+│                                                     │
+│  Context: vendor_unblock_attempt + blocked status   │
+│    + missing compliance documents                   │
+│                                                     │
+│  GET  /context/{session_id}  → assembled context   │
+└─────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────┐
+│  Inkeep agents framework  (:3002)                   │
+│  (self-hosted, your LLM key)                        │
+│                                                     │
+│  project: vendor-ops                                │
+│  agent:   vendor-support                            │
+│  sub-agent: compliance-support-worker               │
+│                                                     │
+│  InkeepEmbeddedChat ↔ AI sub-agent                  │
+│  introMessage ← context from /context/{session_id} │
+└─────────────────────────────────────────────────────┘
+```
+
+Two inputs feed the context layer: the vendor profile reports the admin's action directly to the bridge (`POST /demo/actions`), and the bridge keeps the vendor's blocked status plus missing compliance-document state available for chat grounding. The bridge owns all context logic; Inkeep stays a clean conversational surface.
+
+The `GET /context/{session_id}` endpoint assembles a human-readable summary of the admin's recent activity and the vendor's compliance state. When the admin opens chat, this summary becomes the `introMessage` passed to `InkeepEmbeddedChat` — so the AI's first message references the blocked vendor and missing documents, not a generic greeting.
+
+---
+
+## The tutorial
+
+1. [**Step 1 — Connect real-time events**](./step-1-connect-real-time-events) — Build the vendor-management frontend, wire unblock attempts and vendor context into a FastAPI bridge, run the Inkeep agents framework in Docker, and embed `InkeepEmbeddedChat`. At the end of this step you have a working AI chat widget on the vendor profile. ~45 minutes.
+2. [**Step 2 — Define proactive triggers**](./step-2-define-proactive-triggers) — Add blocked-vendor detection to the bridge, wire the guidance channel to the frontend, and build the proactive handoff that opens Inkeep chat with the vendor's missing compliance documents pre-loaded. ~45 minutes.
