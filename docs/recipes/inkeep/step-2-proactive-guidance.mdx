@@ -1,0 +1,1217 @@
+---
+title: "Step 2 — Add proactive guidance"
+sidebarTitle: "Step 2 — Add proactive guidance"
+description: "Add repetitive-action detection to the bridge, wire the SSE guidance channel, and build the proactive popup with a four-step in-app guide and pre-loaded AI chat."
+---
+
+In [Step 1](./step-1-connect-real-time-events) you built an Inkeep chat widget whose opening message is grounded in real user activity. This step makes it **proactive** — the bridge notices when a user is doing something the slow way and offers help before they ever open the chat.
+
+The concrete example catches the **repetitive-action moment**: a user adding clients one-by-one through a modal form, completely unaware that CSV bulk import exists. Three form opens in 90 seconds fires the offer: *"Adding clients one by one? You can import them all at once with a CSV file — want me to show you how?"* The user can reply **yes** in the chat input or click **Show me** — either path closes the chat and launches a four-step in-app tour that walks them through the CSV modal step by step.
+
+Plan to spend **~45 minutes** the first time through. Every file is included verbatim.
+
+### End-to-end walkthrough
+
+<div style={{ position: "relative", paddingBottom: "62.5%", height: 0 }}>
+  <iframe
+    src="https://www.loom.com/embed/1bfd0fd1f326484f85c11fc381f58b69"
+    title="Inkeep + Autoplay — proactive guidance demo"
+    frameBorder={0}
+    loading="lazy"
+    allow="clipboard-write; fullscreen"
+    style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
+  />
+</div>
+
+<Note>
+  **Proactive is a host-app surface, not a chat-vendor surface.** The offer appears even when the chat widget is closed — it lives in your Next.js layout, not inside `InkeepEmbeddedChat`. Routing proactive messages through the widget breaks structurally: the socket might not be open, the session ID might not be resolved, and the UX (a closed chat icon with no indicator) doesn't match the moment of friction. Inkeep, Intercom, and Drift all follow this pattern.
+</Note>
+
+---
+
+## 📋 Before you start
+
+This step picks up exactly where Step 1 left off. You should already have:
+
+- **`bridge/main.py`** running on `:8787` with `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, and `SessionState` wired together
+- **`GET /context/{session_id}`** returning assembled activity context
+- **Inkeep agents framework** running on `:3002` with a project, agent, and sub-agent configured
+- **`InkeepEmbeddedChat`** mounted in your frontend and connecting successfully (anonymous session token works)
+
+The code below **extends** the bridge and frontend — it does not replace them.
+
+---
+
+**What you'll build:**
+
+1. Repetitive-action trigger detection in the bridge (≥ 3 `client_add` actions in 90 seconds).
+2. An SSE endpoint the frontend subscribes to for real-time guidance events.
+3. A client-side action counter that fires the popup even without a running bridge.
+4. A proactive popup with two resolution paths: **Show me** and **Open chat**.
+5. A four-step in-app guide that walks the user through the CSV import modal.
+6. `InkeepEmbeddedChat` opening with a pre-loaded context message.
+7. An idle-timer fallback that fires after 20 seconds of no user activity.
+
+**Runtime loop:**
+
+```
+PostHog events ──► Bridge (Step 1 pipeline + trigger detection)
+                     │
+                     ▼
+              ≥3 client_add in 90s → SSE → Proactive offer appears
+                     │
+        ┌────────────┴──────────────────┐
+        ▼                               ▼
+  Type "yes" / click "Show me"     Click "Open chat"
+        │                               │
+        ▼                               ▼
+  Four-step in-app tour            InkeepEmbeddedChat opens
+  highlights CSV modal             pre-loaded with offer context
+  (chat closes automatically)
+```
+
+---
+
+## 🧰 Step 1 — Extend the bridge with trigger detection
+
+Add these new imports at the top of `bridge/main.py`:
+
+```python
+import json
+from dataclasses import asdict, dataclass
+from uuid import uuid4
+
+from fastapi import HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+```
+
+Add constants and dataclasses after the existing ones:
+
+<AccordionGroup>
+<Accordion title="bridge/main.py — constants and dataclasses (expand to copy)">
+```python
+TRIGGER_WINDOW_SECONDS = 90
+EDIT_CLICK_THRESHOLD = 3
+
+
+@dataclass
+class GuidanceEvent:
+    type: str          # "guidance_offer" or "guidance_start"
+    session_id: str
+    message: str
+    target: str
+    tour_id: str
+    reason: str
+    created_at: float
+
+
+@dataclass
+class ProactiveOffer:
+    id: str
+    session_id: str
+    user_id: str | None
+    email: str | None
+    message: str
+    target: str
+    tour_id: str
+    reason: str
+    created_at: float
+
+
+class InkeepReply(BaseModel):
+    session_id: str
+    offer_id: str | None = None
+    text: str
+```
+</Accordion>
+</AccordionGroup>
+
+Extend `InMemoryState.__init__` with two new fields:
+
+```python
+self.pending_offer_by_session: dict[str, ProactiveOffer] = {}
+self.guidance_subscribers: dict[str, set[asyncio.Queue[GuidanceEvent]]] = defaultdict(set)
+```
+
+Add `publish_guidance` as a method on `InMemoryState`:
+
+```python
+async def publish_guidance(self, event: GuidanceEvent) -> None:
+    for queue in list(self.guidance_subscribers[event.session_id]):
+        await queue.put(event)
+```
+
+Add the trigger logic after the state definition:
+
+<AccordionGroup>
+<Accordion title="bridge/main.py — trigger detection functions (expand to copy)">
+```python
+def _is_client_add_action(action: dict[str, Any]) -> bool:
+    return action.get("type", "") == "client_add"
+
+
+def _detect_repetitive_edits(
+    *, session_id: str, user_id: str | None, email: str | None
+) -> ProactiveOffer | None:
+    # Fire at most once per session
+    if session_id in state.pending_offer_by_session:
+        return None
+
+    cutoff = time.time() - TRIGGER_WINDOW_SECONDS
+    recent = [
+        a for a in state.recent_actions[session_id]
+        if float(a.get("timestamp_start") or 0) >= cutoff
+    ]
+    add_clicks = [a for a in recent if _is_client_add_action(a)]
+
+    if len(add_clicks) < EDIT_CLICK_THRESHOLD:
+        return None
+
+    return ProactiveOffer(
+        id=f"offer_{uuid4().hex}",
+        session_id=session_id,
+        user_id=user_id,
+        email=email,
+        message="Adding clients one by one? You can import them all at once with a CSV file — want me to show you how?",
+        target="[data-guide='clients-table']",
+        tour_id="csv-import-feature",
+        reason=f"{len(add_clicks)} individual client adds in {TRIGGER_WINDOW_SECONDS}s",
+        created_at=time.time(),
+    )
+```
+</Accordion>
+</AccordionGroup>
+
+Update `handle_actions_payload` to run the trigger on every incoming batch:
+
+<AccordionGroup>
+<Accordion title="bridge/main.py — updated handle_actions_payload (expand to copy)">
+```python
+async def handle_actions_payload(payload: Any) -> None:
+    session_id = getattr(payload, "session_id", None) or "unknown"
+    user_id    = getattr(payload, "user_id", None)
+    email      = getattr(payload, "email", None)
+    actions    = [_action_to_dict(a) for a in getattr(payload, "actions", [])]
+    state.store_actions(session_id, actions)
+
+    offer = _detect_repetitive_edits(
+        session_id=session_id, user_id=user_id, email=email
+    )
+    if not offer:
+        return
+
+    state.pending_offer_by_session[session_id] = offer
+    await state.publish_guidance(GuidanceEvent(
+        type="guidance_offer",
+        session_id=offer.session_id,
+        message=offer.message,
+        target=offer.target,
+        tour_id=offer.tour_id,
+        reason=offer.reason,
+        created_at=offer.created_at,
+    ))
+```
+</Accordion>
+</AccordionGroup>
+
+You can extend `_detect_repetitive_edits` to catch any pattern — repeated page bounces, long dwell on an error screen, rage-clicks, or a stalled multi-step wizard. The `client_add` action type is just one example.
+
+---
+
+## 📡 Step 2 — Add the SSE and reply routes
+
+Add these three routes to `bridge/main.py`. They deliver `guidance_offer` and `guidance_start` events to the frontend in real time.
+
+| Route | Direction | Purpose |
+|---|---|---|
+| `GET /guidance/stream/{session_id}` | Bridge → Frontend | Real-time guidance events over SSE |
+| `POST /demo/actions` | Frontend → Bridge | Already exists from Step 1 — now also returns `pending_offer` |
+| `POST /inkeep/reply` | Frontend → Bridge | User accepted the offer; emits `guidance_start` |
+
+<AccordionGroup>
+<Accordion title="bridge/main.py — new SSE and reply routes (expand to copy)">
+```python
+@app.get("/guidance/stream/{session_id}")
+async def guidance_stream(session_id: str, request: Request) -> StreamingResponse:
+    queue: asyncio.Queue[GuidanceEvent] = asyncio.Queue()
+    state.guidance_subscribers[session_id].add(queue)
+
+    async def events():
+        try:
+            yield "event: ready\ndata: {}\n\n"
+            while not await request.is_disconnected():
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: guidance\ndata: {json.dumps(asdict(event))}\n\n"
+                except asyncio.TimeoutError:
+                    yield "event: heartbeat\ndata: {}\n\n"
+        finally:
+            state.guidance_subscribers[session_id].discard(queue)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@app.post("/inkeep/reply")
+async def inkeep_reply(reply: InkeepReply) -> dict[str, Any]:
+    normalized = reply.text.strip().lower()
+    if normalized not in {"yes", "y", "sure", "ok", "okay", "guide me"}:
+        return {"accepted": False}
+
+    offer = state.pending_offer_by_session.pop(reply.session_id, None)
+    if offer is None:
+        raise HTTPException(status_code=404, detail="No pending offer for this session")
+    if reply.offer_id and offer.id != reply.offer_id:
+        raise HTTPException(status_code=409, detail="Offer ID does not match")
+
+    accepted = GuidanceEvent(
+        type="guidance_start",
+        session_id=offer.session_id,
+        message="Start the CSV import feature guide.",
+        target=offer.target,
+        tour_id=offer.tour_id,
+        reason=offer.reason,
+        created_at=time.time(),
+    )
+    await state.publish_guidance(accepted)
+    return {"accepted": True, "guidance": asdict(accepted)}
+```
+</Accordion>
+</AccordionGroup>
+
+Also update `demo_actions` to return the pending offer so the frontend can store its ID:
+
+```python
+@app.post("/demo/actions")
+async def demo_actions(payload: DemoActionsPayload) -> dict[str, Any]:
+    await handle_actions_payload(payload)
+    offer = state.pending_offer_by_session.get(payload.session_id)
+    return {
+        "stored": len(payload.actions),
+        "pending_offer": offer is not None,
+        "offer": asdict(offer) if offer else None,
+    }
+```
+
+Two SSE event types flow from bridge to frontend:
+
+| `type` field | When | Frontend action |
+|---|---|---|
+| `guidance_offer` | Bridge crossed the 3-click threshold | Show proactive popup |
+| `guidance_start` | User accepted offer via `/inkeep/reply` | Start the four-step guide |
+
+---
+
+## 🔥 Step 3 — Smoke test the trigger chain
+
+Restart the bridge with `--reload`, then simulate three Add Client clicks for the same session:
+
+```bash
+SESSION="smoke-test-01"
+
+for i in 1 2 3; do
+  curl -s -X POST http://localhost:8787/demo/actions \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"session_id\": \"$SESSION\",
+      \"user_id\": \"demo-user\",
+      \"actions\": [{
+        \"type\": \"client_add\",
+        \"title\": \"Add client (attempt $i)\",
+        \"description\": \"User opened the Add Client form.\"
+      }]
+    }"
+  echo
+done
+```
+
+The third response should include `"pending_offer": true`. Now accept it:
+
+```bash
+curl -s -X POST http://localhost:8787/inkeep/reply \
+  -H "Content-Type: application/json" \
+  -d "{\"session_id\": \"$SESSION\", \"text\": \"yes\"}"
+# {"accepted":true,"guidance":{...}}
+```
+
+The full trigger → offer → accept → `guidance_start` chain works. Now wire the frontend.
+
+---
+
+## 🔔 Step 4 — Subscribe to SSE on the frontend
+
+Replace the minimal `page.tsx` from Step 1 with the full proactive version. The key additions are:
+
+- `addClientCountRef` — a `useRef` counter that increments on every Add Client open. Using `useRef` instead of `useState` avoids stale closures in the modal close handler.
+- `closeAddClientModal()` — shared close handler that checks the count and fires the popup.
+- SSE `useEffect` — subscribes to `GET /guidance/stream/{sessionId}` and sets state on `guidance_offer` / `guidance_start` events.
+- `proactiveOffer` state — holds the active offer; drives the popup render.
+- `guideStep` state machine — `"idle" | "step1" | "step2" | "step3" | "step4" | "done"`.
+
+<AccordionGroup>
+<Accordion title="frontend/app/page.tsx — full listing with proactive layer (expand to copy)">
+```tsx
+"use client";
+
+import {
+  Bot,
+  Check,
+  Download,
+  FileUp,
+  MessageCircle,
+  Plus,
+  Search,
+  Upload,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { InkeepWidget } from "../components/InkeepWidget";
+import {
+  GuidanceEvent,
+  InkeepOffer,
+  acceptInkeepOffer,
+  guidanceStreamUrl,
+  sendAddClientClick,
+} from "../lib/demo-api";
+
+type GuideStep = "idle" | "step1" | "step2" | "step3" | "step4" | "done";
+
+type Client = {
+  id: string;
+  name: string;
+  initials: string;
+  email: string;
+  added: string;
+};
+
+const INITIAL_CLIENTS: Client[] = [
+  { id: "C-001", name: "Sarah Chen",   initials: "SC", email: "sarah@acmecorp.com",  added: "2m ago" },
+  { id: "C-002", name: "Marcus Reyes", initials: "MR", email: "marcus@brightco.com", added: "1h ago" },
+  { id: "C-003", name: "Priya Patel",  initials: "PP", email: "priya@nexatech.io",   added: "3h ago" },
+  { id: "C-004", name: "Tom Becker",   initials: "TB", email: "tom@stellarops.com",  added: "yesterday" },
+  { id: "C-005", name: "Lisa Wong",    initials: "LW", email: "lisa@horigroup.com",  added: "yesterday" },
+  { id: "C-006", name: "Dan Kim",      initials: "DK", email: "dan@pivotlabs.dev",   added: "2 days ago" },
+  { id: "C-007", name: "Emma Ford",    initials: "EF", email: "emma@cloudbase.io",   added: "2 days ago" },
+  { id: "C-008", name: "Raj Mehta",    initials: "RM", email: "raj@quantumleap.ai",  added: "3 days ago" },
+  { id: "C-009", name: "Alice Torres", initials: "AT", email: "alice@driftware.com", added: "4 days ago" },
+  { id: "C-010", name: "Ben Carter",   initials: "BC", email: "ben@meridiansoft.co", added: "5 days ago" },
+];
+
+const AVATAR_COLORS = ["#8b5cf6","#06b6d4","#f97316","#10b981","#ec4899","#3b82f6","#f59e0b","#6366f1","#14b8a6","#84cc16"];
+function avatarColor(initials: string) {
+  return AVATAR_COLORS[initials.charCodeAt(0) % AVATAR_COLORS.length];
+}
+
+function GuideTooltip({ text, onClose }: { text: string; onClose: () => void }) {
+  return (
+    <div className="guideTooltip">
+      <button className="guideTooltip__close" onClick={onClose}>×</button>
+      <p>{text}</p>
+      <div className="guideTooltip__footer">
+        <svg width="12" height="12" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+          <circle cx="6.5" cy="6.5" r="5.75" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M4 6.5l1.8 1.8 3.6-3.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Made with Usertour
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  const [sessionId, setSessionId] = useState("");
+  const userId = "demo-user";
+  const email  = "customer@example.com";
+
+  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
+  const [addClientOpen, setAddClientOpen] = useState(false);
+  const [addClientForm, setAddClientForm] = useState({ name: "", email: "" });
+  const addClientCountRef = useRef(0);
+  const [importCsvOpen, setImportCsvOpen] = useState(false);
+
+  const [offer, setOffer] = useState<InkeepOffer | null>(null);
+  const [proactiveOffer, setProactiveOffer] = useState<GuidanceEvent | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [guideStep, setGuideStep] = useState<GuideStep>("idle");
+
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const IDLE_MS   = 20_000;
+
+  // Generate session ID client-side only (avoids SSR hydration mismatch)
+  useEffect(() => {
+    setSessionId(`crm-demo-${Math.random().toString(36).slice(2, 9)}`);
+  }, []);
+
+  // Idle timer — fires proactive popup after 20 s of no interaction
+  useEffect(() => {
+    function resetIdle() {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      idleTimer.current = setTimeout(() => {
+        setProactiveOffer((cur) => cur ?? {
+          type: "guidance_offer",
+          session_id: "",
+          message: "Adding clients one by one? You can import multiple clients at once via CSV — want me to show you how?",
+          target: "[data-guide='clients-table']",
+          tour_id: "csv-import-feature",
+          reason: "User idle on clients page",
+          created_at: Date.now(),
+        });
+      }, IDLE_MS);
+    }
+    const evts = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    evts.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
+    resetIdle();
+    return () => {
+      evts.forEach((e) => window.removeEventListener(e, resetIdle));
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, []);
+
+  // SSE subscription — receives guidance_offer and guidance_start from the bridge
+  useEffect(() => {
+    if (!sessionId) return;
+    const source = new EventSource(guidanceStreamUrl(sessionId));
+    source.addEventListener("guidance", (event) => {
+      const payload = JSON.parse((event as MessageEvent).data) as GuidanceEvent;
+      if (payload.type === "guidance_offer") {
+        setProactiveOffer(payload);
+      } else {
+        setProactiveOffer(null);
+        setGuideStep("step1");
+      }
+    });
+    return () => source.close();
+  }, [sessionId]);
+
+  // Shared close handler — checks count and fires popup on the 3rd close
+  function closeAddClientModal() {
+    setAddClientOpen(false);
+    if (addClientCountRef.current >= 3 && !proactiveOffer && guideStep === "idle") {
+      setProactiveOffer({
+        type: "guidance_offer",
+        session_id: sessionId,
+        message: "Adding clients one by one? You can import them all at once with a CSV file — want me to show you how?",
+        target: "[data-guide='clients-table']",
+        tour_id: "csv-import-feature",
+        reason: `${addClientCountRef.current} individual client adds`,
+        created_at: Date.now(),
+      });
+    }
+  }
+
+  async function handleAddClientOpen() {
+    if (proactiveOffer || guideStep !== "idle") return;
+    addClientCountRef.current += 1;
+    setAddClientOpen(true);
+    try {
+      const result = await sendAddClientClick(sessionId, addClientCountRef.current);
+      if (result.pending_offer && result.offer) setOffer(result.offer);
+    } catch {}
+  }
+
+  function handleAddClientSubmit() {
+    if (!addClientForm.name || !addClientForm.email) return;
+    const initials = addClientForm.name
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+    setClients((prev) => [
+      {
+        id: `C-${String(prev.length + 1).padStart(3, "0")}`,
+        name: addClientForm.name,
+        initials,
+        email: addClientForm.email,
+        added: "just now",
+      },
+      ...prev,
+    ]);
+    setAddClientForm({ name: "", email: "" });
+    closeAddClientModal();
+  }
+
+  async function handleShowMe() {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    setProactiveOffer(null);
+    if (offer) {
+      await acceptInkeepOffer(sessionId, offer.id);
+    } else {
+      setGuideStep("step1");
+    }
+  }
+
+  function handleOpenChat() {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    setProactiveOffer(null);
+    setChatOpen(true);
+  }
+
+  function handleImportCsvClick() {
+    setImportCsvOpen(true);
+    if (guideStep === "step1") setGuideStep("step2");
+  }
+
+  function handleTemplateDownload() {
+    if (guideStep === "step2") setGuideStep("step3");
+  }
+
+  function handleUploadArea() {
+    if (guideStep === "step3") setGuideStep("step4");
+  }
+
+  function handleImportConfirm() {
+    setImportCsvOpen(false);
+    if (guideStep === "step4") setGuideStep("done");
+  }
+
+  function exitGuide() {
+    setGuideStep("idle");
+    setImportCsvOpen(false);
+  }
+
+  return (
+    <div className="crmPage">
+      {/* ── Page header ── */}
+      <div className="crmPageHeader">
+        <div>
+          <h1>Clients</h1>
+          <p className="crmPageSub">{clients.length} clients total</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div className="crmImportWrap">
+            <button
+              className={`crmBtn crmBtn--outline${guideStep === "step1" ? " crmBtn--pulse" : ""}`}
+              onClick={handleImportCsvClick}
+            >
+              <Upload size={13} /> Import CSV
+            </button>
+            {guideStep === "step1" && (
+              <div className="guideTooltip guideTooltip--below-btn">
+                <GuideTooltip
+                  text="Click 'Import CSV' to bring in multiple clients at once — no more adding them one by one."
+                  onClose={exitGuide}
+                />
+              </div>
+            )}
+          </div>
+          <button className="crmBtn crmBtn--primary" onClick={handleAddClientOpen}>
+            <Plus size={13} /> Add client
+          </button>
+        </div>
+      </div>
+
+      {/* ── Clients table ── */}
+      <div className="crmCard" data-guide="clients-table">
+        <div className="crmFilterBar">
+          <div className="crmFilterSearch">
+            <Search size={13} />
+            <input placeholder="Search by name or email..." />
+          </div>
+        </div>
+        <table className="crmTable">
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Email</th>
+              <th>Added</th>
+            </tr>
+          </thead>
+          <tbody>
+            {clients.map((c) => (
+              <tr key={c.id}>
+                <td>
+                  <div className="crmClient__name">
+                    <div className="crmClient__av" style={{ background: avatarColor(c.initials) }}>
+                      {c.initials}
+                    </div>
+                    <span>{c.name}</span>
+                  </div>
+                </td>
+                <td className="crmCell--muted">{c.email}</td>
+                <td className="crmCell--muted">{c.added}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Add Client modal ── */}
+      {addClientOpen && (
+        <div className="modalOverlay" onClick={closeAddClientModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <span>Add client</span>
+              <button className="modal__close" onClick={closeAddClientModal}><X size={16} /></button>
+            </div>
+            <div className="modal__body">
+              <label className="formLabel">Name</label>
+              <input
+                className="formInput"
+                placeholder="Jane Smith"
+                value={addClientForm.name}
+                onChange={(e) => setAddClientForm((f) => ({ ...f, name: e.target.value }))}
+              />
+              <label className="formLabel" style={{ marginTop: 14 }}>Email</label>
+              <input
+                className="formInput"
+                type="email"
+                placeholder="jane@company.com"
+                value={addClientForm.email}
+                onChange={(e) => setAddClientForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+            <div className="modal__footer">
+              <button className="crmBtn crmBtn--ghost" onClick={closeAddClientModal}>Cancel</button>
+              <button className="crmBtn crmBtn--primary" onClick={handleAddClientSubmit}>Add client</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Import CSV modal ── */}
+      {importCsvOpen && (
+        <div className="modalOverlay" onClick={() => setImportCsvOpen(false)}>
+          <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <span>Import clients via CSV</span>
+              <button className="modal__close" onClick={() => setImportCsvOpen(false)}><X size={16} /></button>
+            </div>
+            <div className="modal__body">
+              <div className="importStep">
+                <div className="importStep__num">1</div>
+                <div className="importStep__content">
+                  <p className="importStep__title">Download template</p>
+                  <p className="importStep__sub">Use our CSV template to ensure the correct column format.</p>
+                  <div className="importStep__btnWrap">
+                    <button
+                      className={`crmBtn crmBtn--outline crmBtn--sm${guideStep === "step2" ? " crmBtn--pulse" : ""}`}
+                      onClick={handleTemplateDownload}
+                    >
+                      <Download size={13} /> Download template.csv
+                    </button>
+                    {guideStep === "step2" && (
+                      <div className="guideTooltip guideTooltip--below-btn">
+                        <GuideTooltip
+                          text="Download the template first — it shows the required columns: name, email."
+                          onClose={exitGuide}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="importStep">
+                <div className="importStep__num">2</div>
+                <div className="importStep__content">
+                  <p className="importStep__title">Upload your CSV</p>
+                  <div className="importDropWrap">
+                    <div
+                      className={`importDropZone${guideStep === "step3" ? " importDropZone--pulse" : ""}`}
+                      onClick={handleUploadArea}
+                    >
+                      <FileUp size={24} style={{ color: "var(--muted)", marginBottom: 8 }} />
+                      <p className="importDropZone__text">
+                        Drop your CSV here or <span className="importDropZone__link">click to browse</span>
+                      </p>
+                      <p className="importDropZone__hint">Supports .csv files up to 10 MB</p>
+                    </div>
+                    {guideStep === "step3" && (
+                      <div className="guideTooltip guideTooltip--below-drop">
+                        <GuideTooltip
+                          text="Drop your filled CSV here. All clients will be added in one go — no repeating the form."
+                          onClose={exitGuide}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="modal__footer">
+              <button className="crmBtn crmBtn--ghost" onClick={() => setImportCsvOpen(false)}>Cancel</button>
+              <div className="importConfirmWrap">
+                <button
+                  className={`crmBtn crmBtn--primary${guideStep === "step4" ? " crmBtn--pulse" : ""}`}
+                  onClick={handleImportConfirm}
+                >
+                  <Check size={13} /> Import clients
+                </button>
+                {guideStep === "step4" && (
+                  <div className="guideTooltip guideTooltip--above-btn">
+                    <GuideTooltip
+                      text="Hit 'Import clients' — your entire list uploads instantly. That's it!"
+                      onClose={exitGuide}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Proactive popup ── */}
+      {proactiveOffer && !chatOpen && (
+        <div className="proactivePopup">
+          <button className="proactivePopup__x" onClick={() => setProactiveOffer(null)} aria-label="Dismiss">×</button>
+          <div className="proactivePopup__header">
+            <div className="proactivePopup__icon"><Bot size={13} /></div>
+            <strong>COPILOT</strong>
+          </div>
+          <p className="proactivePopup__msg">{proactiveOffer.message}</p>
+          <div className="proactivePopup__actions">
+            <button className="proactivePopup__btn proactivePopup__btn--primary" onClick={handleShowMe}>
+              <Check size={13} /> Show me
+            </button>
+            <button className="proactivePopup__btn" onClick={handleOpenChat}>Open chat</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Chat bubble ── */}
+      {!chatOpen && (
+        <button className="chatBubble" onClick={() => setChatOpen(true)} aria-label="Open chat">
+          <MessageCircle size={20} fill="white" strokeWidth={1.5} />
+        </button>
+      )}
+
+      {/* ── Chat overlay ── */}
+      {chatOpen && (
+        <div className="chatOverlay">
+          <div className="chatOverlay__header">
+            <Bot size={17} />
+            <span>AI Assistant</span>
+            <button className="chatOverlay__close" onClick={() => setChatOpen(false)} aria-label="Close chat">
+              <X size={17} />
+            </button>
+          </div>
+          <div className="chatOverlay__body">
+            <InkeepWidget
+              sessionId={sessionId}
+              userId={userId}
+              email={email}
+              onStatusChange={() => {}}
+              chatOpen={chatOpen}
+              contextMessage={proactiveOffer?.message}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+</Accordion>
+</AccordionGroup>
+
+---
+
+## 🎯 Step 5 — How the client-side trigger works
+
+The `addClientCountRef` + `closeAddClientModal()` pattern fires the popup on the third modal close entirely in the browser — no bridge required.
+
+<AccordionGroup>
+<Accordion title="frontend/app/page.tsx — client-side trigger handlers (expand to copy)">
+```tsx
+// useRef instead of useState avoids stale closures in closeAddClientModal
+const addClientCountRef = useRef(0);
+
+async function handleAddClientOpen() {
+  if (proactiveOffer || guideStep !== "idle") return;
+  addClientCountRef.current += 1;       // always the latest value
+  setAddClientOpen(true);
+  try {
+    const result = await sendAddClientClick(sessionId, addClientCountRef.current);
+    if (result.pending_offer && result.offer) setOffer(result.offer);
+  } catch {}                            // demo works even if bridge is down
+}
+
+function closeAddClientModal() {
+  setAddClientOpen(false);
+  if (addClientCountRef.current >= 3 && !proactiveOffer && guideStep === "idle") {
+    setProactiveOffer({ /* ... */ });
+  }
+}
+```
+</Accordion>
+</AccordionGroup>
+
+When the bridge IS running, SSE can also fire the popup independently. Both paths lead to the same popup and the same two resolution options.
+
+---
+
+## 🗺 Step 6 — The Show me path (four-step guide)
+
+Clicking **Show me** calls `handleShowMe()`, which:
+1. If a bridge offer exists (`offer` state), sends `POST /inkeep/reply` → bridge emits `guidance_start` → SSE sets `guideStep = "step1"`.
+2. If no bridge offer (client-side trigger only), sets `guideStep = "step1"` directly.
+
+The `guideStep` state machine then drives the guide through four steps:
+
+| `guideStep` | What pulses | Tooltip text |
+|---|---|---|
+| `step1` | "Import CSV" button | "Click 'Import CSV' to bring in multiple clients at once." |
+| `step2` | "Download template" button | "Download the template first — it shows the required columns: name, email." |
+| `step3` | Upload drop zone | "Drop your filled CSV here. All clients will be added in one go." |
+| `step4` | "Import clients" button | "Hit 'Import clients' — your entire list uploads instantly. That's it!" |
+| `done` | Nothing | Guide complete |
+
+Each `crmBtn--pulse` class adds a CSS ring animation to the button. Each `GuideTooltip` renders a floating card with a "Made with Usertour" footer.
+
+Add the guide and popup CSS to `frontend/app/styles.css`:
+
+<AccordionGroup>
+<Accordion title="styles.css — guide, pulse, and popup styles (expand to copy)">
+```css
+/* ── Guide tooltips ────────────────────────────────────────────── */
+.guideTooltip {
+  background: var(--panel);
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(79, 70, 229, 0.15);
+  padding: 14px 36px 12px 14px;
+  width: 240px;
+  position: relative;
+  font-size: 13.5px;
+}
+
+.guideTooltip p { line-height: 1.5; color: var(--ink); margin-bottom: 10px; }
+
+.guideTooltip__close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.guideTooltip__close:hover { color: var(--ink); }
+
+.guideTooltip__footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.guideTooltip--below-btn { position: absolute; right: 0; top: calc(100% + 8px); z-index: 60; }
+.guideTooltip--below-drop { margin-top: 8px; }
+.guideTooltip--above-btn { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 60; }
+
+/* ── Button pulse animation ─────────────────────────────────────── */
+.crmBtn--pulse {
+  animation: btnPulse 1.4s ease-in-out infinite;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+}
+
+@keyframes btnPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
+  50%       { box-shadow: 0 0 0 5px rgba(79, 70, 229, 0); }
+}
+
+/* ── Import CSV modal steps ─────────────────────────────────────── */
+.modal--wide { width: 520px; }
+.crmImportWrap { position: relative; }
+.importConfirmWrap { position: relative; }
+
+.importStep { display: flex; gap: 14px; margin-bottom: 20px; }
+.importStep:last-child { margin-bottom: 0; }
+.importStep__num { width: 24px; height: 24px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.importStep__content { flex: 1; }
+.importStep__title { font-weight: 600; font-size: 13.5px; margin-bottom: 3px; }
+.importStep__sub { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+.importStep__btnWrap { position: relative; display: inline-block; }
+
+.importDropWrap { position: relative; }
+.importDropZone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: border-color 120ms, background 120ms; text-align: center; }
+.importDropZone:hover { border-color: var(--primary); background: var(--primary-light); }
+.importDropZone--pulse { border-color: var(--primary); animation: borderPulse 1.4s ease-in-out infinite; }
+
+@keyframes borderPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.3); }
+  50%       { box-shadow: 0 0 0 5px rgba(79, 70, 229, 0); }
+}
+
+.importDropZone__text { font-size: 13.5px; color: var(--ink); margin: 0 0 4px; }
+.importDropZone__link { color: var(--primary); font-weight: 600; }
+.importDropZone__hint { font-size: 12px; color: var(--muted); margin: 0; }
+
+/* ── Proactive popup ────────────────────────────────────────────── */
+.proactivePopup {
+  position: fixed;
+  bottom: 84px;
+  right: 24px;
+  width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.14);
+  padding: 14px 16px;
+  z-index: 300;
+  animation: popIn 180ms ease;
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.proactivePopup__x { position: absolute; top: 10px; right: 12px; background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1; color: var(--muted); }
+.proactivePopup__x:hover { color: var(--ink); }
+
+.proactivePopup__header { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--primary); text-transform: uppercase; margin-bottom: 8px; }
+.proactivePopup__icon { width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.proactivePopup__msg { font-size: 13.5px; line-height: 1.5; margin-bottom: 12px; padding-right: 20px; }
+
+.proactivePopup__actions { display: flex; gap: 8px; }
+.proactivePopup__btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.proactivePopup__btn--primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.proactivePopup__btn--primary:hover { background: #4338ca; border-color: #4338ca; }
+.proactivePopup__btn:not(.proactivePopup__btn--primary):hover { background: #e5e7eb; }
+```
+</Accordion>
+</AccordionGroup>
+
+---
+
+## 💬 Step 7 — The Open chat path (pre-loaded context)
+
+Clicking **Open chat** calls `handleOpenChat()`, which:
+1. Clears the idle timer.
+2. Dismisses the popup (`setProactiveOffer(null)`).
+3. Sets `chatOpen = true`.
+
+The `InkeepWidget` receives `chatOpen` and `contextMessage` as props:
+
+```tsx
+<InkeepWidget
+  sessionId={sessionId}
+  userId={userId}
+  email={email}
+  onStatusChange={() => {}}
+  chatOpen={chatOpen}
+  contextMessage={proactiveOffer?.message}
+/>
+```
+
+Inside `InkeepWidget`, the `key` prop forces a full remount when `chatOpen` changes, which causes `InkeepEmbeddedChat` to reinitialize with a new `introMessage`:
+
+```tsx
+const introMessage = chatOpen
+  ? (contextMessage ??
+      "I noticed you've been adding clients one by one. Did you know you can import multiple clients at once using a CSV file?...")
+  : "Hi! I'm your AI assistant. Ask me anything about Nexus CRM.";
+
+<InkeepEmbeddedChat
+  key={chatOpen ? `proactive` : `idle`}   // forces remount with new introMessage
+  aiChatSettings={{ introMessage, ... }}
+/>
+```
+
+This is the injection point for contextual guidance — no manual conversation history management needed.
+
+### The `onInputMessageChange` callback — detecting "yes" without a submit button
+
+`InkeepEmbeddedChat` exposes `aiChatSettings.onInputMessageChange`, a callback that fires on every keystroke in the chat input. This lets the proactive flow detect intent the moment the user submits "yes" — no extra button, no polling, no backend configuration required.
+
+Wire it in `InkeepWidget.tsx`:
+
+```tsx
+<InkeepEmbeddedChat
+  key={contextKey ?? "default"}
+  aiChatSettings={{
+    baseUrl: BASE_URL,
+    appId: APP_ID,
+    introMessage,
+    placeholder: "Ask me anything or type yes to start the guide…",
+    onInputMessageChange,   // (message: string) => void — fires on every keystroke
+  }}
+/>
+```
+
+In the page component, track the last typed value via a ref. The tour fires when the input resets to `""` (which happens after Enter is pressed to submit) and the last value was a "yes"-like phrase:
+
+```tsx
+const lastInputRef = useRef<string>("");
+const YES_PHRASES = ["yes", "sure", "okay", "yep", "guide me", "show me"];
+
+function handleChatInputChange(message: string) {
+  if (!chatContextMessage) return;
+  const normalized = message.trim().toLowerCase();
+  if (normalized === "" && YES_PHRASES.includes(lastInputRef.current)) {
+    lastInputRef.current = "";
+    handleGuideMe();          // close chat, navigate to the right page, start tour
+    return;
+  }
+  lastInputRef.current = normalized;
+}
+```
+
+Pass the callback only while the proactive offer is active — once `chatContextMessage` is cleared, the listener is removed so normal chat is unaffected:
+
+```tsx
+<InkeepWidget
+  ...
+  contextMessage={chatContextMessage}
+  onInputMessageChange={chatContextMessage ? handleChatInputChange : undefined}
+/>
+```
+
+<Note>
+  **Why a ref and not state for `lastInputRef`?** `onInputMessageChange` fires inside a closure. If you stored the previous value in `useState`, the handler would capture a stale snapshot. A `useRef` always reads the live value, so `YES_PHRASES.includes(lastInputRef.current)` is always correct regardless of render timing.
+</Note>
+
+---
+
+## ⏱ Step 8 — Idle-timer fallback
+
+The bridge trigger fires after three Add Client opens, but users can also be stuck without clicking the button. The idle timer catches this:
+
+<AccordionGroup>
+<Accordion title="frontend/app/page.tsx — idle timer useEffect (expand to copy)">
+```tsx
+const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+const IDLE_MS   = 20_000; // 20 seconds
+
+useEffect(() => {
+  function resetIdle() {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      setProactiveOffer((cur) => cur ?? {
+        type: "guidance_offer",
+        session_id: "",
+        message: "Adding clients one by one? You can import multiple clients at once via CSV — want me to show you how?",
+        target: "[data-guide='clients-table']",
+        tour_id: "csv-import-feature",
+        reason: "User idle on clients page",
+        created_at: Date.now(),
+      });
+    }, IDLE_MS);
+  }
+
+  const evts = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+  evts.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
+  resetIdle();
+  return () => {
+    evts.forEach((e) => window.removeEventListener(e, resetIdle));
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+  };
+}, []);
+```
+</Accordion>
+</AccordionGroup>
+
+`handleShowMe` and `handleOpenChat` both call `clearTimeout(idleTimer.current)` to cancel the timer once the user engages.
+
+Adjust `IDLE_MS` to your product's rhythm. 20 seconds works well for a focused demo; a real onboarding flow might use 45–60 seconds to avoid interrupting users who are still reading.
+
+---
+
+## ✅ Step 9 — Run the full flow
+
+Start all three services:
+
+```bash
+# Terminal 1 — Inkeep agents API
+cd ~/inkeep-agents
+pnpm --filter agents-api dev
+
+# Terminal 2 — Bridge
+cd nexus-crm/bridge
+uv run uvicorn main:app --reload --port 8787
+
+# Terminal 3 — Frontend
+cd nexus-crm/frontend
+npm run dev
+```
+
+Exercise the full flow:
+
+1. Open `http://localhost:3000`.
+2. Click **+ Add client** three times, cancelling the modal each time.
+3. After the third cancel, the proactive popup appears bottom-right.
+4. Click **Show me** — the "Import CSV" button starts pulsing with a tooltip. Click it.
+5. The Import CSV modal opens. The "Download template" button pulses — click it.
+6. The upload drop zone pulses — click it.
+7. The "Import clients" button pulses — click it.
+8. Done. Guide complete.
+9. Reload the page, click **+ Add client** three more times, then click **Open chat** instead.
+10. The chat overlay opens with a pre-loaded intro message about CSV import. Ask a question — the AI responds.
+
+**Verify idle trigger:** reload the page and leave your mouse completely still for 20 seconds. The proactive popup appears with no interaction required.
+
+---
+
+## 🛠 Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Popup never appears after 3 clicks | `closeAddClientModal` is not called on cancel — check that the overlay click handler and the Cancel button both call `closeAddClientModal` (not `setAddClientOpen(false)` directly). |
+| Popup appears but Show me does nothing | `handleShowMe` calls `acceptInkeepOffer` which hits `/inkeep/reply` — check bridge logs for 404 (no pending offer). Make sure the bridge received all three `client_add` actions. |
+| `guidance_start` SSE arrives but guide doesn't start | The SSE listener sets `guideStep = "step1"`. Check that the listener is mounted (i.e., `sessionId` is non-empty before subscribing). |
+| Chat opens but shows generic intro, not proactive message | `proactiveOffer` was cleared before `handleOpenChat` passed `contextMessage` to the widget. Move `setProactiveOffer(null)` to after the overlay is rendered, or capture the message in a ref before clearing. |
+| Idle popup fires too quickly | `IDLE_MS` is too low, or `resetIdle` is not being called by the right DOM events. Add `"touchstart"` if on mobile. |
+| Popup appears instantly on page load | `resetIdle()` is called in the `useEffect` body — the initial call starts the countdown immediately. This is correct. If you want to delay the first fire, only start the timer after the first user interaction. |
+| `tsconfig` error on `@inkeep/agents-ui` import | Add `transpilePackages: ["@inkeep/agents-ui"]` to `next.config.ts`. |
+
+---
+
+## 🔄 Further operations
+
+```bash
+# Restart all services
+
+# Docker backing services
+docker compose -f ~/inkeep-agents/docker-compose.yml up -d
+
+# Inkeep agents API
+cd ~/inkeep-agents && pnpm --filter agents-api dev
+
+# Bridge
+cd nexus-crm/bridge && uv run uvicorn main:app --reload --port 8787
+
+# Frontend
+cd nexus-crm/frontend && npm run dev
+```
+
+To update the agent system prompt without restarting:
+
+```bash
+curl -s -X PATCH \
+  http://localhost:3002/manage/tenants/default/projects/nexus-crm/agents/crm-support/sub-agents/crm-support-worker \
+  -H "Authorization: Bearer test-bypass-secret-for-ci" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "YOUR UPDATED PROMPT"}'
+```
+
+Prompts are loaded per-conversation from the manage DB — no service restart needed.
+
+To adjust the trigger threshold:
+
+```python
+# bridge/main.py
+TRIGGER_WINDOW_SECONDS = 90   # look-back window
+EDIT_CLICK_THRESHOLD   = 3    # number of client_add actions before firing
+```
+
+Restart the bridge with `--reload` to pick up the change.
+
+---
+
+## What you've built
+
+- **Dual-trigger proactive offers** — the bridge detects repetitive Add Client clicks from live events and emits a `guidance_offer` over SSE. A client-side ref counter fires the same popup even without the bridge running, making the demo robust in any environment.
+- **Four-step in-app guide** — clicking Show me walks the user through the Import CSV modal step by step, with pulsing buttons and inline tooltips at each stage.
+- **Pre-loaded AI chat** — clicking Open chat opens `InkeepEmbeddedChat` with a contextual intro message that references exactly what the user was struggling with.
+- **Idle-timer safety net** — users who stall without clicking Add Client three times still get a proactive offer after 20 seconds of inactivity.
+- **Self-hosted AI** — the Inkeep agents framework runs entirely on your infrastructure. LLM keys, conversation history, and system prompts never leave it.
+
+If anything wasn't clear, or you hit a snag not covered above, open an issue in the [Autoplay SDK repo](https://github.com/Autoplay-AI/Autoplay-AI-SDK).

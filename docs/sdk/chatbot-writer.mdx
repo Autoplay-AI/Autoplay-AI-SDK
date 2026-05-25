@@ -4,7 +4,57 @@ sidebarTitle: "💬 BaseChatbotWriter"
 description: Base class for delivering session events to any chatbot platform — handles pre-link buffering, at-link flush, and post-link debouncing so you only implement the API call.
 ---
 
-`BaseChatbotWriter` is the recommended starting point for any destination where session context should be posted (hosted chatbot APIs, self-hosted bots, internal services, queues, or custom LLM agents). Subclass it, implement two async methods, and you get the full delivery policy for free.
+`BaseChatbotWriter` is the delivery engine for any chatbot integration. Subclass it, implement two async methods, and you get the full delivery policy for free. For the complete session lifecycle (state creation, linking, persistence), use [`AutoplayChatbotManager`](#autoplaychatbotmanager-recommended) — it wraps `BaseChatbotWriter` and handles everything automatically.
+
+---
+
+## AutoplayChatbotManager (recommended)
+
+`AutoplayChatbotManager` is the fastest path to a working integration. It owns session state, conversation linking, and delivery — you only implement `_post_note`.
+
+```python
+from autoplay_sdk import AutoplayChatbotManager, BaseChatbotWriter
+
+# 1. Implement _post_note — the only platform-specific code
+class MyWriter(BaseChatbotWriter):
+    async def _post_note(self, conversation_id: str, text: str) -> str | None:
+        # call your chatbot platform API here
+        ...
+    async def _redact_part(self, conversation_id: str, part_id: str) -> None:
+        pass  # implement if your platform supports note deletion
+
+# 2. Initialize once at server startup
+manager = AutoplayChatbotManager(writer=MyWriter(product_id="my_product"))
+
+# 3. Autoplay stream handler — identical for every platform
+async def on_actions(payload):
+    await manager.on_actions(payload)
+
+# 4. Chatbot webhook handler — only the extraction lines differ per platform
+async def on_webhook(data):
+    session_id = data["custom_attributes"]["session_id"]  # ← platform-specific
+    conversation_id = data["id"]                          # ← platform-specific
+    await manager.on_chatbot_event(session_id, conversation_id)
+```
+
+`session_id` always comes from PostHog (via `ActionsPayload.session_id`). `conversation_id` comes from the chatbot platform webhook. `AutoplayChatbotManager` marries them and routes all future delivery to that conversation permanently.
+
+### Production: Redis-backed persistence
+
+By default, `AutoplayChatbotManager` uses `InMemorySessionStateStore` — state is lost on restart. For production, pass a `RedisSessionStateStore`:
+
+```python
+# pip install "autoplay-sdk[redis]"
+from autoplay_sdk import AutoplayChatbotManager, RedisSessionStateStore
+import os
+
+manager = AutoplayChatbotManager(
+    writer=MyWriter(product_id="my_product"),
+    session_store=RedisSessionStateStore(redis_url=os.environ["REDIS_URL"]),
+)
+```
+
+`SessionState` is the complete source of truth — FSM state, conversation link, identity, and metadata all persist across restarts. Key pattern: `autoplay:session_state:{session_id}`. Default TTL: 24 h.
 
 ---
 
@@ -41,6 +91,74 @@ write_actions() called (linked)
   → extend _debounce_buffer[session_id]
   → cancel previous debounce task (if any)
   → schedule new task: sleep(post_link_debounce_s) → _post_note()
+```
+
+---
+
+## Session-first linking
+
+`BaseChatbotWriter` handles delivery. `SessionState` is the source of truth for session identity and conversation ownership:
+
+- **`session_id`** — required, always set first. Comes from PostHog (`ActionsPayload.session_id`), never from the chatbot platform.
+- **`metadata`** — open dict for optional extras (`user_id`, `email`, …).
+- **`conversation_linked` / `conversation_id`** — set by `link_conversation`; the permanent delivery target once set.
+- **`current_state`** — FSM (THINKING / PROACTIVE / REACTIVE).
+
+### Event semantics
+
+| Event | Meaning | `SessionState.on_conversation_linked(...)` behavior |
+|---|---|---|
+| `ConversationEventType.NEW` | A newly created conversation for this session | Always set `conversation_linked=True` and overwrite `conversation_id` |
+| `ConversationEventType.REPLY_EXISTING` | Inbound reply on an existing conversation | Set link fields only when currently unlinked; do not overwrite an existing linked `conversation_id` |
+
+`link_conversation` auto-detects the event from the store — you do not need to pass it manually.
+
+### Canonical dual-write path (low-level)
+
+When not using `AutoplayChatbotManager`, manage stores directly:
+
+```python
+from autoplay_sdk import (
+    InMemoryConversationLinkStore,
+    InMemorySessionStateStore,
+    link_conversation,
+)
+
+session_store = InMemorySessionStateStore()
+link_store = InMemoryConversationLinkStore()
+
+# Stream handler
+async def on_actions(payload):
+    if not payload.session_id:
+        return
+    state = await session_store.get_or_create(payload.session_id)  # always first
+    await writer.write_actions(...)
+
+# Webhook handler
+async def on_webhook(data):
+    session_id = data["custom_attributes"]["session_id"]
+    conversation_id = data["id"]
+    state = await session_store.get_or_create(session_id)
+    link_conversation(state=state, store=link_store, conversation_id=conversation_id)
+    await writer.on_session_linked(session_id, conversation_id)
+```
+
+`link_conversation` writes to `ConversationLinkStore` first, then calls `SessionState.on_conversation_linked(...)`. The event type is inferred automatically: `REPLY_EXISTING` if the `conversation_id` is already in the store, `NEW` otherwise.
+
+### Hot-path routing helper
+
+For delivery decisions, read from session state (no store lookup on the hot path):
+
+```python
+from autoplay_sdk import resolve_linked_conversation_id
+
+conv_id = resolve_linked_conversation_id(state)
+if conv_id:
+    # linked — send to existing conversation
+    ...
+else:
+    # unlinked — actions buffer until on_session_linked is called
+    ...
 ```
 
 ---
@@ -91,7 +209,7 @@ The blank line between `[2]` and `[3]` appears when those actions fall in differ
 For `overwrite_with_summary`, build the body yourself: call `format_chatbot_note_header(session_id, time.time())` (or another Unix timestamp), then append your summary prose. The in-repo [Intercom integration](/integrations/intercom) does this for summary posts.
 
 <Tip>
-  Import the helper from the package root: `from autoplay_sdk import format_chatbot_note_header` (also available from `autoplay_sdk.chatbot`).
+  Import the helper from the package root: `from autoplay_sdk import format_chatbot_note_header` (also available from `autoplay_sdk.chat.chatbot`).
 </Tip>
 
 ---
@@ -133,7 +251,7 @@ Delete or blank a previously posted note. This is called by `AsyncAgentContextWr
 ### Example — Zendesk
 
 ```python
-from autoplay_sdk.chatbot import BaseChatbotWriter
+from autoplay_sdk.chat.chatbot import BaseChatbotWriter
 
 class ZendeskChatbot(BaseChatbotWriter):
     def __init__(self, api_token: str, client, **kwargs):
@@ -157,7 +275,7 @@ class ZendeskChatbot(BaseChatbotWriter):
 ### Example — Generic HTTP endpoint (self-hosted bot bridge)
 
 ```python
-from autoplay_sdk.chatbot import BaseChatbotWriter
+from autoplay_sdk.chat.chatbot import BaseChatbotWriter
 
 class HttpBridgeWriter(BaseChatbotWriter):
     def __init__(self, endpoint: str, client, **kwargs):
@@ -187,7 +305,7 @@ class HttpBridgeWriter(BaseChatbotWriter):
 `BaseChatbotWriter` already debounces `write_actions()` calls internally via `post_link_debounce_s`. When wiring an `AsyncAgentContextWriter` to a `BaseChatbotWriter` subclass, keep `debounce_ms=0` (the default) — the base class debounce is sufficient, and stacking both windows only adds latency.
 
 ```python
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
+from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
 from autoplay_sdk import AsyncSessionSummarizer
 
 chatbot = ZendeskChatbot(
@@ -233,3 +351,4 @@ writer = AsyncAgentContextWriter(
 - [AgentContextWriter](/sdk/agent-context) — LLM summarisation and push delivery; pairs with `BaseChatbotWriter` for the full pipeline
 - [Typed payloads](/sdk/typed-payloads) — `ActionsPayload` and `SlimAction` — the typed models your callbacks receive
 - [Intercom integration](/integrations/intercom) — the built-in `BaseChatbotWriter` subclass for Intercom
+- [Agent states](/sdk/agent-states) — `SessionState` FSM reference — THINKING, PROACTIVE, REACTIVE

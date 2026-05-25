@@ -23,7 +23,7 @@ User actions → ProactiveTriggerContext → ProactiveTriggerRegistry.evaluate_f
 
 1. **Build context** — On each tick, construct a `ProactiveTriggerContext` from your event buffer (recent actions, canonical URLs, session summary, etc.).
 2. **Evaluate** — Call `registry.evaluate_first(ctx)`. The registry walks its triggers in priority order and returns the first `ProactiveTriggerResult` whose predicate matches, or `None`.
-3. **Deliver** — Pass the result's `body` and optional `reply_option_labels` to your delivery layer. Gate on FSM state via `can_show_proactive_with_reason` before sending.
+3. **Deliver** — Pass the result's `body` and optional `reply_option_labels` to your delivery layer. Gate on `SessionState` (v2) before sending.
 
 <Note>
   **Two ways to act on a trigger**
@@ -83,6 +83,21 @@ if result:
 | `ProactiveTriggerEntity` | Wraps any trigger to attach explicit `ProactiveTriggerTimings` |
 | `ProactiveTriggerTimings` | Holds `interaction_timeout_s` and `cooldown_s` |
 
+### Proactive data structures (full map)
+
+| Structure | Layer | Purpose | Typical source |
+|---|---|---|---|
+| `ProactiveTriggerConfig` | proactive config | One trigger definition (`id`, `name`, criteria, messages) | `integration_config.proactive_intercom[*]` |
+| `TriggerMessage` | proactive config | Quick-reply/chip option shown to the user | `ProactiveTriggerConfig.messages` |
+| `CriteriaLeaf` / `CriteriaGroup` (`ProactiveCriteria`) | proactive config | Recursive rule tree (`AND`/`OR` groups) | `proactive_criteria` JSON |
+| `ProactiveTriggerContext` | proactive runtime | Evaluation input snapshot for one tick | Built from recent actions/summaries |
+| `ProactiveTriggerResult` | proactive runtime | Firing result (`body`, labels, timings, metadata) | Returned by trigger evaluation |
+| `ProactiveTriggerTimings` | proactive policy | Idle timeout + refire cooldown policy | Trigger defaults or overrides |
+| `ProactiveTriggerEntity` | proactive runtime | Decorator to enforce explicit timings on a trigger | Registry construction |
+| `TourDefinition` | tour registry | One visual-guidance tour + timing overrides | `integration_config.tour_registry[*]` |
+| `TourRegistry` | tour registry | Product-level lookup for `TourDefinition` | Parsed once per product config |
+| `SessionState` | agent state v2 | Primary routing and gating state keyed by `session_id` | Session-state persistence layer |
+
 ### Default timing constants
 
 These live in `autoplay_sdk.proactive_triggers.types` and apply whenever you don't override them:
@@ -98,13 +113,15 @@ These live in `autoplay_sdk.proactive_triggers.types` and apply whenever you don
 
 Implement `RecentActionsPayloadSource` to load `ActionsPayload` batches from any backing store (database, Redis, etc.). Call `build_proactive_context_from_payloads(...)` with the same keyword arguments you would pass to `ProactiveTriggerContext.from_actions_payloads` — it is a thin wrapper for a single import site.
 
-### Stock event connector: Zep vs context store
+### Monitor cadence and context source
 
-Poll cadence (**~10 s** proactive monitor default) is separate from the **~120 s** action lookback (`CONTEXT_STORE_LOOKBACK_SECONDS`).
+Poll cadence (**~10 s** proactive monitor default in the stock connector) is separate from the **~120 s** action lookback window used to build `ProactiveTriggerContext`.
 
-For **Zep-backed product ids**, the connector mirrors structured batches to Zep during RAG ingest and **prefers reading those payloads back** when building `ProactiveTriggerContext`, so proactive stays aligned with durable memory. The Autoplay connector product id is included by default; add more canonical UUID strings via the **`ZEP_STRUCTURED_PRODUCT_IDS`** environment variable (comma- or space-separated). If Zep read fails or returns nothing, the connector falls back to the in-process context store. `context_extra.event_history_source` is **`zep_structured`** or **`context_store`** for the LLM judge.
+Your host/connector can source recent action history from any durable memory backend or an in-process store. Regardless of source, keep the same contract:
 
-The stock connector's **10s** (default) proactive monitor still ticks for linked sessions, but it only runs proactive **delivery evaluation** when the SDK FSM is eligible for unsolicited help — effectively **`thinking`**. Idle expiry for already-open proactive UI still runs every sweep.
+- build `ProactiveTriggerContext` from a recent, ordered action slice,
+- run proactive delivery evaluation only when `SessionState` is eligible for unsolicited help (effectively `THINKING`),
+- continue running idle-expiry checks for already-open proactive UI on each monitor sweep.
 
 ### Built-in trigger IDs
 
@@ -168,7 +185,7 @@ The LLM judge receives both **`product_section_playbook`** and **`section_playbo
 | `recent_actions` | `tuple[SlimAction, ...]` | — | Slice of recent actions from your buffer |
 | `latest_summary_text` | `str \| None` | — | Latest session summary from your summarizer |
 | `prior_session_summaries` | `tuple[str, ...]` | — | Past session summaries (from Redis, DB, etc.) |
-| `context_extra` | `dict` | — | Connector-specific data (e.g. `dwell_threshold_seconds`, `user_page_dwell_max_actions`, `section_playbook`, `product_section_playbook`, `section_url_rules`, `current_section_id`, `event_history_source`) |
+| `context_extra` | `dict` | — | Connector-specific data (e.g. `dwell_threshold_seconds`, `user_page_dwell_max_actions`, `section_playbook`, `product_section_playbook`, `section_url_rules`, `current_section_id`) |
 
 `session_id` and `product_id` are validated at construction under `ScopePolicy.STRICT` (default) — both must be non-empty strings. Use `ScopePolicy.LENIENT` only at legacy call sites.
 
@@ -205,9 +222,25 @@ The stock connector only loads triggers from the SDK catalog via JSON — arbitr
 
 ---
 
+## When a user chooses a proactive option
+
+If the proactive message includes quick replies (`TriggerMessage` rows), this is the canonical structure flow:
+
+1. Delivery layer receives selected chip/option id from the user.
+2. Resolve selected id to `TriggerMessage`.
+3. Update `SessionState` interaction path (for example, record option interaction and keep session routing state current).
+4. If `TriggerMessage.user_tour_exists` is true, resolve tour metadata in `TourRegistry`:
+   - by chip id (`TourDefinition.id`) when ids are aligned, or
+   - by `user_tour_id` (`TourRegistry.get_by_user_tour_id(...)`) when using provider flow IDs.
+5. Start visual guidance and continue timeout/cooldown handling using session state + tour timing rules.
+
+This keeps proactive choice handling deterministic and data-structure driven, with `session_id` as primary scope.
+
+---
+
 ## Related pages
 
 - **[Authoring proactive triggers](/sdk/proactive-triggers-authoring)** — Step-by-step: build a trigger, build context, register and evaluate, handle delivery.
-- **[Agent session states](/sdk/agent-states)** — FSM gating (`can_show_proactive_with_reason`, idle expiry).
+- **[Agent session states](/sdk/agent-states)** — `SessionState` v2 gating and idle expiry behavior.
 - **[Intercom integration](/integrations/intercom)** — `quick_reply` HTTP shape, delete-conversation helpers.
 - **[Typed payloads](/sdk/typed-payloads)** — `SlimAction`, `ActionsPayload`, `SummaryPayload`.

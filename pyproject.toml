@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autoplay-sdk"
-version = "0.7.8"
+version = "0.7.9"
 description = "Real-time event streaming client for Autoplay connectors"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,6 +31,9 @@ dependencies = [
 [project.optional-dependencies]
 serve = [
     "fastapi>=0.110.0",
+]
+redis = [
+    "redis>=5.0",
 ]
 test = [
     "pytest>=8",

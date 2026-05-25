@@ -2,6 +2,8 @@
 
 SessionState (top level)
 ────────────────────────
+  session_id            : str    – the only mandatory scope key; identifies the session
+  metadata              : dict   – open bag for optional identity context (user_id, email, …)
   current_state         : AgentStateV2 – which of the 3 states is active
   last_interaction_at   : float  – monotonic ts; reset by any chatbot or tour interaction
   interaction_timeout_s : float  – default 20 s; session-level fallback
@@ -43,11 +45,12 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from autoplay_sdk.agent_state.v2.types import AgentStateV2, InvalidTransitionError
 
 if TYPE_CHECKING:
+    from autoplay_sdk.chat.chatbot import ConversationLink
     from autoplay_sdk.proactive.triggers.tour_registry import TourRegistry
 
 logger = logging.getLogger(__name__)
@@ -260,6 +263,9 @@ class SessionState:
 
     Fields
     ------
+    session_id            : str    – the only mandatory scope key; identifies this session
+    metadata              : dict   – open bag for optional identity context; add user_id,
+                                     email, or any future fields here without SDK changes
     current_state         : AgentStateV2
     last_interaction_at   : float  – monotonic ts; reset by any chatbot or tour interaction
     interaction_timeout_s : float  – session-level fallback (default 20 s)
@@ -268,23 +274,37 @@ class SessionState:
                                      in PROACTIVE or REACTIVE
     active_tour_id        : str|None – ID of the currently running tour; used to look up
                                        per-tour timeouts from a TourRegistry
+    conversation_linked   : bool    – True once this session is bound to a conversation thread
+    conversation_id       : str|None – linked conversation thread id; the canonical delivery target
     thinking              : ThinkingState
     proactive             : ProactiveState
     reactive              : ReactiveState
     """
 
+    session_id: str
+    metadata: dict[str, Any] = field(default_factory=dict)
     current_state: AgentStateV2 = AgentStateV2.THINKING
     last_interaction_at: float = field(default_factory=time.monotonic)
     interaction_timeout_s: float = 20.0
     cooldown_period_s: float = 60.0
     visual_guidance_active: bool = False
     active_tour_id: str | None = None
+    conversation_linked: bool = False
+    conversation_id: str | None = None
 
     thinking: ThinkingState = field(default_factory=ThinkingState)
     proactive: ProactiveState = field(default_factory=ProactiveState)
     reactive: ReactiveState = field(default_factory=ReactiveState)
 
     _v: int = 1
+
+    def __post_init__(self) -> None:
+        if not self.session_id:
+            raise ValueError(
+                "SessionState requires a non-empty session_id. "
+                "Use: SessionState(session_id=your_id) "
+                "or: await session_store.get_or_create(session_id)"
+            )
 
     # ── tick ─────────────────────────────────────────────────────────────────
 
@@ -368,6 +388,28 @@ class SessionState:
         elif self.current_state == AgentStateV2.REACTIVE:
             self.reactive.record_tour_step()
 
+    def on_conversation_linked(self, link: ConversationLink) -> None:
+        """Apply canonical conversation-link transition semantics to session state.
+
+        NEW:
+            Always overwrite conversation_id with the latest link.
+        REPLY_EXISTING:
+            Set conversation_id only if session is not already linked.
+        """
+        from autoplay_sdk.chat.chatbot import ConversationEventType
+
+        if link.event == ConversationEventType.NEW:
+            self.conversation_linked = True
+            self.conversation_id = link.conversation_id
+            return
+
+        if (
+            link.event == ConversationEventType.REPLY_EXISTING
+            and not self.conversation_linked
+        ):
+            self.conversation_linked = True
+            self.conversation_id = link.conversation_id
+
     # ── transitions ───────────────────────────────────────────────────────────
     #
     # Valid paths:
@@ -402,6 +444,12 @@ class SessionState:
         self.current_state = AgentStateV2.REACTIVE
         self.reactive = ReactiveState()
         self.thinking.clear_cooldown()
+        logger.warning(
+            "autoplay_sdk: session=%s transitioned to REACTIVE — "
+            "call await manager.save_state(state) to persist this change",
+            self.session_id,
+            extra={"event_type": "transition_to_reactive"},
+        )
 
     def transition_to_proactive(self, trigger_id: str) -> bool:
         """Agent fires a proactive trigger — only valid from THINKING.
@@ -430,11 +478,46 @@ class SessionState:
             )
         self.thinking.tick(self.cooldown_period_s)
         if not self.thinking.can_go_proactive:
+            logger.debug(
+                "autoplay_sdk: session=%s trigger=%s blocked by cooldown "
+                "(cooldown_started_at=%.1f, active_period_s=%s)",
+                self.session_id,
+                trigger_id,
+                self.thinking.cooldown_started_at,
+                self.thinking.active_cooldown_period_s,
+                extra={"event_type": "proactive_blocked"},
+            )
             return False
         self.record_any_interaction()
         self.current_state = AgentStateV2.PROACTIVE
         self.proactive = ProactiveState()
+        logger.warning(
+            "autoplay_sdk: session=%s trigger=%s transitioned to PROACTIVE — "
+            "call await manager.save_state(state) to persist this change",
+            self.session_id,
+            trigger_id,
+            extra={"event_type": "transition_to_proactive"},
+        )
         return True
+
+    def can_deliver_proactive(self) -> tuple[bool, str]:
+        """Return ``(allowed, reason)`` — the canonical FSM gate check.
+
+        Encodes the single invariant shared by all proactive surfaces: the
+        session must be in THINKING state with no active cooldown.  Callers
+        must call ``tick()`` before this method so that timeouts are resolved
+        before the check runs.
+
+        Returns:
+            ``(True, "ok")`` when delivery is allowed.
+            ``(False, "v2_state_<state>")`` when not in THINKING.
+            ``(False, "v2_cooldown_active")`` when a cooldown is in effect.
+        """
+        if self.current_state != AgentStateV2.THINKING:
+            return False, f"v2_state_{self.current_state.value}"
+        if not self.thinking.can_go_proactive:
+            return False, "v2_cooldown_active"
+        return True, "ok"
 
     def _timeout_to_thinking(self, cooldown_period_s: float | None = None) -> None:
         """Return to THINKING after interaction timeout.
@@ -452,6 +535,13 @@ class SessionState:
             Pass the tour's ``cooldown_period_s`` when the timeout was triggered
             during an active tour.
         """
+        logger.info(
+            "autoplay_sdk: session=%s timeout — %s → THINKING (cooldown_period_s=%s)",
+            self.session_id,
+            self.current_state.value,
+            cooldown_period_s,
+            extra={"event_type": "timeout_to_thinking"},
+        )
         self.current_state = AgentStateV2.THINKING
         self.visual_guidance_active = False
         self.active_tour_id = None
@@ -500,12 +590,16 @@ class SessionState:
     def to_dict(self) -> dict:
         return {
             "_v": self._v,
+            "session_id": self.session_id,
+            "metadata": self.metadata,
             "current_state": self.current_state.value,
             "last_interaction_at": self.last_interaction_at,
             "interaction_timeout_s": self.interaction_timeout_s,
             "cooldown_period_s": self.cooldown_period_s,
             "visual_guidance_active": self.visual_guidance_active,
             "active_tour_id": self.active_tour_id,
+            "conversation_linked": self.conversation_linked,
+            "conversation_id": self.conversation_id,
             "thinking": self.thinking.to_dict(),
             "proactive": self.proactive.to_dict(),
             "reactive": self.reactive.to_dict(),
@@ -525,12 +619,31 @@ class SessionState:
             raise ValueError(f"Unknown SessionState snapshot version: {d.get('_v')!r}")
         s = cls.__new__(cls)
         s._v = 1
-        s.current_state = AgentStateV2(d["current_state"])
-        s.last_interaction_at = d["last_interaction_at"]
+        s.session_id = d.get("session_id", "")
+        if not s.session_id:
+            logger.warning(
+                "autoplay_sdk: SessionState.from_dict loaded snapshot with empty session_id",
+                extra={"event_type": "session_state_parse_error"},
+            )
+        s.metadata = d.get("metadata", {})
+        try:
+            s.current_state = AgentStateV2(d["current_state"])
+        except (KeyError, ValueError) as exc:
+            logger.warning(
+                "autoplay_sdk: SessionState.from_dict invalid current_state=%r — "
+                "defaulting to THINKING (%s)",
+                d.get("current_state"),
+                exc,
+                extra={"event_type": "session_state_parse_error"},
+            )
+            s.current_state = AgentStateV2.THINKING
+        s.last_interaction_at = d.get("last_interaction_at", time.monotonic())
         s.interaction_timeout_s = d.get("interaction_timeout_s", 20.0)
         s.cooldown_period_s = d.get("cooldown_period_s", 60.0)
         s.visual_guidance_active = d.get("visual_guidance_active", False)
         s.active_tour_id = d.get("active_tour_id")
+        s.conversation_linked = d.get("conversation_linked", False)
+        s.conversation_id = d.get("conversation_id")
         s.thinking = ThinkingState.from_dict(d.get("thinking", {}))
         s.proactive = ProactiveState.from_dict(d.get("proactive", {}))
         s.reactive = ReactiveState.from_dict(d.get("reactive", {}))
