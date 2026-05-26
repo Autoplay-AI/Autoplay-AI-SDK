@@ -5,7 +5,7 @@ description: "Stream real-time user events into your AI copilots and agents in a
 ---
 
 
-## Install the SDK and agent skills first
+## Install the SDK
 
 Run these commands once from your project root:
 
@@ -15,35 +15,7 @@ pip install autoplay-sdk
 uv add autoplay-sdk
 ```
 
-Then install Autoplay skills for Cursor/Claude:
-
-```bash
-autoplay-install-skills
-```
-
-<Note>
-  **SDK reorganization update (v0.7.6):** internal imports were reorganized into domain-based modules in `0.7.4`. Existing old paths still work (with deprecation warnings) and are removed in `1.0.0`.
-
-  To migrate quickly, install migration skills and run:
-
-  ```bash
-  autoplay-install-skills --migrate
-  ```
-
-  See [Migration 0.7.4](/sdk/migration-0.7.4) for the complete old-to-new path mapping.
-</Note>
-
-Agent skills add project-local guidance so your assistant follows the correct integration pattern for your stack (session scoping, conversation linking, and field mapping) instead of generating generic setup code.
-
-Use `--force` only when you intentionally want to overwrite existing local skill customizations.
-
-You can also target a specific stack:
-
-```bash
-autoplay-install-skills --chatbot ada --user-activity fullstory
-autoplay-install-skills --chatbot intercom --user-activity posthog
-autoplay-install-skills --chatbot botpress
-```
+Install [Agent skills](/get-started/agent-skills) for Cursor/Claude so your assistant follows the correct integration pattern for your stack. See [Pricing](/who-we-are/pricing) for plans.
 
 ## 🎥 Step-1 Choose your existing session replay provider
 
@@ -447,8 +419,8 @@ Now that your data is flowing, here's how to put it to work:
     Step-by-step guides for Intercom, Ada, Botpress, and more
   </Card>
 
-  <Card title="AI agent skills" icon="wand-magic-sparkles" href="/recipes/intercom-tutorial">
-    Install Cursor / Claude skills with autoplay-install-skills
+  <Card title="AI agent skills" icon="wand-magic-sparkles" href="/get-started/agent-skills">
+    Browse, install, and download Cursor / Claude skills
   </Card>
 </CardGroup>
 
