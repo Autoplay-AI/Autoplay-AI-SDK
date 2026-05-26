@@ -1,0 +1,64 @@
+---
+title: Reduce human support
+sidebarTitle: "🎫 Reduce human support"
+description: Scope conversations precisely with full user context so more issues resolve in AI and fewer escalated to humans.
+---
+
+When your chatbot has full context on what a user was doing, it can scope conversations precisely — even redirecting poorly framed questions toward the right answer. Better context means better responses, which means more conversations resolved by AI and fewer escalated to humans. Less cost, happier users.
+
+<Frame>
+<style>{`*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9f9f8;padding:24px;color:#1a1a1a}
+.demo-shell{background:#f1f0ec;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:10px;max-width:640px;margin:0 auto}
+.tab-row{display:flex;gap:6px;margin-bottom:4px}
+.tab{font-size:12px;padding:5px 12px;border-radius:8px;border:0.5px solid #ccc;background:transparent;color:#666;cursor:pointer;font-family:inherit}
+.tab.on{background:#534AB7;border-color:#534AB7;color:#fff}
+.chat-box{background:#fff;border:0.5px solid #e0e0d8;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:180px}
+.chat-row{display:flex;gap:8px;align-items:flex-end}
+.chat-row.user{flex-direction:row-reverse}
+.avatar{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.av-agent{background:#EEEDFE;color:#3C3489}
+.av-user{background:#E1F5EE;color:#085041}
+.bubble{max-width:78%;font-size:12px;line-height:1.5;padding:8px 10px;border-radius:10px}
+.bubble.agent{background:#f1f0ec;color:#1a1a1a;border-bottom-left-radius:3px}
+.bubble.user{background:#534AB7;color:#fff;border-bottom-right-radius:3px}
+.context-bar{font-size:11px;background:#EEEDFE;color:#3C3489;border-radius:8px;padding:5px 10px;display:flex;align-items:center;gap:6px}
+.no-context{font-size:11px;background:#f1f0ec;color:#888;border-radius:8px;padding:5px 10px;display:flex;align-items:center;gap:6px;border:0.5px dashed #ccc}
+.badge-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.badge{font-size:11px;padding:2px 8px;border-radius:6px}
+.badge.green{background:#E1F5EE;color:#085041}
+.badge.red{background:#FCEBEB;color:#791F1F}
+.badge.purple{background:#EEEDFE;color:#3C3489}`}</style>
+
+<div className="demo-shell">
+  <div className="tab-row">
+    <button className="tab on" id="t-before" type="button">Without Autoplay</button>
+    <button className="tab" id="t-after" type="button">With Autoplay</button>
+  </div>
+  <div id="ctx-no" className="no-context">&#128683; No session context available</div>
+  <div id="ctx-yes" className="context-bar" style={{ display: "none" }}>&#9889; User clicked export 4&times; in last 2 min — stuck on CSV format step</div>
+  <div className="chat-box" id="chat"></div>
+  <div className="badge-row" id="badges"></div>
+</div>
+
+<script>{`
+function setTab(mode){
+  document.getElementById('t-before').className=mode==='before'?'tab on':'tab';
+  document.getElementById('t-after').className=mode==='after'?'tab on':'tab';
+  document.getElementById('ctx-no').style.display=mode==='before'?'flex':'none';
+  document.getElementById('ctx-yes').style.display=mode==='after'?'flex':'none';
+  var chat=document.getElementById('chat');
+  var badges=document.getElementById('badges');
+  if(mode==='before'){
+    chat.innerHTML='<div class="chat-row user"><div class="avatar av-user">U</div><div class="bubble user">it\\'s not working</div></div><div class="chat-row"><div class="avatar av-agent">A</div><div class="bubble agent">Could you clarify what isn\\'t working? I\\'d be happy to help!</div></div>';
+    badges.innerHTML='<span class="badge red">Escalated to human</span><span class="badge red">2.4 min avg to resolve</span>';
+  } else {
+    chat.innerHTML='<div class="chat-row user"><div class="avatar av-user">U</div><div class="bubble user">it\\'s not working</div></div><div class="chat-row"><div class="avatar av-agent">A</div><div class="bubble agent">Looks like you\\'ve been trying to export as CSV — the format dropdown can be easy to miss. Click the arrow next to the Export button and select CSV from the list.<br><br>Want me to walk you through it?</div></div>';
+    badges.innerHTML='<span class="badge green">Resolved by AI</span><span class="badge green">No escalation</span><span class="badge purple">Context-scoped answer</span>';
+  }
+}
+document.getElementById('t-before').addEventListener('click', function(){ setTab('before'); });
+document.getElementById('t-after').addEventListener('click', function(){ setTab('after'); });
+setTab('before');
+`}</script>
+</Frame>
