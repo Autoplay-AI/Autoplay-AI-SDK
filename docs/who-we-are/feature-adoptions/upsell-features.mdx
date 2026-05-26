@@ -1,0 +1,148 @@
+---
+title: Drive natural upsells
+sidebarTitle: "📈 Drive natural upsells"
+description: Surface the right features to the right users inside chat, based on history and in-product behavior.
+---
+
+import { useState, useEffect } from "react";
+
+export const NaturalUpsellDemo = () => {
+  const [phase, setPhase] = useState(0);
+
+  useEffect(() => {
+    const timers = [
+      setTimeout(() => setPhase(1), 900),
+      setTimeout(() => setPhase(2), 2200),
+      setTimeout(() => setPhase(3), 3200),
+      setTimeout(() => setPhase(4), 4800),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const shell = {
+    background: "#f1f0ec",
+    borderRadius: "12px",
+    padding: "20px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    maxWidth: "640px",
+    margin: "0 auto",
+    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    color: "#1a1a1a",
+  };
+
+  const chatBox = {
+    background: "#fff",
+    border: "0.5px solid #e0e0d8",
+    borderRadius: "12px",
+    padding: "12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    minHeight: "180px",
+  };
+
+  const row = (visible) => ({
+    display: "flex",
+    gap: "8px",
+    alignItems: "flex-end",
+    opacity: visible ? 1 : 0,
+    transition: "opacity 0.35s ease",
+  });
+
+  const rowUser = (visible) => ({ ...row(visible), flexDirection: "row-reverse" });
+
+  const avatar = {
+    width: "26px",
+    height: "26px",
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "11px",
+    fontWeight: 500,
+    flexShrink: 0,
+  };
+
+  const bubble = {
+    maxWidth: "78%",
+    fontSize: "12px",
+    lineHeight: 1.6,
+    padding: "8px 10px",
+    borderRadius: "10px",
+  };
+
+  const badgeRow = (visible) => ({
+    display: "flex",
+    gap: "6px",
+    flexWrap: "wrap",
+    marginTop: "2px",
+    opacity: visible ? 1 : 0,
+    transition: "opacity 0.35s ease",
+  });
+
+  const badge = { fontSize: "11px", padding: "2px 8px", borderRadius: "6px" };
+
+  return (
+    <div style={shell}>
+        <div
+          style={{
+            fontSize: "11px",
+            background: "#EEEDFE",
+            color: "#3C3489",
+            borderRadius: "8px",
+            padding: "5px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+        >
+          ⚡ User has manually exported this report 4× this week
+        </div>
+
+        <div style={chatBox}>
+          <div style={rowUser(true)}>
+            <div style={{ ...avatar, background: "#E1F5EE", color: "#085041" }}>U</div>
+            <div style={{ ...bubble, background: "#534AB7", color: "#fff", borderBottomRightRadius: "3px" }}>
+              How do I filter this report by date range?
+            </div>
+          </div>
+
+          <div style={row(phase >= 1)}>
+            <div style={{ ...avatar, background: "#EEEDFE", color: "#3C3489" }}>A</div>
+            <div style={{ ...bubble, background: "#f1f0ec", color: "#1a1a1a", borderBottomLeftRadius: "3px" }}>
+              Click the date picker at the top right of the report — you can set a custom range or pick from presets like last 7 days, last 30 days, etc.
+            </div>
+          </div>
+
+          <div style={rowUser(phase >= 2)}>
+            <div style={{ ...avatar, background: "#E1F5EE", color: "#085041" }}>U</div>
+            <div style={{ ...bubble, background: "#534AB7", color: "#fff", borderBottomRightRadius: "3px" }}>
+              Perfect, got it!
+            </div>
+          </div>
+
+          <div style={row(phase >= 3)}>
+            <div style={{ ...avatar, background: "#EEEDFE", color: "#3C3489" }}>A</div>
+            <div style={{ ...bubble, background: "#f1f0ec", color: "#1a1a1a", borderBottomLeftRadius: "3px" }}>
+              Also — I noticed you've been exporting this report manually a few times this week. Just so you know, on the Growth plan you can schedule it to run automatically and drop straight into your inbox. Might save you a lot of back and forth!
+            </div>
+          </div>
+        </div>
+
+        <div style={badgeRow(phase >= 4)}>
+          <span style={{ ...badge, background: "#E1F5EE", color: "#085041" }}>Question answered first</span>
+          <span style={{ ...badge, background: "#E1F5EE", color: "#085041" }}>Upsell feels earned</span>
+          <span style={{ ...badge, background: "#EEEDFE", color: "#3C3489" }}>No interruption</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+Surface the right features to the right users based on their history and in-product behavior. Instead of interrupting with a push notification or a forced modal, the upgrade conversation happens inside the chat — contextual, timely, and friction-free. Less forced, more converting.
+
+<Frame>
+  <NaturalUpsellDemo />
+</Frame>
