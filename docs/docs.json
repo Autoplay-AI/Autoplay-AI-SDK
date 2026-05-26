@@ -37,12 +37,29 @@
   "navigation": {
     "groups": [
       {
-        "group": "Get started",
+        "group": "Who We Are",
+        "pages": [
+          "who-we-are/overview",
+          "who-we-are/our-story",
+          {
+            "group": "🎯 Use cases",
+            "root": "who-we-are/use-cases",
+            "pages": [
+              "who-we-are/feature-adoptions/reduce-ticket-support",
+              "who-we-are/feature-adoptions/improve-retention",
+              "who-we-are/feature-adoptions/improve-csat",
+              "who-we-are/feature-adoptions/upsell-features"
+            ]
+          },
+          "who-we-are/pricing"
+        ]
+      },
+      {
+        "group": "Get Started",
         "pages": [
           "quickstart",
-          "sdk/overview",
           {
-            "group": "✨ The proactive + visual support agent gold standard",
+            "group": "✨ The proactive + visual CX agent gold standard",
             "root": "sdk/proactive-copilot",
             "expanded": true,
             "pages": [
@@ -52,22 +69,29 @@
               "sdk/proactive-copilot/step-4-enhance-with-user-memory",
               "sdk/proactive-copilot/step-5-enrich-with-user-memory"
             ]
+          },
+          {
+            "group": "Agent skills",
+            "root": "get-started/agent-skills",
+            "pages": [
+              "get-started/agent-skills/autoplay-core",
+              "get-started/agent-skills/autoplay-migrate-imports",
+              "get-started/agent-skills/chatbot-ada",
+              "get-started/agent-skills/chatbot-botpress",
+              "get-started/agent-skills/chatbot-crisp",
+              "get-started/agent-skills/chatbot-dify",
+              "get-started/agent-skills/chatbot-intercom",
+              "get-started/agent-skills/chatbot-landbot",
+              "get-started/agent-skills/chatbot-tidio",
+              "get-started/agent-skills/activity-fullstory",
+              "get-started/agent-skills/activity-posthog"
+            ]
           }
         ]
       },
       {
         "group": "Chatbot Tutorials",
         "pages": [
-          {
-            "group": "Inkeep tutorial",
-            "icon": "/images/recipes/inkeep/logo.png",
-            "root": "recipes/inkeep",
-            "badge": "New",
-            "pages": [
-              "recipes/inkeep/step-1-connect-real-time-events",
-              "recipes/inkeep/step-2-proactive-guidance"
-            ]
-          },
           {
             "group": "Botpress tutorial",
             "icon": "/images/recipes/botpress/logo.png",
@@ -260,6 +284,14 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/get-started/pricing",
+      "destination": "/who-we-are/pricing"
+    },
+    {
+      "source": "/sdk/overview",
+      "destination": "/who-we-are/overview"
+    },
     {
       "source": "/sdk/proactive-copilot/step-2-add-to-llm-context",
       "destination": "/sdk/proactive-copilot/step-2-add-actions-to-llm-context"

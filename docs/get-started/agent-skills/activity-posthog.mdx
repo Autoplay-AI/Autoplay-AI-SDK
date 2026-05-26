@@ -1,0 +1,106 @@
+---
+title: "Activity Posthog"
+sidebarTitle: "Activity Posthog"
+description: "Configures PostHog as the event source for Autoplay by adding the browser snippet, calling posthog.identify() with product_id, and setting up the PostHog webhook destination. The PostHog session ID is the scoping key used throughout the Autoplay integration. Use when the user mentions PostHog, posthog-js, posthog.identify, product_id, or asks how to capture user events for Autoplay."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+<a href="/files/skills/activity-posthog.md" download><strong>Download `.md`</strong></a> · <a href="/files/skills/activity-posthog.md" target="_blank"><strong>Open raw file</strong></a> · Install via CLI: `autoplay-install-skills`
+
+# Activity Source — PostHog
+
+> Read `autoplay-core` first. The PostHog `session_id` is the `session_id` used
+> for all session scoping throughout your Autoplay integration.
+
+## Step 1 — Add the browser snippet
+
+```javascript
+import posthog from 'posthog-js'
+
+posthog.init('YOUR_AUTOPLAY_API_KEY', {
+    api_host: 'https://us.i.posthog.com',
+    person_profiles: 'identified_only',
+    session_idle_timeout_seconds: 120,
+    loaded: (posthog) => {
+        posthog.identify(posthog.get_distinct_id(), {
+            product_id: 'YOUR_PRODUCT_ID',
+        });
+    },
+})
+```
+
+---
+
+## Step 2 — Identify on login (highly recommended)
+
+Run this immediately after your login flow completes:
+
+```javascript
+posthog.identify(user.id, {
+    product_id: 'YOUR_AUTOPLAY_PRODUCT_ID',
+    email: user.email,  // optional but enables email-based session scoping
+})
+```
+
+Without `identify`, users are tracked anonymously. `session_id` still works for scoping; `user_id` and `email` will be `None` on `ActionsPayload` until identity is set.
+
+---
+
+## Step 3 — Session ID in your backend
+
+```python
+# The session_id on every ActionsPayload is the PostHog session ID
+# Retrieve it in browser:
+#   posthog.get_distinct_id()   — stable user/device ID
+#   posthog.get_session_id()    — current session ID (resets on idle)
+
+# Guard for None before identity linking:
+async def on_actions(payload):
+    if not payload.session_id:
+        return   # anonymous pre-identity event — skip or queue
+    await agent_writer.add(payload)
+```
+
+---
+
+## Step 4 — PostHog webhook destination
+
+In PostHog, add a **Webhook** destination:
+- **Webhook URL:** `result.webhook_url` from `onboard_product`
+- **`X-PostHog-Secret` header:** `result.webhook_secret` from `onboard_product`
+
+Or message `#just-integrated` in the Autoplay Slack for managed setup.
+
+---
+
+## Step 5 — Verify the webhook is firing
+
+After setting up the destination in PostHog, trigger a page event in your app
+and check the PostHog destination logs (PostHog → Data pipelines → your webhook
+destination → Logs). You should see a `200` response within a few seconds.
+
+If you see `401`:
+- Check that `X-PostHog-Secret` is copied verbatim (exact casing) — see Common mistakes below.
+
+If you see no delivery at all:
+- Confirm the destination is enabled and the filter is not excluding your events.
+
+---
+
+## Common mistakes
+
+**`X-PostHog-Secret` header lookup is case-sensitive.**
+PostHog delivers the secret in `inputs.headers["X-PostHog-Secret"]` (exact casing).
+Reading `inputs.headers["x-posthog-secret"]` or any other casing returns `None`
+and your webhook handler will return `401` on every request. Always copy the key
+name verbatim from the `onboard_product` response.
+
+---
+
+## Reference
+
+- Quickstart: https://developers.autoplay.ai/quickstart
+- PostHog identify docs: https://posthog.com/docs/product-analytics/identify
