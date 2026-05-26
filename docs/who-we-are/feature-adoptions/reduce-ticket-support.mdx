@@ -1,0 +1,194 @@
+---
+title: Reduce human support
+sidebarTitle: "🎫 Reduce human support"
+description: Scope conversations precisely with full user context so more issues resolve in AI and fewer escalated to humans.
+---
+
+import { useState } from "react";
+
+export const ReduceTicketsDemo = () => {
+  const [mode, setMode] = useState("before");
+
+  const shell = {
+    background: "#f1f0ec",
+    borderRadius: "12px",
+    padding: "20px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    maxWidth: "640px",
+    margin: "0 auto",
+    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    color: "#1a1a1a",
+  };
+
+  const tabRow = { display: "flex", gap: "6px", marginBottom: "4px" };
+
+  const tab = {
+    fontSize: "12px",
+    padding: "5px 12px",
+    borderRadius: "8px",
+    border: "0.5px solid #ccc",
+    background: "transparent",
+    color: "#666",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  };
+
+  const tabOn = {
+    ...tab,
+    background: "#534AB7",
+    borderColor: "#534AB7",
+    color: "#fff",
+  };
+
+  const chatBox = {
+    background: "#fff",
+    border: "0.5px solid #e0e0d8",
+    borderRadius: "12px",
+    padding: "12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    minHeight: "180px",
+  };
+
+  const chatRow = { display: "flex", gap: "8px", alignItems: "flex-end" };
+  const chatRowUser = { ...chatRow, flexDirection: "row-reverse" };
+
+  const avatar = {
+    width: "26px",
+    height: "26px",
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "11px",
+    fontWeight: 500,
+    flexShrink: 0,
+  };
+
+  const bubble = {
+    maxWidth: "78%",
+    fontSize: "12px",
+    lineHeight: 1.5,
+    padding: "8px 10px",
+    borderRadius: "10px",
+  };
+
+  const badgeRow = { display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" };
+  const badge = { fontSize: "11px", padding: "2px 8px", borderRadius: "6px" };
+
+  const beforeBadges = [
+    { label: "Escalated to human", color: "#791F1F", bg: "#FCEBEB" },
+    { label: "2.4 min avg to resolve", color: "#791F1F", bg: "#FCEBEB" },
+  ];
+
+  const afterBadges = [
+    { label: "Resolved by AI", color: "#085041", bg: "#E1F5EE" },
+    { label: "No escalation", color: "#085041", bg: "#E1F5EE" },
+    { label: "Context-scoped answer", color: "#3C3489", bg: "#EEEDFE" },
+  ];
+
+  const badges = mode === "before" ? beforeBadges : afterBadges;
+
+  return (
+    <div style={shell}>
+      <div style={tabRow}>
+        <button type="button" style={mode === "before" ? tabOn : tab} onClick={() => setMode("before")}>
+          Without Autoplay
+        </button>
+        <button type="button" style={mode === "after" ? tabOn : tab} onClick={() => setMode("after")}>
+          With Autoplay
+        </button>
+      </div>
+
+      {mode === "before" ? (
+        <div
+          style={{
+            fontSize: "11px",
+            background: "#f1f0ec",
+            color: "#888",
+            borderRadius: "8px",
+            padding: "5px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            border: "0.5px dashed #ccc",
+          }}
+        >
+          🚫 No session context available
+        </div>
+      ) : (
+        <div
+          style={{
+            fontSize: "11px",
+            background: "#EEEDFE",
+            color: "#3C3489",
+            borderRadius: "8px",
+            padding: "5px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+        >
+          ⚡ User clicked export 4× in last 2 min — stuck on CSV format step
+        </div>
+      )}
+
+      <div style={chatBox}>
+        <div style={chatRowUser}>
+          <div style={{ ...avatar, background: "#E1F5EE", color: "#085041" }}>U</div>
+          <div
+            style={{
+              ...bubble,
+              background: "#534AB7",
+              color: "#fff",
+              borderBottomRightRadius: "3px",
+            }}
+          >
+            {"it's not working"}
+          </div>
+        </div>
+
+        <div style={chatRow}>
+          <div style={{ ...avatar, background: "#EEEDFE", color: "#3C3489" }}>A</div>
+          <div
+            style={{
+              ...bubble,
+              background: "#f1f0ec",
+              color: "#1a1a1a",
+              borderBottomLeftRadius: "3px",
+            }}
+          >
+            {mode === "before" ? (
+              "Could you clarify what isn't working? I'd be happy to help!"
+            ) : (
+              <>
+                Looks like you&apos;ve been trying to export as CSV — the format dropdown can be easy to miss. Click the
+                arrow next to the Export button and select CSV from the list.
+                <br />
+                <br />
+                Want me to walk you through it?
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={badgeRow}>
+        {badges.map((item) => (
+          <span key={item.label} style={{ ...badge, background: item.bg, color: item.color }}>
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+When your chatbot has full context on what a user was doing, it can scope conversations precisely — even redirecting poorly framed questions toward the right answer. Better context means better responses, which means more conversations resolved by AI and fewer escalated to humans. Less cost, happier users.
+
+<Frame>
+  <ReduceTicketsDemo />
+</Frame>
