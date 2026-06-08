@@ -55,6 +55,20 @@ packages = ["autoplay_sdk"]
 include = [
   "autoplay_sdk/py.typed",
 ]
+# autoplay_sdk/skills/ is a Markdown-only data tree (no __init__.py).
+# The repo-root .gitignore excludes `skills/` globally; the `!` re-includes
+# for autoplay_sdk/skills resolve from the repo root, not from this
+# sub-project root, so Hatchling's VCS-aware file scan drops the
+# directory and we need `force-include` to ship it. The `exclude` rule
+# below is what makes this safe across Hatchling versions: newer
+# Hatchling auto-includes data files surfaced by `packages`, which
+# would collide with `force-include` and raise "A second file is being
+# added to the wheel archive at the same path". Excluding the skills
+# tree from `packages` keeps `force-include` as the SOLE source of
+# those files on every Hatchling version.
+exclude = [
+  "autoplay_sdk/skills/**",
+]
 force-include = { "autoplay_sdk/skills" = "autoplay_sdk/skills" }
 
 [tool.hatch.build.targets.sdist]
@@ -63,6 +77,9 @@ include = [
     "README.md",
     "CHANGELOG.md",
     "pyproject.toml",
+]
+exclude = [
+  "autoplay_sdk/skills/**",
 ]
 force-include = { "autoplay_sdk/skills" = "autoplay_sdk/skills" }
 
