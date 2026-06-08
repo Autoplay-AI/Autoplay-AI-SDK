@@ -8,51 +8,7 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 ---
 
-## [0.8.4] — 2026-05-21
-
-### Changed
-
-- **`ConversationEvent` renamed to `ConversationEventType`** — the old name implied a data container rather than a type discriminator. A deprecated backward-compat alias `ConversationEvent = ConversationEventType` is exported from both `autoplay_sdk` and `autoplay_sdk.chat`; it will be removed in the next major version. Update any import of `ConversationEvent` to `ConversationEventType`.
-
-### Added
-
-- **`BaseChatbotWriter.__init_subclass__` enforcement** — raises `TypeError` at class-definition time when a subclass sets `SESSION_LINK_WEBHOOK_TOPICS` without overriding `_parse_session_link_webhook_payload`. Converts a silent production crash into a startup error. Subclasses that leave `SESSION_LINK_WEBHOOK_TOPICS = ()` are unaffected.
-
----
-
-## [0.8.3] — 2026-05-21
-
-### Changed
-
-- `AutoplayChatbotManager.on_chatbot_event` always saves after linking, regardless of store type (no more `isinstance` guard). `on_actions` does not save — no `SessionState` mutation occurs during action delivery.
-- `InMemorySessionStateStore` gains a no-op `save()` for uniform call sites.
-
-### Added
-
-- `AutoplayChatbotManager.save_state(state)` — call after any external FSM transition to persist THINKING/PROACTIVE/REACTIVE state and all sub-state data to Redis.
-
----
-
-## [0.8.2] — 2026-05-21
-
-### Documentation
-
-- `chatbot-writer.mdx`: leads with `AutoplayChatbotManager` as the recommended path, updated session-first linking section, added Production persistence section with `RedisSessionStateStore`.
-- `autoplay-core` skill: added **Integration Self-Reasoning Checklist** covering session identity, race conditions, chatbot linking, proactive triggers, and production persistence.
-
----
-
-## [0.8.1] — 2026-05-21
-
-### Added
-
-- **`RedisSessionStateStore`** — Redis-backed `SessionState` store for production. Key pattern `autoplay:session_state:{session_id}`, configurable TTL (default 24 h), graceful fallback on Redis errors. Requires `pip install "autoplay-sdk[redis]"`.
-- **`AutoplayChatbotManager(session_store=...)`** — optional parameter to inject a custom store. Defaults to `InMemorySessionStateStore()`. Pass `RedisSessionStateStore(redis_url=...)` for production.
-- `AutoplayChatbotManager.on_chatbot_event` persists state back to Redis after linking so the conversation link survives restarts.
-
----
-
-## [0.8.0] — 2026-05-21
+## [0.7.9] — 2026-05-25
 
 ### Breaking changes
 
@@ -60,24 +16,37 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 ### Added
 
+- **`SessionState.can_deliver_proactive() -> tuple[bool, str]`** — canonical FSM gate check.
+  Returns `(True, "ok")` when the session is THINKING with no active cooldown; `(False, reason)` otherwise.
+  Callers must call `tick()` before this method. Replaces any inline `current_state == THINKING and not thinking.cooldown_active` pattern.
+- **`SessionState`** now holds `session_id: str` (the only mandatory scope key) and `metadata: dict[str, Any]` (open bag for optional identity context — `user_id`, `email`, any future fields). Both fields are persisted via `to_dict()` / `from_dict()` and default to empty for backward compatibility.
+- **`RedisSessionStateStore`** — Redis-backed `SessionState` store for production use. Key pattern `autoplay:session_state:{session_id}`, configurable TTL (default 24 h), graceful fallback on Redis errors. Requires `pip install "autoplay-sdk[redis]"`.
 - **`AutoplayChatbotManager`** — high-level wrapper that handles all session lifecycle automatically. Developers implement only `_post_note` and call two methods: `on_actions(payload)` from the Autoplay stream and `on_chatbot_event(session_id, conversation_id)` from the chatbot webhook.
+- **`AutoplayChatbotManager(session_store=...)`** — optional parameter to inject a custom store. Defaults to `InMemorySessionStateStore()`. Pass `RedisSessionStateStore(redis_url=...)` for production.
+- **`AutoplayChatbotManager.save_state(state)`** — public method for persisting state after external FSM transitions (`transition_to_proactive`, `transition_to_reactive`, `tick`, `start_cooldown`, interaction recorders). `on_actions` and `on_chatbot_event` call this automatically; use `save_state` only for mutations that happen outside those entry points.
 - **`InMemorySessionStateStore`** — canonical store for `SessionState` objects. `get_or_create(session_id)` is the first call in every handler. `async` interface for drop-in Redis-backed replacement.
-- `link_conversation` now auto-detects `ConversationEventType.NEW` vs `REPLY_EXISTING` from the store when `event` is not passed.
-- `link_conversation` raises `ValueError` if `session_id` is empty after resolution.
+- **`BaseChatbotWriter.__init_subclass__` enforcement** — raises `TypeError` at class-definition time (module import) when a subclass sets `SESSION_LINK_WEBHOOK_TOPICS` without overriding `_parse_session_link_webhook_payload`. Converts a silent production crash into a startup error caught by tests and local runs. Subclasses that leave `SESSION_LINK_WEBHOOK_TOPICS = ()` are unaffected.
+- `link_conversation` now auto-detects `ConversationEventType.NEW` vs `REPLY_EXISTING` from the store when `event` is not passed — removes the last manual determination from integration authors.
+- `link_conversation` now infers `session_id` from `state.session_id` when not passed explicitly. Existing callers that pass `session_id` are unaffected.
+- `link_conversation` raises `ValueError` if `session_id` is empty after resolution, with a clear message pointing to `InMemorySessionStateStore.get_or_create`.
 - `AutoplayChatbotManager` and `InMemorySessionStateStore` exported from top-level `autoplay_sdk`.
+- `AutoplayChatbotManager.on_chatbot_event` now persists the updated `SessionState` back to `RedisSessionStateStore` after linking so the conversation link survives restarts.
+- `redis` optional extra added to `pyproject.toml`: `pip install "autoplay-sdk[redis]"`.
 
----
+### Changed
 
-## [0.7.9] — 2026-05-21
-
-### Added
-
-- `SessionState` now holds `session_id: str` (the only mandatory scope key) and `metadata: dict[str, Any]` (open bag for optional identity context — `user_id`, `email`, any future fields). Both fields are persisted via `to_dict()` / `from_dict()` and default to empty for backward compatibility.
-- `link_conversation()` now infers `session_id` from `state.session_id` when not passed explicitly. Existing callers that pass `session_id` are unaffected.
+- **`ConversationEvent` renamed to `ConversationEventType`** — the old name was misleading because it read as a data container rather than a type discriminator. A deprecated backward-compat alias `ConversationEvent = ConversationEventType` is exported from both `autoplay_sdk` and `autoplay_sdk.chat`; it will be removed in the next major version. Update any import of `ConversationEvent` to `ConversationEventType`.
+- **`proactive_fsm_gate_for_session` delivery invariant clarified** — no linked conversation → first proactive → always allowed (a new conversation will be created and linked). A linked conversation → check FSM via `can_deliver_proactive()`. The `fallback_conversation_id` parameter has been removed.
+- **Polling gates use `session.can_deliver_proactive()` directly** — polling paths (`context_payload.py`, `routes.py`) load and tick the session for the known `conversation_id`, then call `can_deliver_proactive()` on the already-loaded session. They no longer go through `proactive_fsm_gate_for_session` (which has delivery-specific semantics).
+- `AutoplayChatbotManager.on_chatbot_event` removes the `isinstance(store, RedisSessionStateStore)` guard — `save` is always called regardless of which store is wired. `on_actions` does not save (no state mutation occurs during action delivery; first-creation is already persisted by `get_or_create`).
+- `InMemorySessionStateStore` gains a no-op `save(state)` method so all call sites are uniform.
 
 ### Documentation
 
-- Added **Universal Scoping Pattern** section to `autoplay-core` skill — the canonical 4-step flow (scope → parse webhook → link → deliver) that applies identically to every chatbot integration.
+- [BaseChatbotWriter](/sdk/chatbot-writer): rewritten to lead with `AutoplayChatbotManager` as the recommended path, updated session-first linking section to show `InMemorySessionStateStore` + `get_or_create` pattern, added Production persistence section with `RedisSessionStateStore` one-line swap.
+- `autoplay-core` skill: added **Integration Self-Reasoning Checklist** — 5 categories agents must reason through before an integration is complete: session identity, race conditions, chatbot linking, proactive triggers, and production persistence. Section 4 updated to use `can_deliver_proactive()` as the canonical gate check and fixes a stale method reference (`to_proactive` → `transition_to_proactive`). Added **Universal Scoping Pattern** — the canonical 4-step flow (scope → parse webhook → link → deliver) that applies identically to every chatbot integration.
+- `SessionState` class docstring now lists `conversation_linked` and `conversation_id` in its Fields section.
+- [Agent session states](/sdk/agent-states) Key Methods table now includes `can_deliver_proactive()`; `ThinkingState` table now includes `active_cooldown_period_s`.
 
 ---
 
