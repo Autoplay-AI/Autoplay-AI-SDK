@@ -1,14 +1,193 @@
 ---
 title: Zendesk
-description: Dedicated Zendesk integration helpers are coming soon. Stream events to your connector and chatbot today.
+description: Zendesk-specific SDK helpers in autoplay_sdk.integrations.zendesk and how they map to the event connector.
 icon: "/images/integrations/zendesk/logo.png"
-tag: Coming soon
 ---
 
-<Info>
-  **Dedicated helpers for Zendesk are coming soon.** That is **not a blocker**: you can **still stream events to your connector and chatbot (or delivery) endpoints today** using the core SDK and event pipeline. When they ship, these helpers will be **optional extras** — not required for implementation.
-</Info>
+`ZENDESK_TRIGGER_TYPES` is the same tuple **`ZendeskChatbot`** uses in the event connector for session-link trigger routing, so what you configure in Zendesk Admin Center stays aligned with connector parsing and linking.
+
+`zendesk_chatbot_webhook_url` and `zendesk_chat_webhook_url` build the correct `/chatbot-webhook/{product_id}` and `/zendesk/chat/{product_id}` URLs respectively. `zendesk_auth_headers` produces the correct Basic-auth header for all Zendesk REST API calls. `build_zendesk_trigger_body` generates the JSON body string for Zendesk trigger actions with the right fields for each trigger type.
 
 ---
 
-We plan first-party helpers so you can align Zendesk messaging with the same real-time session context Autoplay already delivers elsewhere. Until then, wire [`ConnectorClient`](/sdk/sync-client) or [`AsyncConnectorClient`](/sdk/async-client) and your chatbot path as you do for any custom destination.
+## Module: `autoplay_sdk.integrations.zendesk`
+
+Small, dependency-light helpers in `autoplay_sdk/integrations/zendesk.py` for trigger type constants, connector URL builders, API auth headers, and trigger payload construction.
+
+### Trigger types
+
+Configure Zendesk triggers to send exactly these `trigger_type` values so session linking and LLM reply routing stay aligned with `ZendeskChatbot` parsing in the connector:
+
+| Name | Constant | Value |
+|------|----------|--------|
+| New ticket | `ZENDESK_TRIGGER_TYPE_NEW_TICKET` | `"new_ticket"` |
+| User reply | `ZENDESK_TRIGGER_TYPE_USER_REPLY` | `"user_reply"` |
+
+**Tuple for loops / validation:** `ZENDESK_TRIGGER_TYPES` — both strings above. Other `trigger_type` values are ignored by the connector.
+
+### `zendesk_chatbot_webhook_url(connector_host, product_id) -> str`
+
+Builds the absolute HTTPS URL for Zendesk Trigger A (session link + internal note):
+
+`{origin}/chatbot-webhook/{product_id}`
+
+- **`connector_host`:** hostname (`event-connector-xxxx.onrender.com`) or full origin (`https://…`). Trailing slashes stripped; bare host gets `https://` prepended.
+- **`product_id`:** non-empty, no `/` (single path segment).
+
+Raises `ValueError` if host or product id is invalid.
+
+### `zendesk_chat_webhook_url(connector_host, product_id) -> str`
+
+Builds the absolute HTTPS URL for Zendesk Trigger B (LLM reply):
+
+`{origin}/zendesk/chat/{product_id}`
+
+Same validation rules as `zendesk_chatbot_webhook_url`.
+
+### `zendesk_auth_headers(email, api_token) -> dict[str, str]`
+
+Returns `Authorization` and `Content-Type` headers for Zendesk REST API calls:
+
+```python
+{
+    "Authorization": f"Basic {base64(f'{email}/token:{api_token}')}",
+    "Content-Type": "application/json",
+}
+```
+
+The `/token` literal between email and API token is required by Zendesk. Never hand-roll this — use this helper.
+
+### `build_zendesk_trigger_body(trigger_type, *, include_user_message=False) -> str`
+
+Returns the JSON string to paste into the Zendesk trigger action body. Includes `ticket_id`, `requester_email`, and `trigger_type`. When `include_user_message=True`, also includes `"user_message": "{{ticket.latest_comment}}"` (required for Trigger B / Zendesk Messaging compatibility).
+
+```python
+build_zendesk_trigger_body("new_ticket")
+# → '{"ticket_id": "{{ticket.id}}", "requester_email": "{{ticket.requester.email}}", "trigger_type": "new_ticket"}'
+
+build_zendesk_trigger_body("user_reply", include_user_message=True)
+# → '{"ticket_id": "{{ticket.id}}", "requester_email": "{{ticket.requester.email}}", "trigger_type": "user_reply", "user_message": "{{ticket.latest_comment}}"}'
+```
+
+**Why `include_user_message` for Trigger B?** Zendesk Messaging tickets do not expose messages via `GET /api/v2/tickets/{id}/comments.json` — the API returns only internal notes for those tickets. Passing `{{ticket.latest_comment}}` inline is the only reliable source for the user's message.
+
+---
+
+## Example (Python)
+
+```python
+from autoplay_sdk.integrations.zendesk import (
+    ZENDESK_TRIGGER_TYPES,
+    ZENDESK_TRIGGER_TYPE_NEW_TICKET,
+    ZENDESK_TRIGGER_TYPE_USER_REPLY,
+    build_zendesk_trigger_body,
+    zendesk_auth_headers,
+    zendesk_chat_webhook_url,
+    zendesk_chatbot_webhook_url,
+)
+import httpx, os
+
+subdomain     = os.environ["ZENDESK_SUBDOMAIN"]
+email         = os.environ["ZENDESK_EMAIL"]
+api_token     = os.environ["ZENDESK_API_TOKEN"]
+product_id    = os.environ["AUTOPLAY_PRODUCT_ID"]
+connector_url = os.environ["CONNECTOR_URL"]
+
+headers  = zendesk_auth_headers(email, api_token)
+base     = f"https://{subdomain}.zendesk.com/api/v2"
+context_endpoint = zendesk_chatbot_webhook_url(connector_url, product_id)
+chat_endpoint    = zendesk_chat_webhook_url(connector_url, product_id)
+
+
+async def register_webhooks_and_triggers():
+    async with httpx.AsyncClient(base_url=base) as client:
+
+        # Create context webhook → /chatbot-webhook/{product_id}
+        r = await client.post("/webhooks", headers=headers, json={"webhook": {
+            "name": "Autoplay Context Webhook",
+            "endpoint": context_endpoint,
+            "http_method": "POST", "request_format": "json", "status": "active",
+            "subscriptions": ["conditional_ticket_events"],
+        }})
+        r.raise_for_status()
+        context_webhook_id = r.json()["webhook"]["id"]
+
+        # Create chat webhook → /zendesk/chat/{product_id}
+        r = await client.post("/webhooks", headers=headers, json={"webhook": {
+            "name": "Autoplay Chat Webhook",
+            "endpoint": chat_endpoint,
+            "http_method": "POST", "request_format": "json", "status": "active",
+            "subscriptions": ["conditional_ticket_events"],
+        }})
+        r.raise_for_status()
+        chat_webhook_id = r.json()["webhook"]["id"]
+
+        # Trigger A: new ticket → context webhook (internal note only)
+        await client.post("/triggers", headers=headers, json={"trigger": {
+            "title": "Autoplay — New Ticket", "active": True,
+            "conditions": {"all": [
+                {"field": "update_type", "operator": "is", "value": "Create"},
+            ]},
+            "actions": [{"field": "notification_webhook",
+                         "value": [context_webhook_id,
+                                   build_zendesk_trigger_body(ZENDESK_TRIGGER_TYPE_NEW_TICKET)]}],
+        }})
+
+        # Trigger B: user reply → chat webhook (LLM reply)
+        # role:end-user silently fails for Zendesk Messaging — omit it.
+        await client.post("/triggers", headers=headers, json={"trigger": {
+            "title": "Autoplay — User Reply", "active": True,
+            "conditions": {"all": [
+                {"field": "update_type",       "operator": "is", "value": "Change"},
+                {"field": "comment_is_public", "operator": "is", "value": "true"},
+            ]},
+            "actions": [{"field": "notification_webhook",
+                         "value": [chat_webhook_id,
+                                   build_zendesk_trigger_body(
+                                       ZENDESK_TRIGGER_TYPE_USER_REPLY,
+                                       include_user_message=True,
+                                   )]}],
+        }})
+```
+
+---
+
+## Helpers reference
+
+| Helper | Purpose |
+|--------|---------|
+| **`zendesk_auth_headers(email, api_token)`** | `Authorization: Basic …` + `Content-Type: application/json`. Never hand-roll Zendesk Basic auth. |
+| **`zendesk_chatbot_webhook_url(host, product_id)`** | Builds `/chatbot-webhook/{product_id}` — Trigger A endpoint. |
+| **`zendesk_chat_webhook_url(host, product_id)`** | Builds `/zendesk/chat/{product_id}` — Trigger B endpoint. |
+| **`build_zendesk_trigger_body(trigger_type, *, include_user_message=False)`** | JSON body string for Zendesk trigger actions. Set `include_user_message=True` for Trigger B. |
+| **`ZENDESK_TRIGGER_TYPES`** | `("new_ticket", "user_reply")` — all connector-recognized trigger types. |
+| **`ZENDESK_TRIGGER_TYPE_NEW_TICKET`** | `"new_ticket"` |
+| **`ZENDESK_TRIGGER_TYPE_USER_REPLY`** | `"user_reply"` |
+
+---
+
+## Connector endpoints (reference)
+
+| HTTP | Role |
+|------|------|
+| `POST /chatbot-webhook/{product_id}` | Primary session-link path: receives `new_ticket` from Zendesk, resolves PostHog session by requester email, flushes buffered events as an internal note (`public: false`). |
+| `POST /zendesk/chat/{product_id}` | LLM reply path: receives `user_reply` with inline `user_message`, builds RAG context, calls Claude, posts public reply (`public: true`). Returns `200` immediately; LLM + Zendesk write run as a background task. |
+
+Inbound webhook signature verification uses `X-Zendesk-Webhook-Signature` (HMAC-SHA256) when `signing_secret` is present in `integration_config`. If absent, all inbound requests are accepted.
+
+---
+
+## Delivery stack in this repo
+
+- **`BaseChatbotWriter`** ([Chatbot writer](/sdk/chatbot-writer)) — pre-link buffer, post-link debounce, shared note body format (`format_chatbot_note_header`, numbered action lines, binning).
+- **`ZendeskChatbot`** (event connector `flows/chatbot/zendesk.py`) — subclass; implements `_post_note` (Zendesk `PUT /api/v2/tickets/{id}.json` with `public: false`, exponential retry) and `_redact_part` (no-op — Zendesk comments are immutable). Registered as `CHATBOT_REGISTRY["zendesk"]`.
+
+For LLM summaries, pair with **`AsyncAgentContextWriter`** as described on the chatbot-writer page.
+
+---
+
+## Related
+
+- [Chatbot writer](/sdk/chatbot-writer) — `BaseChatbotWriter` contract and note format.
+- [Agent context](/sdk/agent-context) — summariser + `overwrite_with_summary` flow.
+- `chatbot-zendesk` skill — full setup guide: preflight, webhook + trigger registration, smoke test, and failure modes.
