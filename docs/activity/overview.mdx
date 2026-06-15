@@ -1,0 +1,108 @@
+---
+title: "Live user activity"
+sidebarTitle: "Overview & REST API"
+description: "The agent-agnostic surface for pulling a user's recent in-app activity on demand — one REST endpoint (and MCP tool) any AI agent can call."
+---
+
+**Live user activity** is a single, agent-agnostic surface that hands any AI agent a user's recent in-app footsteps — pages viewed, buttons clicked, forms submitted — at the exact moment it needs context to answer.
+
+Think of it as a **lookup desk**: an agent walks up with a `product_id` and a `user_id`, and the connector hands back the last few things that user did. Two doors lead to the same desk:
+
+- **REST endpoint** — `GET /users/{product_id}/{user_id}/live-activity` (this page).
+- **[MCP server](/mcp/server)** — the `get_live_user_activity` tool, for agents that speak MCP.
+
+<Note>
+  This surface is **not tied to any one chatbot**. Intercom Fin is the first agent to use it; Maven and others follow the same pattern. To wire a specific agent, see **[Connect an AI agent](/activity/connect-an-agent)**.
+</Note>
+
+## The endpoint
+
+```
+GET https://event-connector-luda.onrender.com/users/{product_id}/{user_id}/live-activity
+```
+
+| Part | Meaning |
+| --- | --- |
+| `{product_id}` | Your Autoplay product id — the same `YOUR_PRODUCT_ID` you registered in the [Quickstart](/quickstart). |
+| `{user_id}` | The **stable** user identifier your activity source stamps events with (e.g. the id you pass to `posthog.identify(...)`; the Amplitude `user_id`; …). This match is the linchpin; see **[Identity](/activity/identity)**. |
+| `?limit=` | Optional. Max recent actions to return. Omitted or `<= 0` falls back to the configured cap (50). |
+
+**Auth** — `Authorization: Bearer YOUR_UNKEY_TOKEN` (the Unkey token from your Quickstart product registration).
+
+- **401** — token missing or invalid.
+- **403** — the token is valid but its `external_id` doesn't match the `{product_id}` in the URL (a key for product A can't read product B).
+
+## The response
+
+The envelope, with `actions` ordered **oldest → newest**:
+
+```json
+{
+  "product_id": "YOUR_PRODUCT_ID",
+  "user_id": "user_12345",
+  "count": 3,
+  "as_of": 1736940750.881,
+  "actions": [
+    {
+      "type": "pageview",
+      "title": "Page Load: Dashboard",
+      "description": "User landed on the dashboard page",
+      "timestamp_start": 1736940685.103,
+      "timestamp_end": 1736940691.250,
+      "raw_url": "https://app.example.com/dashboard",
+      "canonical_url": "https://app.example.com/dashboard",
+      "index": 0
+    },
+    {
+      "type": "click",
+      "title": "Click Export Csv",
+      "description": "User clicked the Export Csv button on the dashboard page",
+      "timestamp_start": 1736940691.250,
+      "timestamp_end": 1736940705.610,
+      "raw_url": "https://app.example.com/orders/12345",
+      "canonical_url": "https://app.example.com/orders/:id",
+      "index": 1
+    },
+    {
+      "type": "submit",
+      "title": "Submit Payment Form",
+      "description": "User submitted the Payment form on the checkout page",
+      "timestamp_start": 1736940705.610,
+      "timestamp_end": 1736940705.610,
+      "raw_url": "https://app.example.com/checkout",
+      "canonical_url": "https://app.example.com/checkout",
+      "index": 2
+    }
+  ]
+}
+```
+
+Each action carries `type`, `title`, `description`, `timestamp_start`, `timestamp_end`, `raw_url`, `canonical_url`, and `index`. The `user_id` lives on the envelope, not inside each action.
+
+<Tip>
+  **Test it from your terminal** before wiring any agent. Use a real product id, a `user_id` you've actually identified, and your Unkey token:
+
+  ```bash
+  curl "https://event-connector-luda.onrender.com/users/YOUR_PRODUCT_ID/user_12345/live-activity?limit=10" \
+    -H "Authorization: Bearer YOUR_UNKEY_TOKEN"
+  ```
+
+  A `200` with a populated `actions` array means the desk is open and the user has footsteps on file.
+</Tip>
+
+## Before activity appears
+
+This surface only returns something once the connector has **recorded** activity for that user — your activity source must be wired up and the user must have generated events.
+
+**With PostHog** (the source used in the Quickstart): complete **[Quickstart](/quickstart) Steps 1–4** — the snippet, `posthog.identify(...)`, product registration, and the webhook. You do **not** need Quickstart Step 5 (the SSE stream consumer); that's a separate push-style integration. Other sources (e.g. Amplitude) follow the same idea through their own ingestion path.
+
+<Warning>
+  **Identifying a user alone stores nothing.** With PostHog, activity is built only from **`$pageview`** and **`$autocapture`** events (page loads, clicks, form submits) — a user who has identified but not yet browsed returns an **empty** `actions` array. Other sources capture their own equivalent events. Make sure capture is enabled and the user has actually navigated/clicked before expecting results.
+</Warning>
+
+<Note>
+  **Retention** — this is short-lived "live" memory, not an archive:
+
+  - **24-hour TTL** (`ACTIVITY_TTL_S` = `86400`) — activity older than a day expires.
+  - **50 actions max** per user (`ACTIVITY_MAX_EVENTS` = `50`) — older ones are trimmed.
+</Note>

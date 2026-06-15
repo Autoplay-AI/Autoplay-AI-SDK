@@ -1,0 +1,60 @@
+---
+title: "Identity"
+sidebarTitle: "Identity (the linchpin)"
+description: "The one rule that makes live activity work for any AI agent and any activity source: the user_id the agent sends must equal the id activity was stored under."
+---
+
+Everything in [Live user activity](/activity/overview) hinges on one rule:
+
+> **The `user_id` an agent sends must equal the `user_id` activity was stored under** — the stable id your **activity source** identifies the user with.
+
+Activity is keyed by that id. If an agent asks for a different value (an email, a chatbot contact id, an anonymous session id), it reads the wrong bucket — or an empty one — and the user looks inactive even though they've been clicking around.
+
+<Note>
+  **The id depends on your activity source.** Autoplay is source-agnostic — the source set grows over time:
+
+  | Source | The stable user id |
+  | --- | --- |
+  | **PostHog** | the id you pass to `posthog.identify(user_id, …)` (the `distinct_id`) |
+  | **Amplitude** | the Amplitude `user_id` set on events |
+  | _others_ | whatever stable id that source stamps on events |
+
+  Whichever source you use, the rule is the same: the agent must send **that** id.
+</Note>
+
+## The three layers that must agree
+
+```
+1. your activity source identifies the user   ← PostHog identify / Amplitude user_id / …
+2. the connector's activity store              ← keyed by that same id
+3. the id your AI agent sends                  ← must equal layer 1
+```
+
+Layers 1 and 2 line up automatically — the connector stores activity under the stable id your source sends. The work is making **layer 3** carry that exact value.
+
+<Warning>
+  Use a **stable user id** — your internal user primary key, the same one your activity source identifies with. Do **not** key on **email**: emails change, and activity is stored under the stable id, so an email lookup reads the wrong bucket.
+</Warning>
+
+## How each agent satisfies layer 3
+
+Every agent has its own way of passing a trusted identity to the connector. The mechanism differs per agent; the required *value* is always the same (your activity source's stable user id).
+
+| Agent | How it passes identity |
+| --- | --- |
+| **Intercom Fin** | Messenger **JWT identity verification** — sign a JWT carrying the user id and boot the Messenger with it. See [Let Fin pull live activity → Verify identity](/recipes/intercom-tutorial/let-fin-pull-live-activity#verify-identity-with-a-messenger-jwt). |
+| _Other agents (Maven, etc.)_ | Their own verified-identity mechanism — bind it to the same stable user id. |
+
+<Note>
+  For **anonymous** (not-logged-in) users there's no trusted identity to pass, so an agent can't reliably pull their activity. This surface is designed for **logged-in** users your source has identified.
+</Note>
+
+## Debugging "no recent activity"
+
+Almost always an identity mismatch. Confirm the **same** value appears in all three places:
+
+1. the id your activity source identifies the user with (e.g. PostHog `identify`, Amplitude `user_id`),
+2. whatever your agent uses as its verified identity (e.g. Fin's JWT `user_id` claim),
+3. the `{user_id}` the agent actually sends to the endpoint / MCP tool.
+
+For where identity is set on the source side, see your source's setup — e.g. the [Quickstart](/quickstart) covers `posthog.identify`.
