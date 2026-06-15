@@ -18,6 +18,10 @@ from autoplay_sdk.admin.onboarding_constants import (
 
 _REDACT_PLACEHOLDER = "[REDACTED]"
 # Lowercase key names whose JSON values are replaced (any nesting depth).
+# Includes known provider-specific webhook-secret aliases so the internal
+# ``post_register_product_payload`` error path redacts them without needing
+# a provider instance.  Additional aliases can be contributed at call time via
+# the ``extra_sensitive_keys`` parameter of ``redact_connector_error_response_text``.
 _SENSITIVE_JSON_KEYS: frozenset[str] = frozenset(
     {
         "webhook_secret",
@@ -28,7 +32,7 @@ _SENSITIVE_JSON_KEYS: frozenset[str] = frozenset(
         "api_key",
         "password",
         "secret",
-        "x_posthog_secret",
+        "x_posthog_secret",  # PostHog webhook-secret alias
     }
 )
 # Non-JSON error bodies longer than this are replaced with a length-only placeholder.
@@ -48,38 +52,50 @@ def _connector_transport_user_message(
     )
 
 
-def redact_connector_error_response_text(text: str) -> str:
+def redact_connector_error_response_text(
+    text: str,
+    extra_sensitive_keys: frozenset[str] = frozenset(),
+) -> str:
     """Redact likely secrets in connector error bodies before logging or attaching to exceptions.
 
     Parses JSON when possible and replaces values for known sensitive keys at any depth.
     Non-JSON bodies are passed through if short; very long bodies are omitted to reduce leak risk.
+
+    Args:
+        text:                 Raw response body text to sanitize.
+        extra_sensitive_keys: Additional lowercase key names to redact — use
+                              ``provider.build_registration_body(...).sensitive_config_keys``
+                              to pass provider-specific aliases (e.g. ``"x_posthog_secret"``).
     """
     raw = (text or "").strip()
     if not raw:
         return ""
+    effective_keys = _SENSITIVE_JSON_KEYS | extra_sensitive_keys
     try:
         parsed: Any = json.loads(raw)
     except json.JSONDecodeError:
         if len(raw) > _MAX_PLAINTEXT_ERROR_BODY:
             return f"<non-JSON response omitted ({len(raw)} chars)>"
         return raw
-    return json.dumps(_redact_json_value(parsed), separators=(",", ":"))
+    return json.dumps(_redact_json_value(parsed, effective_keys), separators=(",", ":"))
 
 
-def _redact_json_value(obj: Any) -> Any:
+def _redact_json_value(
+    obj: Any, sensitive_keys: frozenset[str] = _SENSITIVE_JSON_KEYS
+) -> Any:
     if isinstance(obj, dict):
         out: dict[str, Any] = {}
         for k, v in obj.items():
-            if str(k).lower() in _SENSITIVE_JSON_KEYS:
+            if str(k).lower() in sensitive_keys:
                 if v in (None, "", [], {}):
                     out[k] = v
                 else:
                     out[k] = _REDACT_PLACEHOLDER
             else:
-                out[k] = _redact_json_value(v)
+                out[k] = _redact_json_value(v, sensitive_keys)
         return out
     if isinstance(obj, list):
-        return [_redact_json_value(x) for x in obj]
+        return [_redact_json_value(x, sensitive_keys) for x in obj]
     return obj
 
 
