@@ -26,6 +26,7 @@ from autoplay_sdk.admin.onboarding_constants import (
     onboard_connector_http_timeout_seconds,
 )
 from autoplay_sdk.admin.render_products_config import default_merge_local_path
+from autoplay_sdk.providers.base import ActivityProvider
 
 
 class UnkeyOnboardingError(Exception):
@@ -53,8 +54,11 @@ class OnboardingRunParams:
     merge_local_path: Path | None = None
     no_unkey: bool = False
     key_name: str | None = None
+    user_activity_provider: ActivityProvider | None = None
+    """Activity provider used to format the operator summary.  When ``None``,
+    falls back to the built-in PostHog summary block for backward compatibility."""
     print_operator_summary: bool = True
-    """Print PostHog / Unkey copy-paste block after success."""
+    """Print the activity-provider / Unkey copy-paste block after success."""
     quiet: bool = False
     """If True, skip step progress prints (still prints summary if enabled)."""
     connector_http_timeout_seconds: float | None = None
@@ -90,16 +94,31 @@ def print_onboarding_operator_summary(
     result: OnboardingRunResult,
     *,
     connector_url: str,
+    user_activity_provider: ActivityProvider | None = None,
 ) -> None:
-    """Print the operator-facing PostHog / Unkey summary block."""
-    _print_summary(
-        connector_url=connector_url,
-        product_id=result.product_id,
-        webhook_secret=result.webhook_secret,
-        integration_type=result.integration_type,
-        unkey_key=result.unkey_key,
-        key_id=result.unkey_key_id,
-    )
+    """Print the operator-facing activity-provider / Unkey summary block.
+
+    When ``user_activity_provider`` is given, delegates to its ``format_operator_summary()``.
+    Falls back to the built-in PostHog summary for backward compatibility.
+    """
+    if user_activity_provider is not None:
+        user_activity_provider.format_operator_summary(
+            connector_url=connector_url,
+            product_id=result.product_id,
+            webhook_secret=result.webhook_secret,
+            integration_type=result.integration_type,
+            unkey_key=result.unkey_key,
+            key_id=result.unkey_key_id,
+        )
+    else:
+        _print_summary(
+            connector_url=connector_url,
+            product_id=result.product_id,
+            webhook_secret=result.webhook_secret,
+            integration_type=result.integration_type,
+            unkey_key=result.unkey_key,
+            key_id=result.unkey_key_id,
+        )
 
 
 def _print_summary(
@@ -251,6 +270,10 @@ async def _run_product_onboarding_impl(
     )
 
     if params.print_operator_summary:
-        print_onboarding_operator_summary(result, connector_url=connector_url)
+        print_onboarding_operator_summary(
+            result,
+            connector_url=connector_url,
+            user_activity_provider=params.user_activity_provider,
+        )
 
     return result
