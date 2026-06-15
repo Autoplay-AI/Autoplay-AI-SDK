@@ -1,0 +1,34 @@
+---
+title: Reduce human support
+sidebarTitle: "🎫 Reduce human support"
+description: Scope conversations precisely with full user context so more issues resolve in AI and fewer escalated to humans.
+---
+
+When your chatbot has full context on what a user was doing, it can scope conversations precisely — even redirecting poorly framed questions toward the right answer. Better context means better responses, which means more conversations resolved by AI and fewer escalated to humans. Less cost, happier users.
+
+<Tabs sync={false}>
+  <Tab title="Without real-time context">
+    ```text
+    User: it's not working
+
+    Bot: Could you clarify what isn't working? I'd be happy to help!
+
+    (Escalated to human. 2.4 min avg to resolve. No session context.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    Context: User clicked export 4× in last 2 min — stuck on CSV format step
+
+    User: it's not working
+
+    Bot: Looks like you've been trying to export as CSV — the format dropdown
+    can be easy to miss. Click the arrow next to the Export button and select
+    CSV from the list.
+
+    Want me to walk you through it?
+
+    (Resolved by AI. No escalation. Context-scoped answer.)
+    ```
+  </Tab>
+</Tabs>

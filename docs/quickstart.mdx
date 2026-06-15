@@ -4,8 +4,16 @@ sidebarTitle: "🚀 Quickstart"
 description: "Stream real-time user events into your AI copilots and agents in a couple lines of code."
 ---
 
+{/* HIDDEN (per product feedback — keep, do not delete):
+<Tip>
+  **Want this done for you?** The [⚡ One-command setup](/get-started/one-command-setup)
+  CLI runs the product registration and creates + verifies the PostHog
+  destination automatically — you only confirm the small frontend edit. This
+  page is the manual, step-by-step version of the same wiring.
+</Tip>
+*/}
 
-## Install the SDK and agent skills first
+## Install the SDK
 
 Run these commands once from your project root:
 
@@ -15,35 +23,7 @@ pip install autoplay-sdk
 uv add autoplay-sdk
 ```
 
-Then install Autoplay skills for Cursor/Claude:
-
-```bash
-autoplay-install-skills
-```
-
-<Note>
-  **SDK reorganization update (v0.7.6):** internal imports were reorganized into domain-based modules in `0.7.4`. Existing old paths still work (with deprecation warnings) and are removed in `1.0.0`.
-
-  To migrate quickly, install migration skills and run:
-
-  ```bash
-  autoplay-install-skills --migrate
-  ```
-
-  See [Migration 0.7.4](/sdk/migration-0.7.4) for the complete old-to-new path mapping.
-</Note>
-
-Agent skills add project-local guidance so your assistant follows the correct integration pattern for your stack (session scoping, conversation linking, and field mapping) instead of generating generic setup code.
-
-Use `--force` only when you intentionally want to overwrite existing local skill customizations.
-
-You can also target a specific stack:
-
-```bash
-autoplay-install-skills --chatbot ada --user-activity fullstory
-autoplay-install-skills --chatbot intercom --user-activity posthog
-autoplay-install-skills --chatbot botpress
-```
+Install [Agent skills](/get-started/agent-skills) for Cursor/Claude so your assistant follows the correct integration pattern for your stack. See [Pricing](/who-we-are/pricing) for plans.
 
 ## 🎥 Step-1 Choose your existing session replay provider
 
@@ -59,14 +39,9 @@ autoplay-install-skills --chatbot botpress
   - **Project Settings:** Navigate to Project Settings in the PostHog sidebar. The ID is typically listed under the general project configuration or API sections.
 </Tip>
 
-### 🎯 Step 1 — Go to the project page in Autoplay and press "create one with Autoplay"
+### 🎯 Step 1 — Go to Posthog and create a project
 
-First, you need to grab the unique IDs that tell our system who you are.
-
-1. Go to [**app.autoplay.ai**](https://app.autoplay.ai) and sign up.
-2. Inside your dashboard, find your **Product ID** and **API Key**. Keep this page open—you will need both of these in the next step!
-
-Note: Save your product ID as this will be important for product registration with the SDK!
+Your project ID is stored in the url: https://us.posthog.com/project/{project_id}/onboarding?next=%2Fhome
 
 ---
 
@@ -89,27 +64,37 @@ posthog.init('YOUR_POSTHOG_PROJECT_API_KEY', {
     // This stops recording if a user walks away for 2 minutes, keeping your data clean:
     session_idle_timeout_seconds: 120, 
     loaded: (posthog) => {
-        posthog.identify(posthog.get_distinct_id(), {
-            // Autoplay-specific field. Must match onboard_product(product_id=...).
-            product_id: 'YOUR_PRODUCT_ID', 
-        });
+        // Attach product_id to every event as a super-property. This is NOT an
+        // identify call, so it never creates an anonymous "identified" user.
+        // Must match onboard_product(product_id=...).
+        posthog.register({ product_id: 'YOUR_PRODUCT_ID' });
     },
 })
 ```
 
-**Highly Recommended: Tag users when they log in** If a user logs into your app, you can tell Autoplay who they are. This automatically links their web activity to their chatbot conversations, no extra work required. Just run this code right after your login process finishes:
+**Required: identify users with your app's stable id on login.** The moment your
+auth flow knows who the user is, pass **your own user id** (never the anonymous
+`posthog.get_distinct_id()`). This makes PostHog's `distinct_id` equal your app's
+user id — so the same id reaches Autoplay as `user_id` — and links their earlier
+anonymous activity to the identified person:
 
 ```javascript
+// On login:
 posthog.identify(user.id, {
     product_id: 'YOUR_AUTOPLAY_PRODUCT_ID',
     email: user.email, // Added to the person profile and the $identify event.
 })
 
-// If you want payload.email on ongoing autocapture events, also register email as a super-property.
-posthog.register({ email: user.email })
+// On logout — clears identity so the next user starts clean:
+posthog.reset()
 ```
 
-_(Note: If you don't provide an email, anonymous users will still be tracked.)_
+<Warning>
+  Don't call `posthog.identify(posthog.get_distinct_id(), …)` — that re-stamps
+  the anonymous id and never sets a real user id. Always pass your app's stable
+  user id. Until a user logs in they stay anonymous (that's expected); the
+  `session_id` still scopes everything.
+</Warning>
 
 > **👋 Quick Tip:** Once you add this code to your site, jump into our [Slack workspace](https://join.slack.com/t/autoplay-ai-dev/shared_invite/zt-3uslbaddx-UT2Cl18BGiLkeMwJ439ppg) and drop a message in `#just-integrated`. We will check to make sure your data is flowing properly and help you get fully set up!
 
@@ -182,15 +167,49 @@ This will print the following fields:
 
 Now we must tell the website tracker (Step 2) to send its data to the secure address (webhook) you just generated (Step 3).
 
-**You have two choices:**
+**You have three choices:**
 
-**Option A — Managed (default)**
+**Option A — Automated with the SDK (recommended)**
+
+Let the SDK create and verify the destination for you — no clicking around in
+PostHog, no pasting Hog code. Run this once with the values from Step 3:
+
+```python
+import asyncio
+from autoplay_sdk.providers import PostHogProvider
+
+async def main() -> None:
+    provider = PostHogProvider()
+    dest = await provider.create_destination(
+        host="https://us.posthog.com",          # your PostHog host
+        project_id="YOUR_POSTHOG_PROJECT_ID",
+        personal_api_key="phx_…",                # needs project:read + hog_function:write
+        webhook_url="…",                          # result.webhook_url from Step 3
+        webhook_secret="…",                       # result.webhook_secret from Step 3
+    )
+    status = await provider.verify(
+        host="https://us.posthog.com",
+        project_id="YOUR_POSTHOG_PROJECT_ID",
+        personal_api_key="phx_…",
+        destination_id=dest.id,
+    )
+    print("destination", dest.id, "enabled:", status.ok)
+
+asyncio.run(main())
+```
+
+It's **idempotent** — it creates the "Autoplay Event Stream" destination (or
+updates it) and confirms it's enabled, so you can re-run it safely.
+
+**Option B — Managed**
 
 - Join our [Slack workspace](https://join.slack.com/t/autoplay-ai-dev/shared_invite/zt-3uslbaddx-UT2Cl18BGiLkeMwJ439ppg) and message **`#just-integrated`**.
 - We configure the PostHog webhook for you.
 - You receive a **1Password** link with your **Stream URL** and **API token** for Step 5.
 
-**Option B — Self-serve (DIY)**
+**Option C — Fully manual (advanced)**
+
+Add the destination by hand in PostHog — only needed if you can't run Option A:
 
 - In PostHog, add a **Webhook** destination.
 - **Webhook URL:** paste **`result.webhook_url`** from Step 3.
@@ -415,7 +434,17 @@ This output comes from the example script's `print(...)` statements. SDK callbac
 
 ---
 
-### 🚀 Next Steps & Advanced Features
+### 🔌 Next: connect your AI agent via MCP
+
+Your activity is now flowing into the connector. The main thing to do next is **let your AI support agent read it** — **Intercom Fin** (or any MCP-speaking agent) pulls a user's live activity on demand through the **MCP server**.
+
+<Card title="🔌 Connect an AI agent (MCP)" icon="plug" href="/activity/connect-an-agent">
+  Point Intercom Fin at the Autoplay MCP server so it can pull a user's live activity, on demand. This is the recommended path.
+</Card>
+
+---
+
+### 🚀 Other next steps
 
 Now that your data is flowing, here's how to put it to work:
 
@@ -443,16 +472,24 @@ Now that your data is flowing, here's how to put it to work:
     Combine real-time events, memory, and golden paths
   </Card>
 
-  <Card title="Chatbot tutorials" icon="comments" href="/recipes/intercom-tutorial">
+  <Card title="Chatbot tutorials" icon="comments" href="/recipes/intercom-tutorial/step-1-connect-real-time-events">
     Step-by-step guides for Intercom, Ada, Botpress, and more
   </Card>
 
-  <Card title="AI agent skills" icon="wand-magic-sparkles" href="/recipes/intercom-tutorial">
-    Install Cursor / Claude skills with autoplay-install-skills
+  <Card title="AI agent skills" icon="wand-magic-sparkles" href="/get-started/agent-skills">
+    Browse, install, and download Cursor / Claude skills
   </Card>
 </CardGroup>
 
 For structured logging and `extra` field conventions used across the SDK, see [Logging](/sdk/logging). Release history is on the [Changelog](/changelog).
+
+</Accordion>
+
+<Accordion title="Amplitude" icon="/images/recipes/amplitude/logo.svg" iconType="image">
+
+If you **already use Amplitude** to capture events, send them to Autoplay the same way — `identify` your users with a stable id, then register your product.
+
+[View the Amplitude setup ->](/recipes/amplitude/how-to-setup)
 
 </Accordion>
 
@@ -475,48 +512,48 @@ Coming soon. Join our [Discord](https://discord.gg/jCbR2tQA5) for notifications.
 </Accordion>
 </AccordionGroup>
 
-## 🤖 Step-2 Choose your existing chatbot provider
+## 🤖 Step-2 choose your existing AI support agent
 
 <AccordionGroup>
 <Accordion title="Intercom" icon="/images/recipes/intercom/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/intercom-tutorial/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/intercom-tutorial/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Ada" icon="/images/recipes/ada/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/ada/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/ada/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Botpress" icon="/images/recipes/botpress/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/botpress/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/botpress/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Dify" icon="/images/recipes/dify/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/dify-tutorial)
+[View tutorial ->](/recipes/dify-tutorial/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Tidio" icon="/images/recipes/tidio/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/tidio/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/tidio/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Landbot" icon="/images/recipes/landbot/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/landbot/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/landbot/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Crisp AI" icon="/images/recipes/crisp/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/crisp-ai)
+[View tutorial ->](/recipes/crisp-ai/step-1-connect-real-time-events)
 
 </Accordion>
 
@@ -546,43 +583,43 @@ Coming soon.
 <AccordionGroup>
 <Accordion title="Userpilot" icon="/images/recipes/userpilot/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/userpilot/how-to-setup)
+[View tutorial ->](/recipes/userpilot/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Chameleon" icon="/images/recipes/chameleon/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/chameleon/how-to-setup)
+[View tutorial ->](/recipes/chameleon/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Userflow" icon="/images/recipes/userflow/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/userflow/how-to-setup)
+[View tutorial ->](/recipes/userflow/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Pendo" icon="/images/recipes/pendo/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/pendo/how-to-setup)
+[View tutorial ->](/recipes/pendo/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Usertour" icon="/images/recipes/usertour/logo.svg" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/usertour/how-to-setup)
+[View tutorial ->](/recipes/usertour/how-to-setup)
 
 </Accordion>
 
 <Accordion title="UserGuiding" icon="/images/recipes/userguiding/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/userguiding/how-to-setup)
+[View tutorial ->](/recipes/userguiding/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Told" icon="/images/recipes/told/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/told/how-to-setup)
+[View tutorial ->](/recipes/told/how-to-setup)
 
 </Accordion>
 </AccordionGroup>
