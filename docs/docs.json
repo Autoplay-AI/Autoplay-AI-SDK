@@ -37,12 +37,23 @@
   "navigation": {
     "groups": [
       {
-        "group": "Get started",
+        "group": "Who We Are",
         "pages": [
-          "quickstart",
-          "sdk/overview",
+          "who-we-are/overview",
+          "who-we-are/our-story",
           {
-            "group": "✨ The proactive + visual support agent gold standard",
+            "group": "🎯 Use cases",
+            "root": "who-we-are/use-cases",
+            "pages": [
+              "who-we-are/feature-adoptions/reduce-ticket-support",
+              "who-we-are/feature-adoptions/improve-retention",
+              "who-we-are/feature-adoptions/improve-csat",
+              "who-we-are/feature-adoptions/upsell-features"
+            ]
+          },
+          "who-we-are/pricing",
+          {
+            "group": "🥇 The proactive onboarding agent gold standard",
             "root": "sdk/proactive-copilot",
             "expanded": true,
             "pages": [
@@ -56,20 +67,94 @@
         ]
       },
       {
-        "group": "Chatbot Tutorials",
+        "group": "Get Started",
+        "pages": [
+          "quickstart",
+          "get-started/one-command-setup",
+          {
+            "group": "🛠️ Agent skills",
+            "root": "get-started/agent-skills",
+            "pages": [
+              "get-started/agent-skills/autoplay-core",
+              "get-started/agent-skills/autoplay-migrate-imports",
+              "get-started/agent-skills/chatbot-ada",
+              "get-started/agent-skills/chatbot-botpress",
+              "get-started/agent-skills/chatbot-crisp",
+              "get-started/agent-skills/chatbot-dify",
+              "get-started/agent-skills/chatbot-intercom",
+              "get-started/agent-skills/chatbot-landbot",
+              "get-started/agent-skills/chatbot-tidio",
+              "get-started/agent-skills/activity-amplitude",
+              "get-started/agent-skills/activity-fullstory",
+              "get-started/agent-skills/activity-posthog"
+            ]
+          }
+        ]
+      },
+      {
+        "group": "Live User Activity",
         "pages": [
           {
-            "group": "Inkeep tutorial",
-            "icon": "/images/recipes/inkeep/logo.png",
-            "root": "recipes/inkeep",
-            "badge": "New",
+            "group": "PostHog",
+            "icon": "/images/recipes/posthog/logo.png",
+            "root": "recipes/posthog",
+            "pages": ["recipes/posthog/how-to-setup"]
+          },
+          {
+            "group": "Amplitude",
+            "icon": "/images/recipes/amplitude/logo.svg",
+            "root": "recipes/amplitude",
+            "pages": ["recipes/amplitude/how-to-setup"]
+          },
+          {
+            "group": "FullStory",
+            "icon": "/images/recipes/fullstory/logo.png",
+            "root": "recipes/fullstory",
+            "tag": "Coming Soon",
+            "pages": ["recipes/fullstory/how-to-setup"]
+          },
+          {
+            "group": "Datadog",
+            "icon": "/images/recipes/datadog/logo.svg",
+            "root": "recipes/datadog",
+            "tag": "Coming Soon",
+            "pages": ["recipes/datadog/how-to-setup"]
+          },
+          {
+            "group": "Pendo",
+            "icon": "/images/recipes/pendo/logo.png",
+            "root": "recipes/pendo",
+            "tag": "Coming Soon",
+            "pages": ["recipes/pendo/how-to-setup"]
+          }
+        ]
+      },
+      {
+        "group": "AI Support Agents",
+        "pages": [
+          {
+            "group": "Intercom",
+            "icon": "/images/recipes/intercom/logo.png",
+            "badge": "Coming Soon",
             "pages": [
-              "recipes/inkeep/step-1-connect-real-time-events",
-              "recipes/inkeep/step-2-proactive-guidance"
+              "recipes/intercom-tutorial",
+              {
+                "group": "Push activity into Intercom",
+                "pages": [
+                  "recipes/intercom-tutorial/step-1-connect-real-time-events",
+                  "recipes/intercom-tutorial/step-2-define-proactive-triggers"
+                ]
+              },
+              {
+                "group": "Let Fin pull activity",
+                "pages": [
+                  "recipes/intercom-tutorial/let-fin-pull-live-activity"
+                ]
+              }
             ]
           },
           {
-            "group": "Botpress tutorial",
+            "group": "Botpress",
             "icon": "/images/recipes/botpress/logo.png",
             "root": "recipes/botpress",
             "badge": "Coming Soon",
@@ -79,7 +164,7 @@
             ]
           },
           {
-            "group": "Dify tutorial",
+            "group": "Dify",
             "icon": "/images/recipes/dify/logo.png",
             "root": "recipes/dify-tutorial",
             "badge": "Coming Soon",
@@ -89,7 +174,7 @@
             ]
           },
           {
-            "group": "Crisp AI tutorial",
+            "group": "Crisp AI",
             "icon": "/images/recipes/crisp/logo.png",
             "root": "recipes/crisp-ai",
             "badge": "Coming Soon",
@@ -99,17 +184,7 @@
             ]
           },
           {
-            "group": "Intercom tutorial",
-            "icon": "/images/recipes/intercom/logo.png",
-            "root": "recipes/intercom-tutorial",
-            "badge": "Coming Soon",
-            "pages": [
-              "recipes/intercom-tutorial/step-1-connect-real-time-events",
-              "recipes/intercom-tutorial/step-2-define-proactive-triggers"
-            ]
-          },
-          {
-            "group": "Landbot tutorial",
+            "group": "Landbot",
             "icon": "/images/recipes/landbot/logo.png",
             "root": "recipes/landbot",
             "badge": "Coming Soon",
@@ -119,7 +194,7 @@
             ]
           },
           {
-            "group": "Rasa tutorial",
+            "group": "Rasa",
             "icon": "/images/recipes/rasa/logo.png",
             "root": "recipes/rasa",
             "badge": "New",
@@ -129,7 +204,7 @@
             ]
           },
           {
-            "group": "Inkeep tutorial",
+            "group": "Inkeep",
             "icon": "/images/recipes/inkeep/logo.png",
             "root": "recipes/inkeep/index",
             "badge": "New",
@@ -139,7 +214,7 @@
             ]
           },
           {
-            "group": "Tidio tutorial",
+            "group": "Tidio",
             "icon": "/images/recipes/tidio/logo.png",
             "root": "recipes/tidio",
             "badge": "Coming Soon",
@@ -149,7 +224,7 @@
             ]
           },
           {
-            "group": "Ada tutorial",
+            "group": "Ada",
             "icon": "/images/recipes/ada/logo.png",
             "root": "recipes/ada",
             "badge": "Coming Soon",
@@ -161,39 +236,7 @@
         ]
       },
       {
-        "group": "User Activity Tutorials",
-        "pages": [
-          {
-            "group": "FullStory tutorial",
-            "icon": "/images/recipes/fullstory/logo.png",
-            "root": "recipes/fullstory",
-            "badge": "Coming Soon",
-            "pages": ["recipes/fullstory/how-to-setup"]
-          },
-          {
-            "group": "Datadog tutorial",
-            "icon": "/images/recipes/datadog/logo.svg",
-            "root": "recipes/datadog",
-            "badge": "Coming Soon",
-            "pages": ["recipes/datadog/how-to-setup"]
-          },
-          {
-            "group": "PostHog tutorial",
-            "icon": "/images/recipes/posthog/logo.png",
-            "root": "recipes/posthog",
-            "pages": ["recipes/posthog/how-to-setup"]
-          },
-          {
-            "group": "Pendo tutorial",
-            "icon": "/images/recipes/pendo/logo.png",
-            "root": "recipes/pendo",
-            "badge": "Coming Soon",
-            "pages": ["recipes/pendo/how-to-setup"]
-          }
-        ]
-      },
-      {
-        "group": "User Tour Tutorials",
+        "group": "Visual User Tours",
         "pages": [
           "recipes/user-tour/overview",
           "recipes/userpilot/how-to-setup",
@@ -216,11 +259,21 @@
         ]
       },
       {
+        "group": "Live user activity",
+        "pages": [
+          "activity/overview",
+          "activity/identity",
+          "mcp/server",
+          "activity/connect-an-agent"
+        ]
+      },
+      {
         "group": "Build with events",
         "pages": [
           "sdk/rag-pipeline",
           "sdk/chatbot-context-assembly",
           "sdk/agent-states",
+          "sdk/user-adoption-state",
           "sdk/proactive-triggers",
           "sdk/proactive-triggers-authoring",
           "sdk/proactive-triggers-builtins",
@@ -260,6 +313,14 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/get-started/pricing",
+      "destination": "/who-we-are/pricing"
+    },
+    {
+      "source": "/sdk/overview",
+      "destination": "/who-we-are/overview"
+    },
     {
       "source": "/sdk/proactive-copilot/step-2-add-to-llm-context",
       "destination": "/sdk/proactive-copilot/step-2-add-actions-to-llm-context"
