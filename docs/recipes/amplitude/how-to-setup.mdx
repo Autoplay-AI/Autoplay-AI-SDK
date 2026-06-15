@@ -1,0 +1,338 @@
+---
+title: "Amplitude — How to setup"
+sidebarTitle: "How to setup"
+description: "Learn how to stream live user activity from Amplitude into Autoplay to give your chatbot real-time context on what every user is doing."
+icon: "/images/recipes/amplitude/logo.svg"
+---
+
+# Streaming live user activity from Amplitude to Autoplay
+
+This tutorial connects Amplitude as your activity source for Autoplay. Once set up, every page view and interaction Amplitude captures is streamed to your connector in real time — giving your chatbot, proactive triggers, and RAG pipeline live context on exactly what each user is doing.
+
+---
+
+## Prerequisites
+
+- Amplitude account with Browser SDK 2.x (`@amplitude/analytics-browser`)
+- An Autoplay product registered via `onboard_product` (you'll need `result.unkey_key` and `result.stream_url`)
+- Admin access to Amplitude Data to create a destination
+
+---
+
+## Step 1 — Install the Amplitude Browser SDK
+
+```bash
+npm install @amplitude/analytics-browser
+```
+
+---
+
+## Step 2 — Initialize on app load
+
+Call `amplitude.init()` once at app startup — for example in `main.ts`, `_app.tsx`, or your root layout:
+
+```typescript
+import * as amplitude from '@amplitude/analytics-browser';
+
+amplitude.init('YOUR_AMPLITUDE_API_KEY', undefined, {
+  defaultTracking: {
+    sessions: true,
+    pageViews: true,
+    formInteractions: true,
+    fileDownloads: true,
+  },
+});
+```
+
+`defaultTracking` ensures that page views and session lifecycle events flow to Autoplay automatically. No custom event instrumentation is required for basic activity tracking.
+
+---
+
+## Step 3 — Identify on login (required for session scoping)
+
+Run this immediately after your login flow completes:
+
+```typescript
+import { Identify } from '@amplitude/analytics-browser';
+
+amplitude.setUserId(user.id);
+
+const identify = new Identify()
+  .set('product_id', 'YOUR_AUTOPLAY_PRODUCT_ID')
+  .set('email', user.email);
+
+amplitude.identify(identify);
+```
+
+**Why both `setUserId` and `identify`?**
+
+`setUserId` tells Amplitude who the user is. The `Identify` call sets `user_properties` — including `product_id` and `email` — which Autoplay uses to map Amplitude events to the correct tenant and to link activity with your chatbot's incoming conversation threads.
+
+Without `setUserId`, users are tracked by `device_id` only. The session is still scoped correctly for activity tracking, but `user_id` and `email` will be absent on incoming `ActionsPayload` events until identity is established.
+
+---
+
+## Step 4 — Session ID in your backend
+
+Amplitude assigns each session a numeric Unix-millisecond timestamp as its ID. Autoplay converts it to a string automatically.
+
+```python
+# The session_id on every ActionsPayload is the Amplitude session_id as a string.
+# Example: "1749012345678"
+
+async def on_actions(payload: ActionsPayload):
+    if not payload.session_id:
+        return  # session not yet established — skip or queue
+    await agent_writer.add(payload)
+```
+
+**Getting the current session ID in the browser** (useful for linking the Intercom/chat widget to Autoplay's session store):
+
+```typescript
+// Returns the current Amplitude session ID as a number, or undefined.
+const sessionId = amplitude.getSessionId();
+const sessionIdStr = sessionId != null ? String(sessionId) : null;
+```
+
+Use `sessionIdStr` when making a call to `POST /sessions/link` to associate an open chat conversation with the live session.
+
+---
+
+## Step 5 — Derive the Amplitude ingest URL
+
+Your Autoplay connector exposes a dedicated Amplitude ingest endpoint. Derive it from the `stream_url` returned by `onboard_product`:
+
+```python
+from autoplay_sdk import onboard_product
+from autoplay_sdk.providers import AmplitudeProvider
+
+result = await onboard_product(
+    "your_product_id",
+    contact_email="owner@yourcompany.com",
+    provider=AmplitudeProvider(),
+    print_operator_summary=True,
+)
+
+# Derive Amplitude ingest URL from stream URL:
+amplitude_ingest_url = result.stream_url.replace("/stream/", "/ingest/amplitude/")
+amplitude_bearer_token = result.unkey_key
+
+print(f"Amplitude ingest URL : {amplitude_ingest_url}")
+print(f"Bearer token         : {amplitude_bearer_token}")
+```
+
+Example values:
+```
+Amplitude ingest URL : https://your-connector.onrender.com/ingest/amplitude/your_product_id
+Bearer token         : uk_live_abc123...
+```
+
+<Note>
+  The `amplitude_ingest_url` is **different** from `result.webhook_url`. The `webhook_url` is the PostHog endpoint — it expects PostHog-signed payloads and will return `401` for Amplitude events. Always use `/ingest/amplitude/{product_id}` for Amplitude.
+</Note>
+
+---
+
+## Step 6 — Create the event streaming destination
+
+Amplitude uses a **developer portal** to create custom event streaming destinations. There is no generic "HTTP" tile in the catalog — you build a destination definition once, then create syncs from it.
+
+### 6a — Open the destination builder
+
+1. In Amplitude, open **Data** in the left sidebar
+2. Go to **Catalog** → **Destinations** tab
+3. Under **"Create Destinations"**, click **"Create New Destination — Cohorts · Events · User Properties"**
+4. A modal appears — select **"Event Streaming"**
+
+### 6b — Fill in the Configuration tab
+
+Amplitude opens an **Event Streaming Destination** configuration page.
+
+**Integration Name**
+
+Give the destination a name, e.g. `autoplay-connector`. This name appears in the catalog after you release it.
+
+**URL Endpoint**
+
+| Field | Value |
+|---|---|
+| Method | `POST` |
+| URL | `https://your-connector.onrender.com/ingest/amplitude/your_product_id` |
+
+Replace `your-connector.onrender.com` and `your_product_id` with the values from `onboard_product`.
+
+**Create Parameters**
+
+Click **"Add New Parameter"** and add:
+
+| Parameter name | Value |
+|---|---|
+| `apiKey` | `Bearer result.unkey_key` |
+
+This lets you reference it as `${parameters.apiKey}` in the header below.
+
+**REST API Headers**
+
+Click **"Add New REST API Header"** and set:
+
+| Header Key | Header Value |
+|---|---|
+| `Authorization` | `${parameters.apiKey}` |
+
+**Event Body Editor**
+
+Replace the default Freemarker template with the Amplitude-compatible format the connector expects:
+
+```
+<#setting number_format="0.####">
+{
+  "events": [
+    {
+      "event_type": "${input.event_type}",
+      "user_id": "${input.user_id!''}",
+      "session_id": ${input.session_id!0},
+      "time": ${input.time!0},
+      "user_properties": {
+        <#assign up = input.user_properties!{}>
+        <#list up?keys as k>"${k}": "${up[k]}"<#sep>, </#sep></#list>
+      },
+      "event_properties": {
+        <#assign ep = input.event_properties!{}>
+        <#list ep?keys as k>"${k}": "${ep[k]}"<#sep>, </#sep></#list>
+      }
+    }
+  ]
+}
+```
+
+<Note>
+  The default Amplitude template sends `event_name` in a Braze-style format. The Autoplay connector expects `event_type` inside an `{"events": [...]}` wrapper — use the template above instead.
+</Note>
+
+Click **"Next"** to proceed to the Testing tab.
+
+---
+
+### 6c — Configure and release on the Testing tab
+
+The **Testing** tab shows **Destination Settings**.
+
+1. Enable the **"Send Events"** toggle — it should read *"Events are sent to [your destination name]."*
+2. Under **"Select & filter events"**, keep it set to **"All Events"**
+3. Click **"Test Connection"** to send a single test event and confirm you get a `200 OK` from the connector
+4. Once the test passes, click the **"Release"** button (top right) — this publishes the destination to the catalog
+
+After releasing, Amplitude shows **"Released internally"** next to the Release button. The destination now appears in **Catalog → Destinations → New Destinations**.
+
+---
+
+### 6d — Create a sync from the published destination
+
+1. Go back to **Data → Catalog → Destinations**
+2. Under **"New Destinations"**, find your destination (e.g., `Autoplay-testing1`)
+3. Click it → **"Add New [Destination] Sync"** page opens
+4. Enter a **Sync Name** (e.g., `production-stream`)
+5. Click **"Create Sync"**
+
+The sync is now active. Amplitude will stream all events to your connector endpoint in real time.
+
+---
+
+## Step 7 — Verify events are flowing
+
+**In Amplitude — Live Events:**
+
+Click any button in your app, then open **Amplitude → Live Events** (left sidebar). You should see your custom events appear within a few seconds, attributed to your `user_id`:
+
+```
+Opened Settings        usman-autoplay   Web
+Clicked "Open Settings" usman-autoplay  Web
+Started Onboarding     usman-autoplay   Web
+Clicked Export         usman-autoplay   Web
+Viewed Dashboard       usman-autoplay   Web
+```
+
+<Tip>
+  Enable the **"Live event updates"** toggle (top right of the Live Events page) to see events stream in without refreshing.
+</Tip>
+
+**In your connector — SSE stream:**
+
+Open a terminal and run:
+
+```bash
+curl -N "https://your-connector.onrender.com/stream/your_product_id" \
+  -H "Authorization: Bearer result.unkey_key"
+```
+
+After clicking buttons in your app you should see `data:` lines arrive with `"type": "actions"` payloads containing the extracted UI actions.
+
+**Common issues:**
+
+**If you see `401` on the connector:**
+- Confirm the `Authorization` header value is `Bearer result.unkey_key`, not the key without the `Bearer ` prefix.
+- Confirm the destination URL ends with `/ingest/amplitude/your_product_id`.
+
+**If you see `404`:**
+- Confirm `your_product_id` in the URL matches the `product_id` used in `onboard_product`.
+
+**If events appear in Amplitude Live Events but not in the SSE stream:**
+- Confirm the sync is active (Catalog → Destinations → your sync → status).
+- Confirm the Event Body template uses `event_type` (not `event_name`) and wraps events in `{"events": [...]}`.
+
+**If no events appear in Amplitude Live Events:**
+- Confirm the sync is enabled ("Send Events" toggle is on).
+- Confirm you are calling `amplitude.setUserId()` before tracking events.
+
+---
+
+## What the payload looks like
+
+A sample Amplitude event that Autoplay receives:
+
+```json
+{
+  "event_type": "$pageview",
+  "session_id": 1749012345678,
+  "user_id": "user-462718483",
+  "device_id": "abc123def456",
+  "user_properties": {
+    "product_id": "your_product_id",
+    "email": "alice@example.com"
+  },
+  "event_properties": {
+    "[Amplitude] Page URL": "https://app.example.com/dashboard",
+    "[Amplitude] Page Title": "Dashboard"
+  },
+  "time": 1749012345678
+}
+```
+
+After normalization, `ActionsPayload` surfaces:
+- `session_id` — `"1749012345678"` (stringified)
+- `user_id` / `email` — from `user_properties` set via `amplitude.identify()`
+- `actions` — extracted page view actions with `canonical_url`, `title`, and `description`
+
+---
+
+## Common mistakes
+
+**Using `result.webhook_url` instead of the Amplitude ingest URL.**
+`webhook_url` is for PostHog destinations. It validates a PostHog-signed header that Amplitude never sends, so every request returns `401`. Always use `/ingest/amplitude/{product_id}`.
+
+**Calling `amplitude.setUserId()` but not `amplitude.identify()` with `product_id`.**
+`setUserId` alone does not write `user_properties`. Without an explicit `Identify` call, `product_id` and `email` will be absent from every event — Autoplay will not be able to map the event to your tenant or to an active chat conversation.
+
+**Session ID is `−1` in early events.**
+Amplitude initializes `session_id` to `−1` briefly before the first session is established. Autoplay falls back to `device_id` for these events, which is still a valid scoping key. This is normal and resolves within a few seconds of page load.
+
+**Not calling `amplitude.init()` before the chat widget opens.**
+If the chat widget fires `GET /sessions/{product_id}/{session_id}` before Amplitude's session is established, there will be no activity to return. Initialize Amplitude at the earliest possible point in your app lifecycle.
+
+---
+
+## References
+
+- Amplitude Browser SDK 2 docs: https://amplitude.com/docs/sdks/analytics/browser/browser-sdk-2
+- Amplitude HTTP destination docs: https://amplitude.com/docs/data/destination-catalog/http
+- Autoplay quickstart: https://developers.autoplay.ai/quickstart

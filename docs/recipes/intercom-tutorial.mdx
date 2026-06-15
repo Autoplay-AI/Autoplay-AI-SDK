@@ -1,0 +1,80 @@
+---
+title: "Intercom + Autoplay"
+sidebarTitle: "Start here — choose a path"
+description: "Two ways to give Intercom your users' real-time activity: push it into conversations, or let Fin pull it on demand. Pick the path that fits."
+icon: "/images/recipes/intercom/logo.png"
+---
+
+There are **two independent ways** to bring a user's real-time in-app activity into Intercom. They solve the same problem from opposite directions — start by picking the one that fits. You can also run both.
+
+## Choose your integration path
+
+<CardGroup cols={2}>
+  <Card title="Push into conversations" icon="tower-broadcast" href="/recipes/intercom-tutorial/step-1-connect-real-time-events">
+    **Your backend** streams Autoplay events and writes internal notes into conversations as they happen. Notes appear automatically for your team — no agent setup needed.
+  </Card>
+
+  <Card title="Let Fin pull on demand" icon="plug" href="/recipes/intercom-tutorial/let-fin-pull-live-activity">
+    **Fin fetches** a user's recent activity itself, only when it's about to answer. The lightest setup — no streaming worker to host.
+  </Card>
+</CardGroup>
+
+## Which should I choose?
+
+| | **Push** (steps 1–2) | **Pull** (Fin) |
+| --- | --- | --- |
+| Who acts | Your backend | Intercom Fin |
+| When | Continuously, as events arrive | On demand, when Fin answers |
+| You host | A worker that consumes the SSE stream + a public webhook endpoint | Nothing — Fin calls the connector directly |
+| Result | Internal notes in every conversation | Fin's answers reflect what the user just did |
+| Best for | Always-on context visible to human teammates | Letting Fin self-serve context with minimal infra |
+| Identity | Session ↔ conversation linking | Messenger JWT so Fin sends a verified `user_id` |
+
+<Note>
+  Not sure? If your goal is simply **"Fin knows what the user just did,"** start with **[Let Fin pull on demand](/recipes/intercom-tutorial/let-fin-pull-live-activity)** — it's the shortest path and needs no backend service.
+</Note>
+
+## ✨ What it looks like
+
+<Tabs sync={false}>
+  <Tab title="Without real-time context">
+    ```text
+    User: How do I create a project?
+
+    Bot: To create a project, go to My Projects in the sidebar and click Add Project.
+
+    (Could be on any page. No idea where they are.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    User: How do I create a project?
+
+    Bot: You're on the Pricing page comparing plans. Open My Projects from the sidebar,
+    click Add Project, then pick a workspace that matches what you're configuring here.
+
+    Internal note (team only): Session ↔ conversation linked — recent clicks: Pricing →
+    Compare plans → seat calculator.
+
+    (Autoplay events + Intercom thread — answers match what they're doing.)
+    ```
+  </Tab>
+</Tabs>
+
+<Frame>
+  <img
+    src="/images/recipes/intercom/intercom-final.png"
+    alt="Intercom conversation showing internal Autoplay action and summary notes"
+  />
+</Frame>
+
+## 📋 Prerequisites
+
+**Both paths** need a working [Quickstart](/quickstart): the PostHog snippet, `posthog.identify(...)`, a registered product, and the PostHog webhook — so activity is flowing into the connector.
+
+**Push additionally needs:**
+
+- **A public HTTPS URL you control** — for Intercom to `POST` webhook payloads to.
+- **A stream consumer** — a worker that opens the Autoplay SSE stream (`autoplay-sdk` installed; the test stream from the Quickstart working).
+
+**Pull needs nothing extra to host** — just your connector URL + API token, and (for logged-in users) Messenger JWT identity verification, covered in its recipe.
