@@ -1,0 +1,160 @@
+---
+title: "MCP server"
+sidebarTitle: "🔌 MCP server"
+description: "The recommended way for any AI agent to pull a user's live in-app activity on demand — one MCP endpoint, agent-agnostic, Bearer-authenticated."
+---
+
+The **Autoplay MCP server** is a single [Model Context Protocol](https://modelcontextprotocol.io) endpoint that exposes a user's recent in-app activity as a tool. Any MCP-speaking agent connects to it and **pulls** that activity on demand — at the exact moment it needs context to answer.
+
+It's **agent-agnostic**: Intercom **Fin** is just one example client. Anything that speaks MCP — a custom agent, an IDE assistant, the MCP Inspector — can connect with the same URL, the same Bearer token, and the same tool.
+
+<Note>
+  ⭐ **Start here — MCP is the recommended way** for an agent to read live activity. If your agent can't speak MCP, there's an optional **[REST API](/activity/overview)** that returns the exact same data — but reach for MCP first. You never need both.
+</Note>
+
+## 🔌 Connect to the server
+
+| | |
+| --- | --- |
+| **Endpoint** | `https://event-connector-luda.onrender.com/mcp` |
+| **Transport** | **Streamable HTTP** — the transport your client must select |
+| **Auth** | `Authorization: Bearer YOUR_UNKEY_TOKEN` |
+
+`YOUR_UNKEY_TOKEN` is the same Unkey token from your [Quickstart](/quickstart) product registration.
+
+- **Invalid or missing token →** the tool call fails with *"Invalid or missing API key"*.
+- **Token valid but scoped to another product →** it fails with *"API key does not match product_id"*. The key's `external_id` must equal the `product_id` you pass to the tool, so a key for product A can't read product B.
+
+<Tip>
+  Some MCP clients are strict about the trailing slash. If a bare `https://…/mcp` doesn't connect, try `https://event-connector-luda.onrender.com/mcp/`.
+</Tip>
+
+## 🛠️ The `get_live_user_activity` tool
+
+The server exposes one tool today.
+
+**Parameters**
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `product_id` | string | — | Your Autoplay product id (`YOUR_PRODUCT_ID`). Must match the Bearer key's `external_id`. |
+| `user_id` | string | — | The **stable** user identifier — the **same id you pass to `posthog.identify(...)`**. See the [identity note](#identity-the-user-id-must-match) below. |
+| `limit` | integer | _none_ | Max recent actions to return. Omitted or `<= 0` falls back to the configured cap (50). |
+
+**Description** — this is the text the server advertises to the agent verbatim; it's what the model reads to decide when to call the tool:
+
+```text
+Return a user's recent ("live") in-app activity (slim actions) for a product.
+
+Reads the durable per-user Redis store. Actions are ordered oldest -> newest.
+
+Args:
+    product_id: Product identifier.
+    user_id:    Stable user identifier (e.g. PostHog distinct_id).
+    limit:      Max recent actions to return; defaults to the configured cap
+                when omitted or <= 0.
+```
+
+**Example result** — the tool returns this envelope, with `actions` ordered **oldest → newest**:
+
+```json
+{
+  "product_id": "YOUR_PRODUCT_ID",
+  "user_id": "user_12345",
+  "count": 3,
+  "as_of": 1736940750.881,
+  "actions": [
+    {
+      "type": "pageview",
+      "title": "Page Load: Dashboard",
+      "description": "User landed on the dashboard page",
+      "timestamp_start": 1736940685.103,
+      "timestamp_end": 1736940691.250,
+      "raw_url": "https://app.example.com/dashboard",
+      "canonical_url": "https://app.example.com/dashboard",
+      "index": 0
+    },
+    {
+      "type": "click",
+      "title": "Click Export Csv",
+      "description": "User clicked the Export Csv button on the dashboard page",
+      "timestamp_start": 1736940691.250,
+      "timestamp_end": 1736940705.610,
+      "raw_url": "https://app.example.com/orders/12345",
+      "canonical_url": "https://app.example.com/orders/:id",
+      "index": 1
+    },
+    {
+      "type": "submit",
+      "title": "Submit Payment Form",
+      "description": "User submitted the Payment form on the checkout page",
+      "timestamp_start": 1736940705.610,
+      "timestamp_end": 1736940705.610,
+      "raw_url": "https://app.example.com/checkout",
+      "canonical_url": "https://app.example.com/checkout",
+      "index": 2
+    }
+  ]
+}
+```
+
+Each action carries `type`, `title`, `description`, `timestamp_start`, `timestamp_end`, `raw_url`, `canonical_url`, and `index`. (The `user_id` lives on the envelope, not inside each action.)
+
+## 🤖 Connect any MCP client
+
+Point any MCP client at the server with the Streamable HTTP transport and the Bearer header. Exact config keys vary by client, but the three values are always the same — **URL**, **transport**, **`Authorization` header**. A typical client config looks like:
+
+```json
+{
+  "mcpServers": {
+    "autoplay": {
+      "url": "https://event-connector-luda.onrender.com/mcp",
+      "transport": "streamable-http",
+      "headers": {
+        "Authorization": "Bearer YOUR_UNKEY_TOKEN"
+      }
+    }
+  }
+}
+```
+
+### Test it with the MCP Inspector
+
+The quickest way to confirm the server is reachable and your token works:
+
+```bash
+npx @modelcontextprotocol/inspector
+```
+
+Then in the Inspector UI:
+
+1. Set **Transport Type** to **Streamable HTTP**.
+2. Set **URL** to `https://event-connector-luda.onrender.com/mcp`.
+3. Under request headers, add **`Authorization`** = `Bearer YOUR_UNKEY_TOKEN`.
+4. Click **Connect**. The **`get_live_user_activity`** tool appears in the tool list.
+5. Call it with a real `product_id` and a `user_id` you've identified — you should get the activity envelope back.
+
+<Warning>
+  The MCP Inspector won't send the `Authorization` header unless you add it explicitly — by default MCP clients strip it. If `get_live_user_activity` returns *"Invalid or missing API key"*, the header isn't reaching the server.
+</Warning>
+
+## 💬 Using it with Intercom Fin
+
+Intercom Fin is one MCP client among many. To wire Fin to this server (and set up the Messenger JWT identity verification Fin needs to pass a trusted `user_id`), follow the dedicated recipe:
+
+<Note>
+  See **[the Intercom Fin recipe](/recipes/intercom-tutorial/step-1-connect-real-time-events)** for the full Fin setup — data connector, this MCP server, and the Messenger JWT identity step.
+</Note>
+
+## Identity — the `user_id` must match
+
+This is the linchpin everywhere activity is read. The store keys activity by `user_id`, so a client only gets useful results when it asks for the **same** `user_id` that activity was stored under — the id you pass to `posthog.identify(...)` in your frontend.
+
+For agents that carry their own user identity (like Fin behind Intercom's Messenger JWT), make sure that verified identity equals the PostHog `identify` id. See the [identity guidance in the Fin recipe](/recipes/intercom-tutorial/step-1-connect-real-time-events#verify-identity-with-a-messenger-jwt) and the "identity must match across all three layers" note in the [Quickstart](/quickstart).
+
+<Note>
+  **Retention** — this is short-lived "live" memory, not an archive:
+
+  - **24-hour TTL** (`ACTIVITY_TTL_S` = `86400`) — activity older than a day expires.
+  - **50 actions max** per user (`ACTIVITY_MAX_EVENTS` = `50`) — older ones are trimmed.
+</Note>
