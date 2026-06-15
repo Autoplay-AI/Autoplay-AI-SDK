@@ -136,7 +136,7 @@ async def assemble_rag_chat_context(
 
     **Intercom / connector stack (typical):** With ``zep_api_key`` and ``session_id``,
     the memory provider supplies **live activity** (Zep ``live-{session}`` thread — synced
-    from PostHog→actions→formatted context) and **conversation turns** (Zep composite conv
+    from activity-provider→actions→formatted context) and **conversation turns** (Zep composite conv
     thread). KB chunks come from ``knowledge_base.retrieve``. Redis context store is optional:
     by default it is **not** queried when Zep already returned live activity (see
     ``skip_redis_context_when_zep_memory`` / ``RAG_SKIP_REDIS_CONTEXT_WHEN_ZEP``).

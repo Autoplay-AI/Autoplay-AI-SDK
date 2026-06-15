@@ -1,0 +1,165 @@
+---
+title: "Let Fin pull live activity"
+sidebarTitle: "Set up Fin pull (data connector + MCP)"
+description: "Configure Intercom Fin to PULL a user's recent in-app activity on demand — via the live-activity endpoint, the MCP server, and Messenger JWT identity verification."
+---
+
+> **This is a different integration path, not the next step.** [Step 1](./step-1-connect-real-time-events) and [Step 2](./step-2-define-proactive-triggers) cover the **PUSH** pattern — *your* backend streams events and writes notes into conversations. This page is a separate, **self-contained PULL** path: Intercom **Fin** fetches a user's recent activity itself, on demand, when it needs context to answer. Use it **instead of** or **alongside** the push pattern — you don't have to do Steps 1–2 first.
+
+<Note>
+  **PULL vs PUSH — same activity, two independent approaches.**
+
+  - **Steps 1–2 (PUSH):** your server subscribes to the SSE **stream** (`/stream/{product_id}`), turns actions into internal notes, and writes them into the conversation as they happen.
+  - **This page (PULL):** Fin calls a read endpoint (`/users/{product_id}/{user_id}/live-activity`) — or the MCP tool — **only when it's about to answer**, and gets the same recent actions back as JSON.
+
+  Both read the **same** per-user activity store, so neither depends on the other. PULL is the lightest path to "Fin knows what the user just did" with **no streaming worker to host** — you can set it up entirely on its own.
+</Note>
+
+The sections below set up **this PULL integration**, in order — self-contained and independent of the push pages (*Connect real-time events* / *Define proactive triggers*). Work through them top to bottom.
+
+## 🎯 What Fin will call
+
+Fin pulls from the agent-agnostic **live-activity** surface — the same `GET /users/{product_id}/{user_id}/live-activity` endpoint (and `get_live_user_activity` MCP tool) every agent uses.
+
+<Note>
+  If you haven't already, skim **[Live user activity — Overview & REST API](/activity/overview)** for the endpoint, response shape, retention, a curl test, and the "activity only appears after the user browses" caveat. This page is the **Fin-specific** wiring on top of it: the data connector, the MCP option, and the Messenger JWT that lets Fin pass a trusted `user_id`.
+</Note>
+
+## 🔌 Add the Fin data connector
+
+Now we teach Fin to walk up to that lookup desk on its own. Intercom calls this a **data connector**: an external HTTP endpoint Fin can call mid-conversation to fetch context.
+
+### Setup the Fin data connector walkthrough
+
+<Frame caption="Intercom → Settings → Integrations → Data connectors → New data connector">
+  <img
+    src="/images/recipes/intercom/fin-data-connector.png"
+    alt="Creating the Fin data connector in Intercom — endpoint URL with the attribute-bound user id and Bearer authentication"
+  />
+</Frame>
+
+In **Intercom:** Settings → **Integrations** → **Data connectors** → **New data connector**, then:
+
+1. **Name & description.** The description is what Fin reads to decide **when** to call this connector, so write it for Fin, not for humans. For example:
+
+   > *"Fetches the customer's most recent in-app activity (pages viewed, buttons clicked, forms submitted) over the last 24 hours. Call this whenever the customer asks about what they were doing, where they are in a flow, or for help that depends on their recent steps in the product."*
+
+2. **API endpoint URL.** Point it at the live-activity endpoint, binding `{user_id}` to the **verified user identity** via Intercom's attribute picker — **not** the email:
+
+   ```
+   https://event-connector-luda.onrender.com/users/YOUR_PRODUCT_ID/{{user_id_attribute}}/live-activity
+   ```
+
+   `{{user_id_attribute}}` is a stand-in — **don't type it literally**. In the **HTTPS URL** field, click to insert an attribute and pick the **User ID** people attribute (type `string`). Intercom drops a `user_id` chip into the path, so the URL becomes `.../users/YOUR_PRODUCT_ID/{user_id}/live-activity`. That **User ID** attribute holds the `user_id` from the verified Messenger JWT you set up in [Verify identity with a Messenger JWT](#verify-identity-with-a-messenger-jwt), so it equals the id you pass to `posthog.identify(...)`.
+
+   <Warning>
+     Pick **User ID** — **not** **Contact ID** and **not** email. *Contact ID* is Intercom's own internal id (an `integer`), and email isn't the stable key; activity is stored under the `posthog.identify` id, so either would read the wrong (or empty) bucket.
+   </Warning>
+
+3. **Authentication.**
+
+   <Warning>
+     Intercom delivers the Bearer token through its **"Authentication tokens"** feature on the connector — **not** through the generic **Headers** list. If you paste `Authorization: Bearer …` as a raw header in the Headers section, Intercom does **not** send it the way the connector expects and every call comes back **401**. Configure the token under **Authentication**, set the scheme to **Bearer**, and paste `YOUR_UNKEY_TOKEN` as the value.
+   </Warning>
+
+4. **Test the connection.** Use the connector's built-in **Test** section: set the **User ID** data attribute to a real user you've identified (and browsed as), then **Test live connection**. You want **`Pass — Successful response received (200 ok)`**. A 401 means the Bearer token isn't wired through Authentication (see above); a 200 with an empty `actions` array means identity is fine but that user has no recorded activity yet.
+
+5. **Enabled (direct trigger).** Mark the connector enabled so Fin can invoke it directly when a conversation matches the description.
+
+6. **Set live.** Publish the connector so it's active for real conversations.
+
+## 🧩 Add the MCP server (optional)
+
+If your Fin setup speaks **MCP** (Model Context Protocol), the connector exposes the exact same read as a single MCP tool (`get_live_user_activity`) — no separate data-connector form required. Same data, same Bearer auth, just a different door.
+
+<Note>
+  Full connection details, the tool reference, and how to test with the MCP Inspector live on the dedicated **[MCP server](/mcp/server)** page. Pick the data connector **or** MCP — you don't need both.
+</Note>
+
+## 🔐 Verify identity with a Messenger JWT
+
+This is Fin's way of satisfying the universal **[Identity](/activity/identity)** rule: the `user_id` Fin sends must equal the id activity is stored under — your activity source's stable user id (with PostHog, the one you pass to `posthog.identify(...)`). The Messenger JWT is **how** Fin carries that exact value as a *verified* identity, so the job here is to wire it through.
+
+<Note>
+  For **logged-in** users, Intercom will **not** pass a trusted identity to a data connector unless Messenger **JWT identity verification is set up *and* enforced**. Until you enforce it, the `{user_id}` Fin sends can be missing or untrusted — and the lookup desk comes back empty.
+</Note>
+
+### Setup Messenger JWT identity verification walkthrough
+
+<Frame caption="Intercom → Settings → Channels → Messenger → Security">
+  <img
+    src="/images/recipes/intercom/fin-jwt-security.png"
+    alt="Messenger JWT identity verification in Intercom — the Unified Secret and the enforcement toggle"
+  />
+</Frame>
+
+1. **Get your Unified Secret.** In **Intercom:** Settings → Channels → **Messenger** → **Security**. Copy the **secret** used for identity verification.
+
+   <Warning>
+     This secret is **server-side only**. Never ship it to the browser, never put it in your frontend bundle, and never commit it. Anyone with it can forge any user's identity.
+   </Warning>
+
+2. **Sign a JWT on your server** with **HS256**, carrying the **same `user_id` you pass to `posthog.identify(...)`**, plus `email` and an expiry:
+
+   ```javascript
+   // Server-side only — runs where INTERCOM_IDENTITY_SECRET is safe.
+   import jwt from "jsonwebtoken";
+
+   function intercomUserJwt(user) {
+     return jwt.sign(
+       {
+         user_id: user.id,        // MUST equal the id passed to posthog.identify(user.id, ...)
+         email: user.email,
+         exp: Math.floor(Date.now() / 1000) + 60 * 60, // 1 hour
+       },
+       process.env.INTERCOM_IDENTITY_SECRET, // the Unified Secret from step 1
+       { algorithm: "HS256" }
+     );
+   }
+   ```
+
+3. **Boot the Messenger with the JWT as the *sole* identity source.** Pass `intercom_user_jwt` and let Intercom derive identity from it — do not also hand-set `user_id`/`email` as plain settings:
+
+   ```javascript
+   // Client-side. `jwt` is fetched from your server endpoint above.
+   window.Intercom("boot", {
+     app_id: "YOUR_INTERCOM_APP_ID",
+     intercom_user_jwt: jwt, // the SOLE identity source — signed server-side
+   });
+   ```
+
+4. **Enforce Messenger Security.** Back in Settings → Channels → Messenger → Security, turn on **enforcement** for the web Messenger.
+
+   <Note>
+     Enforcement is what makes Intercom **trust and forward** the verified identity to Fin's data connector. Set it up first, confirm tokens decode correctly, **then** enforce.
+   </Note>
+
+<Tip>
+  Before enforcing, paste a freshly signed token into a JWT decoder (e.g. jwt.io) and confirm the `user_id` claim is **exactly** the value you pass to `posthog.identify(...)`. A mismatch here is the #1 cause of "Fin sees no activity."
+</Tip>
+
+<Warning>
+  Use a **stable user id** for the `user_id` claim — your internal user primary key, the same one PostHog identifies with. Do **not** use **email**: emails change, and your activity is keyed by the stable id. An email-based claim will read the wrong (or an empty) bucket.
+</Warning>
+
+## ✅ Test the full loop
+
+Time to watch it work end to end:
+
+1. **Log in** to your app as a test user (so `posthog.identify(...)` fires with that user's stable id).
+2. **Click around** — visit a couple of pages, click a button, submit a form. Give the connector a few seconds to record the actions.
+3. **Open the Messenger** as that same logged-in user (so the JWT boots with the matching `user_id`).
+4. **Ask Fin:** *"What have I been doing in the app recently?"*
+5. Fin calls the data connector (or MCP tool), pulls the recent actions, and answers with **what you actually just did** — the pages, the clicks, the form.
+
+<Note>
+  **If Fin answers "no recent activity" — it's almost always an identity mismatch.** Confirm all three carry the **same** value:
+
+  1. the id passed to `posthog.identify(...)`,
+  2. the `user_id` claim in the Messenger JWT,
+  3. the `{user_id}` attribute bound in the data connector URL.
+
+  If they don't match, activity is stored under one key and fetched with another, and the desk comes back empty.
+</Note>
+
+Once it's answering correctly, jump into our [Slack workspace](https://join.slack.com/t/autoplay-ai-dev/shared_invite/zt-3uslbaddx-UT2Cl18BGiLkeMwJ439ppg) and drop a message in **`#just-integrated`** — we'll confirm Fin is pulling activity cleanly and help you tune the trigger description.

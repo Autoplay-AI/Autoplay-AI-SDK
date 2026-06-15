@@ -350,10 +350,12 @@ def _connector_https_base(connector_host: str) -> str:
 
 _REACTIVE_FETCH_PATH = "/sessions/link"
 
+# {session_id_js} is replaced at render time by ``format_reactive_session_link_script``.
+# Pass ``provider.get_session_id_js()`` to use the correct expression for your provider.
 REACTIVE_SESSION_LINK_SCRIPT_TEMPLATE = """\
 <script>
 window.Intercom("onConversationStarted", function (data) {{
-  var sessionId = typeof posthog !== "undefined" ? posthog.get_session_id() : null;
+  var sessionId = {session_id_js};
   if (!sessionId || !data.conversation_id) return;
   fetch("https://{connector_hostname}" + "{fetch_path}", {{
     method: "POST",
@@ -384,15 +386,32 @@ def _normalize_hostname_for_fetch(connector_host: str) -> str:
 def format_reactive_session_link_script(
     connector_host: str,
     product_id: str,
+    session_id_js: str | None = None,
 ) -> str:
     """Return HTML/JS snippet for ``onConversationStarted`` → ``POST /sessions/link``.
 
     Prefer configuring Intercom webhooks to ``/chatbot-webhook/{product_id}``;
     use this only when you still need the browser to pass ``conversation_id``.
+
+    Args:
+        connector_host: Connector hostname or full origin.
+        product_id:     Autoplay product id (used in the POST body).
+        session_id_js:  JS expression that resolves to the active session ID
+                        string (or ``null``) at runtime.  Pass
+                        ``provider.get_session_id_js()`` to use the correct
+                        expression for your activity provider.  Defaults to
+                        the PostHog expression for backward compatibility.
     """
+    from autoplay_sdk.providers.posthog import (
+        PostHogProvider,
+    )  # local to avoid circular
+
+    if session_id_js is None:
+        session_id_js = PostHogProvider().get_session_id_js()
     hostname = _normalize_hostname_for_fetch(connector_host)
     return REACTIVE_SESSION_LINK_SCRIPT_TEMPLATE.format(
         connector_hostname=hostname,
         product_id=product_id.replace('"', '\\"'),
         fetch_path=_REACTIVE_FETCH_PATH,
+        session_id_js=session_id_js,
     )
