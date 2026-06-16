@@ -1,11 +1,14 @@
 ---
 name: activity-posthog
 description: >-
-  Configures PostHog as the event source for Autoplay by adding the browser snippet,
-  calling posthog.identify() with product_id, and setting up the PostHog webhook
-  destination. The PostHog session ID is the scoping key used throughout the
-  Autoplay integration. Use when the user mentions PostHog, posthog-js, posthog.identify,
-  product_id, or asks how to capture user events for Autoplay.
+  Wires PostHog as the event source for Autoplay: ensures posthog-js is installed,
+  patches or scaffolds the browser init, and calls posthog.identify() with the
+  app's STABLE user id (not the anonymous id) on login so your user id flows to
+  PostHog and Autoplay. The PostHog session ID is the scoping key. The
+  PostHog→Autoplay destination is created and verified automatically by onboarding
+  code (PostHogProvider), so this skill does NOT add a webhook by hand. Use when
+  the user mentions PostHog, posthog-js, posthog.identify, product_id, or asks how
+  to capture user events for Autoplay.
 disable-model-invocation: true
 ---
 
@@ -13,93 +16,151 @@ disable-model-invocation: true
 
 > Read `autoplay-core` first. The PostHog `session_id` is the `session_id` used
 > for all session scoping throughout your Autoplay integration.
+>
+> **Your job is ONE thing: edit the frontend code.** Install `posthog-js` if
+> missing, then get a working `posthog.init` + `posthog.identify({ product_id })`
+> into the app. Show diffs, confirm, write. That's it — then you're done.
+>
+> **Do NOT do any of these** — the `autoplay-setup` CLI already handled them, or
+> handles them after you finish:
+> - ❌ Create or verify the PostHog destination (the CLI provisioned it before
+>   launching you — Step 4).
+> - ❌ Start the dev server, run `npm install` for app dependencies, or scaffold
+>   app config (`package.json`, `tsconfig.json`, pages) — you only touch the
+>   PostHog init/identify wiring, nothing else.
+> - ❌ Run a smoke test or check that events flow / the SSE stream connects —
+>   the CLI runs the real end-to-end event check after you exit. Wiring the code
+>   correctly is the whole job; confirming delivery is not yours to do.
 
-## Step 1 — Add the browser snippet
+## Step 1 — Ensure `posthog-js` is installed
+
+Check the app's `package.json` for `posthog-js`.
+
+- **Present** → an init likely already exists; you'll *patch* it (Step 2).
+- **Missing** → install it (`npm install posthog-js`, or the project's package
+  manager) and treat this as **greenfield** — you'll *scaffold* a new init.
+
+In a **monorepo**, find the actual frontend app first (the package that renders
+the browser UI and owns `posthog.init`); install and edit there, not at the root.
+
+## Step 2 — Get the browser init + identify in place
+
+Two paths:
+
+- **An init already exists** → patch it: ensure `posthog.identify(...)` includes
+  `product_id`. Init and identify often live in different files (init at app
+  bootstrap, identify where auth state is known). See
+  [`references/identify-patterns.md`](references/identify-patterns.md).
+- **Greenfield (you just installed posthog-js)** → scaffold a minimal init with
+  the right `api_host` + autocapture. See
+  [`references/scaffold-patterns.md`](references/scaffold-patterns.md) and the
+  framework walkthroughs in [`examples/`](examples/) (React/Vite, Vue/Nuxt,
+  Next.js).
+
+Minimal init shape:
 
 ```javascript
 import posthog from 'posthog-js'
 
-posthog.init('YOUR_AUTOPLAY_API_KEY', {
-    api_host: 'https://us.i.posthog.com',
+posthog.init('YOUR_POSTHOG_PROJECT_API_KEY', {   // the public phc_… key
+    api_host: 'YOUR_POSTHOG_HOST',                // MUST match where the destination lives
     person_profiles: 'identified_only',
     session_idle_timeout_seconds: 120,
-    loaded: (posthog) => {
-        posthog.identify(posthog.get_distinct_id(), {
-            product_id: 'YOUR_PRODUCT_ID',
-        });
-    },
 })
 ```
 
----
+**Identity is set on login (Step 3), NOT in the init.** Do **not** call
+`posthog.identify(posthog.get_distinct_id(), …)` in `loaded` or anywhere — that
+"identifies" the *anonymous* id and is the #1 mistake here. Until the user logs
+in they are anonymous (that's correct); `session_id` still scopes everything.
 
-## Step 2 — Identify on login (highly recommended)
+**Always show edits as a diff and confirm before writing.** If you can't safely
+locate or edit the init (ambiguous/unfamiliar setup), **don't guess** — fall
+back to Step 5.
 
-Run this immediately after your login flow completes:
+## Step 3 — Identify with the app's stable user id on login (REQUIRED)
+
+This is the most important call in the integration. The moment auth knows who
+the user is, pass **the application's own stable user id** as the distinct id —
+never the anonymous `posthog.get_distinct_id()`:
 
 ```javascript
-posthog.identify(user.id, {
-    product_id: 'YOUR_AUTOPLAY_PRODUCT_ID',
-    email: user.email,  // optional but enables email-based session scoping
+// On login (and on app load when restoring an already-logged-in session):
+posthog.identify(user.id, {        // user.id = YOUR app's stable user id
+    product_id: 'YOUR_PRODUCT_ID',
+    email: user.email,             // recommended; enables email-based scoping
 })
+
+// On logout:
+posthog.reset()                    // clears identity so the next user starts clean
 ```
 
-Without `identify`, users are tracked anonymously. `session_id` still works for scoping; `user_id` and `email` will be `None` on `ActionsPayload` until identity is set.
+Why this matters:
+- It makes PostHog's `distinct_id` **equal to your app's user id**, so the exact
+  id you use internally is the one Autoplay receives (`ActionsPayload.user_id`).
+- PostHog **links the user's earlier anonymous activity** to this identified
+  person — no orphaned anonymous ids after login.
+- `posthog.reset()` on logout stops the next user (e.g. shared device) from
+  inheriting the previous identity.
 
----
+Find where auth state becomes known — after a successful login, and wherever the
+app rehydrates a session for an already-logged-in user (e.g. an auth context /
+`onAuthStateChanged` / session loader) — and call `identify` there with the real
+user id. See [`references/identify-patterns.md`](references/identify-patterns.md).
 
-## Step 3 — Session ID in your backend
+If the app has **no auth yet** (greenfield), there is no user to identify — wire
+the init now, and leave a clear comment at the auth boundary showing exactly the
+`posthog.identify(user.id, …)` call to add once login exists. Do not fake it
+with the anonymous id.
 
-```python
-# The session_id on every ActionsPayload is the PostHog session ID
-# Retrieve it in browser:
-#   posthog.get_distinct_id()   — stable user/device ID
-#   posthog.get_session_id()    — current session ID (resets on idle)
+## Step 4 — The destination is created automatically (do NOT do this by hand)
 
-# Guard for None before identity linking:
-async def on_actions(payload):
-    if not payload.session_id:
-        return   # anonymous pre-identity event — skip or queue
-    await agent_writer.add(payload)
+Onboarding code creates and verifies the PostHog destination for you:
+
+- `PostHogProvider.create_destination(...)` — idempotent: creates (or updates) the
+  "Autoplay Event Stream" hog_function pointing at the connector webhook returned
+  by `onboard_product`.
+- `PostHogProvider.verify(...)` — confirms it exists and is enabled.
+
+So there is **no manual "add a webhook in PostHog" step** here. If you're running
+in a context where onboarding hasn't created it yet, that's an onboarding step,
+not a frontend-wiring step — leave it to the code path.
+
+## Step 5 — You're done (the CLI verifies, not you)
+
+Once the init + identify edits are written and confirmed, **stop — you're
+finished.** Do not start the dev server, do not click around the app, do not run
+a smoke test, do not check the SSE stream. The `autoplay-setup` CLI runs the
+real end-to-end event check itself after you exit (it watches the live stream
+for the first event). Hand back with a short summary of the files you changed.
+
+**Fallback — if you couldn't safely wire the code:** output the exact snippet for
+the user to paste, then let them confirm:
+
+```javascript
+// Call this on login, with YOUR app's user id (not the anonymous id):
+posthog.identify(user.id, { product_id: 'YOUR_PRODUCT_ID', email: user.email })
+// And on logout:
+posthog.reset()
 ```
-
----
-
-## Step 4 — PostHog webhook destination
-
-In PostHog, add a **Webhook** destination:
-- **Webhook URL:** `result.webhook_url` from `onboard_product`
-- **`X-PostHog-Secret` header:** `result.webhook_secret` from `onboard_product`
-
-Or message `#just-integrated` in the Autoplay Slack for managed setup.
-
----
-
-## Step 5 — Verify the webhook is firing
-
-After setting up the destination in PostHog, trigger a page event in your app
-and check the PostHog destination logs (PostHog → Data pipelines → your webhook
-destination → Logs). You should see a `200` response within a few seconds.
-
-If you see `401`:
-- Check that `X-PostHog-Secret` is copied verbatim (exact casing) — see Common mistakes below.
-
-If you see no delivery at all:
-- Confirm the destination is enabled and the filter is not excluding your events.
-
----
 
 ## Common mistakes
 
-**`X-PostHog-Secret` header lookup is case-sensitive.**
-PostHog delivers the secret in `inputs.headers["X-PostHog-Secret"]` (exact casing).
-Reading `inputs.headers["x-posthog-secret"]` or any other casing returns `None`
-and your webhook handler will return `401` on every request. Always copy the key
-name verbatim from the `onboard_product` response.
-
----
+- **Identifying the anonymous id.** `posthog.identify(posthog.get_distinct_id(),
+  …)` re-stamps the anonymous id and never sets your real user id. Always pass
+  the app's stable user id (Step 3).
+- **Forgetting `posthog.reset()` on logout.** The next user inherits the
+  previous identity on shared sessions.
+- **`api_host` must match the destination's host.** If the app sends events to a
+  different host than the one the destination is created on, nothing flows.
+- **Monorepos:** editing the wrong package. Confirm which app owns `posthog.init`.
 
 ## Reference
 
+- [`references/identify-patterns.md`](references/identify-patterns.md) — where
+  init vs identify live, per framework
+- [`references/scaffold-patterns.md`](references/scaffold-patterns.md) — greenfield
+  init scaffolds
+- [`examples/`](examples/) — React/Vite, Vue/Nuxt, Next.js walkthroughs
 - Quickstart: https://developers.autoplay.ai/quickstart
 - PostHog identify docs: https://posthog.com/docs/product-analytics/identify
