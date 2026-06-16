@@ -27,7 +27,7 @@ def usertour_trigger_sse_minimal_dict(
 ) -> dict[str, str]:
     """Exactly four keys for Autoplay popup tour triggers over SSE.
 
-    The ``session_id`` **value** is the PostHog **session id** the connector
+    The ``session_id`` **value** is the activity-provider session id the connector
     associates with this user's activity for ``product_id`` (from webhook /
     identity store). Callers may fall back to distinct id when no session is
     linked yet.
