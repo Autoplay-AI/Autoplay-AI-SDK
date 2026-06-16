@@ -52,3 +52,9 @@ iframe.doc-embed {
   border-radius: 0.75rem;
   color-scheme: light;
 }
+
+/* Keep sidebar nav tags (e.g. "Coming Soon") on a single line so they render uniformly */
+[data-component-part="nav-tag-pill"],
+[data-component-part="nav-tag-pill-text"] {
+  white-space: nowrap;
+}
