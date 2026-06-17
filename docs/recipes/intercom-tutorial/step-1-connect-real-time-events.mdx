@@ -1,241 +1,204 @@
 ---
 title: "Step 1 — Connect real-time events"
 sidebarTitle: "Step 1 — Connect real-time events"
-description: "Register Intercom webhooks, consume the Autoplay stream, and post internal notes into conversations."
+description: "Connect Intercom Fin to a user's recent in-app activity via the Autoplay MCP server — one MCP connection, one tool, with Messenger JWT identity verification."
 ---
 
-**Action note** — near real time, ~**3 s** bins:
+**Intercom Fin** pulls a user's recent in-app activity on demand via the **Autoplay MCP server** — Fin calls it the moment it needs context to answer. One MCP connection, one tool (`Get Live User Activity`), and a verified identity so Fin asks for the right user.
 
-```
-session_id: abc123
-timestamp: 2024-01-15 12:34:50 UTC
+## 🎬 Watch the walkthrough
 
-[1] User clicked Sign up button on the pricing page
-[2] User clicked Confirm plan button on the checkout page
+Prefer to watch first? This short Loom walks through the entire setup end to end — adding the MCP server, the tool, identity, and testing the full loop.
 
-[3] User submitted Payment form on the checkout page
-```
-
-**Summary note** — after **20** actions (default threshold in the Step 2 examples):
-
-```
-session_id: abc123
-timestamp: 2024-01-15 12:40:00 UTC
-
-The user navigated to the pricing page and selected the Pro plan.
-They completed checkout and then visited the billing settings page
-to update their payment method.
-```
-
-## 🔗 Step 1 — Intercom webhooks on your server (Developer Hub)
-
-**Your backend** must know when a user **starts** or **replies to** a conversation so you can link the PostHog **session** to that **conversation** (in memory / your DB and in the `conv_map` you use in Step 2).
-
-Register these topics on **your** webhook endpoint:
-
-- `conversation.user.created` — new conversation
-- `conversation.user.replied` — reply in an existing thread
+<Frame>
+  <iframe
+    src="https://www.loom.com/embed/166ff566caf7434b8770efc6428dc948"
+    title="Connect Intercom Fin to live user activity"
+    frameBorder="0"
+    allowFullScreen
+    style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "12px" }}
+  />
+</Frame>
 
 <Note>
-  The first successful **session ↔ conversation** link is **sticky**.
+  **Prerequisite:** Intercom's MCP connectors require a **US-hosted** Intercom workspace.
 </Note>
 
-**Intercom:** Settings → Integrations → Developer Hub → Your app → Webhooks
+## 🔌 Add the Autoplay MCP server
 
-The walkthrough embed shows Intercom's UI. In **this** recipe, set **Endpoint URL** to **your** application's public HTTPS route (the URL that receives Intercom `POST`s)—not your Autoplay stream URL and not your PostHog destination URL.
+In **Intercom:** Settings → **Integrations** → **Data connectors**. Click the **Custom MCP** tile (or **New** → **Custom MCP**) and enter:
 
-### Setup Intercom webhooks walkthrough
+- **Name:** `Autoplay live activity`
+- **URL:** `https://event-connector-luda.onrender.com/mcp`
 
-<div
-  style={{
-    position: "relative",
-    paddingBottom: "calc(50.8339% + 41px)",
-    height: 0,
-    width: "100%",
-  }}
->
-  <iframe
-    src="https://demo.arcade.software/VeokUys6usH8P59XW8gW?embed&embed_mobile=tab&embed_desktop=inline&show_copy_link=true"
-    title="Configure Webhooks for Your App in Intercom"
-    frameBorder={0}
-    loading="lazy"
-    allow="clipboard-write; fullscreen"
-    style={{
-      position: "absolute",
-      top: 0,
-      left: 0,
-      width: "100%",
-      height: "100%",
-      colorScheme: "light",
-    }}
-  />
-</div>
+Click **Create / Add MCP Server**. The server appears in your connectors list showing **"(0)"** — connected, but no tools added yet.
 
-In Intercom's webhook form, set **Endpoint URL** to the full HTTPS URL of **your** handler (for example the `INTERCOM_WEBHOOK_URL` you print in the snippet below).
+## 🧰 Add the Get Live User Activity tool
 
-| Field        | Value                                                                 |
-| ------------ | --------------------------------------------------------------------- |
-| Endpoint URL | Your public HTTPS webhook URL (scheme + host + path your server exposes). |
-| Topics       | Every topic in `INTERCOM_WEBHOOK_TOPICS` (see snippet below).          |
+Click **+ New** under the **Autoplay live activity** server. In the **Add Autoplay live activity connectors** modal, check **Get Live User Activity** and click **Add connectors**. The tool is added and the count updates to **"(1)"**.
 
-Use your [Quickstart](/quickstart) **stream URL** and Bearer token **only** when you open the Autoplay SSE client in Step 2—that host is unrelated to the Intercom **Endpoint URL** above.
+## 📝 Open the tool and edit it
 
-```python
-import os
+Click the **Get Live User Activity** tool in the list to open it (it opens in **Draft**). Click **Edit** to configure it.
 
-from autoplay_sdk.integrations.intercom import INTERCOM_WEBHOOK_TOPICS
+The tool opens with tabs across the top — **API** (the endpoint, its inputs, and authentication) and **Fin** (the prompt that tells Fin *when* to use the tool). Set up the **API** tab first (inputs, then authentication), then the **Fin** tab (the prompt).
 
-# Subscribe to every topic Intercom lists here (copy into Developer Hub).
-print(INTERCOM_WEBHOOK_TOPICS)
+## 🎛️ Configure the data inputs (on the API tab)
 
-# Example: build the URL you paste into Intercom → Endpoint URL
-_base = os.environ.get("YOUR_PUBLIC_API_BASE", "https://api.example.com").rstrip("/")
-_path = os.environ.get("INTERCOM_WEBHOOK_PATH", "/webhooks/intercom")
-INTERCOM_WEBHOOK_URL = f"{_base}{_path}"
-print(INTERCOM_WEBHOOK_URL)
+On the **API** tab, the tool has three inputs — **product_id**, **user_id**, **limit**. Set each:
+
+- **product_id** → set **Data source** to **Custom value** and enter **your** product id (the same one from your Autoplay SDK setup). Also set the **Fallback value** to that **same** product id — so the connector always receives it even if the custom value is ever missing.
+- **user_id** → choose **Use an attribute** and select the **User ID** people attribute. This is the verified id from the Messenger JWT (set up under *Verify identity with a Messenger JWT* below) — it must equal the stable user id your activity source identifies the user with (e.g. the `posthog.identify(...)` id, or the Amplitude `user_id`).
+- **limit** → optional; leave as **Let Fin decide** (or ignore it).
+
+<Warning>
+  For **user_id**, pick the **User ID** attribute — **not Contact ID** and **not email**. *Contact ID* is Intercom's internal `integer` id; email isn't the stable key. Activity is stored under your activity source's stable user id (e.g. the `posthog.identify` id), so anything else reads an empty bucket.
+</Warning>
+
+## 🔑 Add the authentication token (on the API tab)
+
+Still on the **API** tab, find the **Authentication** section. The tool needs your Unkey token, so click **New token** (**Authentication tokens** → **Custom**) and fill in:
+
+- **Type:** Text
+- **Token value:** `YOUR_UNKEY_TOKEN`
+- **Token prefix:** `Bearer`
+- **Key for request header:** `Authorization`
+
+Save, then back in the connector's **Authentication** dropdown, select the token you just created.
+
+<Note>
+  The **Token prefix** field is why you do **not** type `Bearer ` into the token value — Intercom prepends the prefix for you. The final header sent is `Authorization: Bearer YOUR_UNKEY_TOKEN`. The token's `external_id` must equal your `product_id`, or calls return **403**.
+</Note>
+
+## 💬 Set the Fin prompt (on the Fin tab)
+
+Now switch to the **Fin** tab (next to **API** at the top of the tool). This is where you tell Fin **when** to use the tool — the field that actually drives Fin's decision to call it. (The **API** tab also has a technical description, but the **Fin** tab's prompt is the one that matters here.) Replace the default with a clear, Fin-facing trigger description. Recommended:
+
+```text
+Use this when a customer references their recent in-app behavior or when understanding their recent actions would help resolve their issue. Specific triggers include:
+
+- Customer asks "what was I just doing?" or "where was I?" or refers to a recent action they took
+- Customer mentions encountering an error, bug, or unexpected behavior and you need to see what steps led to it
+- Customer is stuck in a flow and needs help figuring out where they are or what to do next
+- Customer says "I just clicked something" or "I submitted a form" but is unsure what happened
+- You need context about the customer's recent navigation path to troubleshoot or guide them
+
+No input is required from the customer — call this action directly.
+
+This returns a chronological list of the customer's recent in-app activity (oldest to newest), including pages they viewed, buttons they clicked, and forms they submitted.
+
+Do NOT use this when:
+- The customer is asking about account details, billing, or subscription information
+- The customer is asking about product features or general how-to questions that don't require knowing their recent activity
+- The question can be answered without needing to know what the customer recently did in the app
 ```
 
-In **your** webhook handler, verify each request using Intercom's **`X-Hub-Signature-256`** header and your app's **`client_secret`** (Developer Hub → Your app → **Basic information**). Keep the secret in **your** environment only.
+<Tip>
+  The **Fin prompt** is the single biggest factor in whether Fin reliably calls the tool. Make it about **when to use it**, not how it works internally.
+</Tip>
 
-Parse link-eligible payloads to obtain **`conversation_id`** and resolve **`session_id`** (from conversation metadata, user identity, or how you already tie PostHog to logged-in users). Feed those pairs into **`conv_map`** in Step 2 and call **`await writer.on_session_linked(session_id, conversation_id)`** once linked so `BaseChatbotWriter` can flush any pre-link buffer.
+## 🔐 Verify identity with a Messenger JWT
 
-Connector-hosted Intercom webhooks (`intercom_chatbot_webhook_url`, `POST /chatbot-webhook/{product_id}`) are **not** part of this recipe—see [Intercom integration](/integrations/intercom) if Autoplay receives Intercom traffic on your behalf.
+**What this is, in plain terms:** Fin should only fetch the *logged-in* user's activity, so Intercom needs proof of who that user is. A **Messenger JWT** is a short, signed token your app creates that tells Intercom *"this visitor is user `X`."* You sign it on **your server** (using a secret from Intercom), then hand it to the Intercom **Messenger** in **your frontend** — the same place you already boot Intercom today.
 
-## 📡 Step 2 — Consume the event stream and post to Intercom
+The `user_id` you put in that token **must equal** the id activity is stored under — the stable user id your **activity source** identifies the user with (e.g. the one you pass to `posthog.identify(...)`, or the Amplitude `user_id`). That match is the whole point (see **[Identity](/activity/identity)**).
 
-Step 1 delivers conversation lifecycle events to **your** server. **The same backend** (or a sibling worker) opens Autoplay's **stream** and uses **`AsyncAgentContextWriter`** to turn **`ActionsPayload`** into **internal Intercom notes** via the REST API.
+<Note>
+  **How the pieces fit:** your frontend asks *your* server for a token → your server signs it with the Intercom secret → your frontend hands it to Intercom on boot → Intercom trusts the `user_id` and passes it to Fin.
+</Note>
 
-Use **`BaseChatbotWriter`** and **`AsyncAgentContextWriter`** from `autoplay-sdk`. The SDK handles buffering, debouncing, and summarisation; you implement two Intercom calls:
+<Warning>
+  For **logged-in** users, Intercom will **not** give Fin a trusted identity until Messenger JWT verification is set up **and enforced** (step 4). Until then, lookups come back empty.
+</Warning>
 
-- **`_post_note`** — post an internal admin note; return `part_id` for redaction
-- **`_redact_part`** — blank an old note when a summary replaces it
+### 1. Get your Unified Secret — in Intercom
 
-With this pattern you wire **`write_actions`** and **`overwrite_with_summary`** because your code receives **`ActionsPayload`** from the stream. Autoplay's default connector posts raw notes via **`forward_batch`** and passes **`write_actions=None`** into **`IntercomChatbot.make_agent_writer`** — see [Chatbot writer](/sdk/chatbot-writer).
+**Settings → Channels → Messenger → Security.** Copy the **secret** used for identity verification.
 
-### Implement `IntercomWriter`
+<Warning>
+  This secret is **server-side only**. Never ship it to the browser, never put it in your frontend bundle, and never commit it — anyone with it can forge any user's identity. Store it as an env var (e.g. `INTERCOM_IDENTITY_SECRET`).
+</Warning>
 
-```python
-import httpx
-from autoplay_sdk.chatbot import BaseChatbotWriter
-from autoplay_sdk.integrations.intercom import INTERCOM_WEBHOOK_TOPICS
+### 2. Sign the token — on your backend
 
-_INTERCOM_VERSION = "2.11"
-ACCESS_TOKEN = "your-intercom-access-token"
-ADMIN_ID = "your-admin-id"
+This runs in **your server code** (where the secret is safe). Add an endpoint your frontend can call to get a token for the currently logged-in user. Node/Express is shown, but any backend works — only the claims (`user_id`, `email`, `exp`) and the HS256 signature matter:
 
-http = httpx.AsyncClient(
-    base_url="https://api.intercom.io",
-    headers={
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Accept": "application/json",
-        "Intercom-Version": _INTERCOM_VERSION,
+```javascript
+// BACKEND — runs on your server, where INTERCOM_IDENTITY_SECRET is safe.
+import jwt from "jsonwebtoken";
+
+// e.g. an Express route your frontend calls after login:
+app.get("/intercom-jwt", requireAuth, (req, res) => {
+  const token = jwt.sign(
+    {
+      user_id: req.user.id,   // MUST equal the id you pass to posthog.identify(...)
+      email: req.user.email,
+      exp: Math.floor(Date.now() / 1000) + 60 * 60, // expires in 1 hour
     },
-)
-
-
-class IntercomWriter(BaseChatbotWriter):
-    SESSION_LINK_WEBHOOK_TOPICS = INTERCOM_WEBHOOK_TOPICS
-
-    async def _post_note(self, conversation_id: str, body: str) -> str | None:
-        r = await http.post(
-            f"/conversations/{conversation_id}/parts",
-            json={
-                "type": "admin",
-                "admin_id": ADMIN_ID,
-                "message_type": "note",
-                "body": body,
-            },
-        )
-        if r.is_success:
-            parts = r.json().get("conversation_parts", {}).get("conversation_parts", [])
-            return str(parts[-1]["id"]) if parts else None
-        return None
-
-    async def _redact_part(self, conversation_id: str, part_id: str) -> None:
-        await http.post(
-            "/conversations/redact",
-            json={
-                "type": "conversation_part",
-                "conversation_id": conversation_id,
-                "conversation_part_id": part_id,
-            },
-        )
+    process.env.INTERCOM_IDENTITY_SECRET, // the Unified Secret from step 1
+    { algorithm: "HS256" }
+  );
+  res.json({ token });
+});
 ```
 
-**Intercom credentials**
+### 3. Boot the Messenger with the token — in your frontend
 
-- **Access token** — Developer Hub → Your app → Authentication
-- **Admin ID** — Teammates, or [Admins API](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Admins/listAdmins/)
+Wherever you **already initialize the Intercom Messenger** (your app's frontend, after the user logs in), fetch the token from the endpoint above and pass it as the **sole** identity source:
 
-### Wire `AsyncAgentContextWriter`
+```javascript
+// FRONTEND — the same place you already boot the Intercom Messenger.
+const { token } = await fetch("/intercom-jwt").then((r) => r.json());
 
-```python
-import asyncio
-from collections import defaultdict
-import openai
-from autoplay_sdk import AsyncConnectorClient, AsyncSessionSummarizer
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
-
-async_openai = openai.AsyncOpenAI()
-
-conv_map: dict[str, str] = {}
-part_ids: dict[str, list[str]] = defaultdict(list)
-
-writer = IntercomWriter(product_id="your-product-id")
-
-
-async def write_actions_cb(session_id: str, text: str) -> None:
-    conv_id = conv_map.get(session_id)
-    if not conv_id:
-        return
-    part_id = await writer._post_note(conv_id, text)
-    if part_id:
-        part_ids[session_id].append(part_id)
-
-
-async def overwrite_cb(session_id: str, summary: str) -> None:
-    conv_id = conv_map.get(session_id)
-    if not conv_id:
-        return
-    await writer._post_note(conv_id, summary)
-    old = part_ids.pop(session_id, [])
-    if old:
-        await asyncio.gather(*[writer._redact_part(conv_id, pid) for pid in old])
-
-
-async def llm(prompt: str) -> str:
-    r = await async_openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=256,
-    )
-    return r.choices[0].message.content
-
-
-summarizer = AsyncSessionSummarizer(llm=llm, threshold=20)
-
-agent_writer = AsyncAgentContextWriter(
-    summarizer=summarizer,
-    write_actions=write_actions_cb,
-    overwrite_with_summary=overwrite_cb,
-    debounce_ms=0,
-)
+window.Intercom("boot", {
+  app_id: "YOUR_INTERCOM_APP_ID",
+  intercom_user_jwt: token, // the SOLE identity source — do NOT also set user_id/email here
+});
 ```
 
-### Connect to the stream
+<Tip>
+  Test before enforcing: paste a freshly signed token into a JWT decoder (e.g. jwt.io) and confirm the `user_id` claim is **exactly** your activity source's stable user id (e.g. the value you pass to `posthog.identify(...)`). A mismatch here is the #1 cause of "Fin sees no activity."
+</Tip>
 
-```python
-CONNECTOR_URL = "https://your-connector.onrender.com/stream/your-product-id"
-API_TOKEN = "your-api-token"
+### 4. Enforce Messenger Security — in Intercom
 
-async with AsyncConnectorClient(url=CONNECTOR_URL, token=API_TOKEN) as client:
-    client.on_actions(agent_writer.add)
-    await client.run()
-```
+Back in **Settings → Channels → Messenger → Security**, turn on **enforcement** for the web Messenger. Enforcement is what makes Intercom **trust and forward** the verified identity to Fin — do this **only after** step 3 works and your tokens decode correctly.
 
-Populate `conv_map` from the **handler you registered in Step 1** (same `session_id` → `conversation_id` pairs). Call `await writer.on_session_linked(session_id, conversation_id)` after each successful link so `BaseChatbotWriter` can flush its pre-link buffer before you rely on live `write_actions` traffic from the stream.
+<Warning>
+  Use a **stable user id** for the `user_id` claim — your internal user primary key, the same one your activity source identifies the user with. Do **not** use **email**: emails change, and activity is keyed by the stable id, so an email claim reads the wrong (or empty) bucket.
+</Warning>
 
----
+## 🧪 Test the connection
 
-**Next:** [Step 2 — Define proactive triggers](./step-2-define-proactive-triggers)
+On the tool's **Test** tab, set test values: **product_id** (your product) and **user_id** (a real user you've identified and browsed as). Run the **live test** — you want a **200** with a populated `actions` array.
+
+- **401** → the auth token isn't selected/configured — revisit *Add the authentication token* above.
+- **200 with empty `actions`** → identity is fine but that user has no recent activity yet (browse as them first).
+
+## 🚀 Set live
+
+Click **Set live**. The tool flips from **Draft** to **Live** and Fin will call it in real conversations.
+
+<Note>
+  On the **Fin** tab, ensure **"Enable Fin to use this connector directly"** is checked so Fin triggers it automatically based on the description.
+</Note>
+
+## ✅ Test the full loop
+
+1. **Log in** to your app as a test user (fires your activity source's identify — e.g. `posthog.identify(...)` — with that user's stable id).
+2. **Click around** — visit a couple of pages, click a button, submit a form.
+3. **Open the Messenger** as that same logged-in user (the JWT boots with the matching `user_id`).
+4. **Ask Fin:** *"What have I been doing in the app recently?"*
+5. Fin calls **Get Live User Activity** and answers with **what you actually just did**.
+
+<Note>
+  **"No recent activity" = identity mismatch.** Confirm the **same** value in all three:
+
+  1. the id your activity source identifies the user with (e.g. `posthog.identify`),
+  2. the `user_id` claim in the Messenger JWT,
+  3. the **User ID** attribute you bound on the API tab.
+
+  If they don't match, activity is stored under one key and fetched with another, and the lookup comes back empty.
+</Note>
+
+Once it's answering correctly, jump into our [Discord](https://discord.gg/jCbR2tQA5) and say hi — we'll confirm Fin is pulling activity cleanly and help you tune the trigger description.
