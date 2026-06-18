@@ -4,9 +4,9 @@ sidebarTitle: "Step 2 — Add actions to LLM context"
 description: Merge real-time product events, the user's question, conversation history, and optional KB retrieval into one LLM-ready context block.
 ---
 
-After [Step 1](./step-1-connect-real-time-actions), raw `ActionsPayload` text is enough for simple copilots. For chat surfaces, you usually want **multiple signals in one place**: what the user asked, what they did in the product since the last message, prior turns, and (when configured) chunks from your knowledge base.
+After [Step 1](./step-1-connect-real-time-actions), raw `ActionsPayload` text is enough for simple onboarding agents. For chat surfaces, you usually want **multiple signals in one place**: what the user asked, what they did in the product since the last message, prior turns, and (when configured) chunks from your knowledge base.
 
-The Autoplay SDK models this as **chatbot context assembly** — not the same as [RAG ingestion / vector pipelines](../rag-pipeline) (indexing documents), which happens offline or on write.
+The Autoplay SDK models this as **support AI agent context assembly** — not the same as [RAG ingestion / vector pipelines](../rag-pipeline) (indexing documents), which happens offline or on write.
 
 This is the core data-linking path to keep stable:
 
@@ -27,14 +27,14 @@ Use `autoplay_sdk.rag_query`:
 - **`assemble_rag_chat_context`** — pulls user message, session activity, conversation history (via your `ChatMemoryProvider`), and KB hits (via `KnowledgeBaseRetriever` when wired) into a structured assembly.
 - **`format_rag_system_prompt`** — combines your system template with that assembly so the model sees a coherent system + user picture.
 
-See **[Chatbot context assembly](../chatbot-context-assembly)** for the full diagram, provider interfaces, and worked example (`RagChatProviders`, `assemble_rag_chat_context`, `format_rag_system_prompt`).
+See **[Support AI agent context assembly](../support-agent-context-assembly)** for the full diagram, provider interfaces, and worked example (`RagChatProviders`, `assemble_rag_chat_context`, `format_rag_system_prompt`).
 
 ### Session indexing and conversation mapping
 
 This Step 2 guidance assumes **SDK `0.7.3+`**.
 
 - **`session_id`** keys product activity for the current user session (the event stream bucket from Step 1).
-- **`conversation_id`** keys chatbot memory for one chat thread.
+- **`conversation_id`** keys support AI agent memory for one chat thread.
 - **`UserSessionIndex`** is an optional helper for deployments that capture `user_id` and need user-keyed cross-session lookup.
 
 Once a user interacts with chat, keep the mapping stable:
@@ -53,7 +53,7 @@ thread. If `user_id` is in play, that mapping must stay consistent too.
 Use these when turning Step 2 into production chat infrastructure:
 
 - [`compose_chat_pipeline(...)`](../compose-chat-pipeline) — safe default composition for context store writes, agent-context writing, and summary callback fan-out.
-- [`build_copilot_app(...)`](../build-copilot-app) — minimal FastAPI bridge when you want ready-to-serve context/reply endpoints.
+- [`build_copilot_app(...)`](../build-support-agent-app) — minimal FastAPI bridge when you want ready-to-serve context/reply endpoints.
 
 ### How this fits the recipe
 

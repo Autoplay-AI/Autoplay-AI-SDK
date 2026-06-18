@@ -31,6 +31,7 @@ from autoplay_sdk.admin.product_onboarding import (
     print_onboarding_operator_summary as _print_onboarding_operator_summary,
     run_product_onboarding,
 )
+from autoplay_sdk.providers.base import ActivityProvider
 
 DEFAULT_CONNECTOR_URL = "https://event-connector-luda.onrender.com"
 
@@ -49,8 +50,8 @@ __all__ = [
 # Shown when callers pass blank product_id (SDK-facing; env validation stays terse).
 _EMPTY_PRODUCT_ID_USER_MESSAGE = (
     "Please provide a non-empty product_id to onboard_product. "
-    "Use the same stable string you pass as product_id in posthog.identify "
-    "(or your chosen product slug) so webhooks and the stream map to your tenant."
+    "Use a stable slug for your product (e.g. the value you pass to your activity "
+    "provider's identify call) so webhooks and the stream map to your tenant."
 )
 
 _EMPTY_CONTACT_EMAIL_USER_MESSAGE = (
@@ -79,6 +80,7 @@ def _onboarding_run_params(
     print_operator_summary: bool,
     key_name: str | None,
     connector_http_timeout_seconds: float | None,
+    user_activity_provider: ActivityProvider,
 ) -> OnboardingRunParams:
     pid = product_id.strip()
     if not pid:
@@ -114,6 +116,7 @@ def _onboarding_run_params(
         quiet=True,
         connector_http_timeout_seconds=connector_http_timeout_seconds,
         force_reregister=force_reregister,
+        user_activity_provider=user_activity_provider,
     )
 
 
@@ -121,8 +124,9 @@ def print_onboarding_operator_summary(
     result: OnboardProductResult,
     *,
     connector_url: str | None = None,
+    user_activity_provider: ActivityProvider,
 ) -> None:
-    """Print PostHog / stream setup (same formatted output as after a successful onboarding run).
+    """Print the activity-provider / stream setup copy-paste block.
 
     Delegates to :func:`autoplay_sdk.admin.product_onboarding.print_onboarding_operator_summary`.
     If ``connector_url`` is omitted, it is inferred from ``result.webhook_url``.
@@ -141,17 +145,20 @@ def print_onboarding_operator_summary(
         unkey_key=result.unkey_key,
         unkey_key_id=result.unkey_key_id,
     )
-    _print_onboarding_operator_summary(run, connector_url=base)
+    _print_onboarding_operator_summary(
+        run, connector_url=base, user_activity_provider=user_activity_provider
+    )
 
 
 @dataclass
 class OnboardProductResult:
     """Successful ``onboard_product`` registration.
 
-    On every successful call, ``webhook_url``, ``webhook_secret`` (PostHog
-    ``X-PostHog-Secret``), and ``unkey_key`` are non-empty strings, plus
-    ``stream_url`` for SSE. If the runner omits any of these, a
-    :class:`RuntimeError` is raised instead of returning an incomplete result.
+    On every successful call, ``webhook_url``, ``webhook_secret`` (the shared
+    secret the activity provider sends on each inbound webhook call), and
+    ``unkey_key`` are non-empty strings, plus ``stream_url`` for SSE.
+    If the runner omits any of these, a :class:`RuntimeError` is raised
+    instead of returning an incomplete result.
     """
 
     product_id: str
@@ -166,7 +173,7 @@ class OnboardProductResult:
 
 
 def _onboard_product_result_from_run(run: OnboardingRunResult) -> OnboardProductResult:
-    """Build the SDK result; require webhook URL, PostHog secret, and Unkey key."""
+    """Build the SDK result; require webhook URL, webhook secret, and Unkey key."""
     wurl = (run.webhook_url or "").strip()
     surl = (run.stream_url or "").strip()
     wsec = (run.webhook_secret or "").strip()
@@ -174,11 +181,11 @@ def _onboard_product_result_from_run(run: OnboardingRunResult) -> OnboardProduct
     uid = (run.unkey_key_id or "").strip()
     missing: list[str] = []
     if not wurl:
-        missing.append("webhook_url (PostHog destination URL)")
+        missing.append("webhook_url")
     if not surl:
         missing.append("stream_url (SSE endpoint)")
     if not wsec:
-        missing.append("webhook_secret (X-PostHog-Secret value)")
+        missing.append("webhook_secret (provider auth secret)")
     if not ukey:
         missing.append("unkey_key (SSE Bearer token)")
     if not uid:
@@ -212,6 +219,7 @@ async def onboard_product(
     print_operator_summary: bool = False,
     key_name: str | None = None,
     connector_http_timeout_seconds: float | None = None,
+    user_activity_provider: ActivityProvider,
     client: httpx.AsyncClient | None = None,
 ) -> OnboardProductResult:
     """Register an ``event_stream`` product via the **event connector**.
@@ -220,18 +228,18 @@ async def onboard_product(
     is open registration (no admin header). The connector creates webhook + Unkey
     credentials and returns them.
 
-    **connector_url** defaults to :data:`DEFAULT_CONNECTOR_URL`; override for
-    self-hosted connectors.
-
-    ``webhook_secret``: optional preset PostHog secret; if omitted, a random secret
-    is generated before ``POST /products`` (the connector may also generate when
-    empty).
-
-    ``force_reregister``: same semantics as ``ONBOARD_FORCE_REREGISTER`` in older
-    env-based flows.
+    Args:
+        product_id:    Stable slug for the product (e.g. ``"acme"``).
+        contact_email: Owner e-mail for this product registration.
+        connector_url: Override the default connector base URL.
+        webhook_secret: Optional preset secret the activity provider will send on
+                        inbound webhook calls; auto-generated when omitted.
+        user_activity_provider: Activity provider instance (e.g. ``PostHogProvider()`` or
+                                ``AmplitudeProvider()``). Required when
+                                ``print_operator_summary=True``.
+        force_reregister: Overwrite an existing ``product_id`` registration.
 
     Raises :class:`ConnectorRegistrationHttpError` on transport or HTTP errors.
-
     Raises :class:`ProductAlreadyRegisteredError` on HTTP 409 when
     ``force_reregister`` is false.
     """
@@ -244,6 +252,7 @@ async def onboard_product(
         print_operator_summary=print_operator_summary,
         key_name=key_name,
         connector_http_timeout_seconds=connector_http_timeout_seconds,
+        user_activity_provider=user_activity_provider,
     )
     run = await run_product_onboarding(params, client=client)
     return _onboard_product_result_from_run(run)
@@ -259,6 +268,7 @@ def onboard_product_sync(
     print_operator_summary: bool = False,
     key_name: str | None = None,
     connector_http_timeout_seconds: float | None = None,
+    user_activity_provider: ActivityProvider,
     client: httpx.AsyncClient | None = None,
 ) -> OnboardProductResult:
     """Synchronous wrapper for :func:`onboard_product`."""
@@ -272,6 +282,7 @@ def onboard_product_sync(
             print_operator_summary=print_operator_summary,
             key_name=key_name,
             connector_http_timeout_seconds=connector_http_timeout_seconds,
+            user_activity_provider=user_activity_provider,
             client=client,
         )
     )

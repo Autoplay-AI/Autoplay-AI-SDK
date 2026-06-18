@@ -1,11 +1,19 @@
 ---
 title: "🚀 Quickstart"
 sidebarTitle: "🚀 Quickstart"
-description: "Stream real-time user events into your AI copilots and agents in a couple lines of code."
+description: "Stream real-time user events into your support AI agents in a couple lines of code."
 ---
 
+{/* HIDDEN (per product feedback — keep, do not delete):
+<Tip>
+  **Want this done for you?** The [⚡ One-command setup](/get-started/one-command-setup)
+  CLI runs the product registration and creates + verifies the PostHog
+  destination automatically — you only confirm the small frontend edit. This
+  page is the manual, step-by-step version of the same wiring.
+</Tip>
+*/}
 
-## Install the SDK and agent skills first
+## Install the SDK
 
 Run these commands once from your project root:
 
@@ -15,35 +23,7 @@ pip install autoplay-sdk
 uv add autoplay-sdk
 ```
 
-Then install Autoplay skills for Cursor/Claude:
-
-```bash
-autoplay-install-skills
-```
-
-<Note>
-  **SDK reorganization update (v0.7.6):** internal imports were reorganized into domain-based modules in `0.7.4`. Existing old paths still work (with deprecation warnings) and are removed in `1.0.0`.
-
-  To migrate quickly, install migration skills and run:
-
-  ```bash
-  autoplay-install-skills --migrate
-  ```
-
-  See [Migration 0.7.4](/sdk/migration-0.7.4) for the complete old-to-new path mapping.
-</Note>
-
-Agent skills add project-local guidance so your assistant follows the correct integration pattern for your stack (session scoping, conversation linking, and field mapping) instead of generating generic setup code.
-
-Use `--force` only when you intentionally want to overwrite existing local skill customizations.
-
-You can also target a specific stack:
-
-```bash
-autoplay-install-skills --chatbot ada --user-activity fullstory
-autoplay-install-skills --chatbot intercom --user-activity posthog
-autoplay-install-skills --chatbot botpress
-```
+Install [Agent skills](/get-started/agent-skills) for Cursor/Claude so your assistant follows the correct integration pattern for your stack. See [Pricing](/who-we-are/pricing) for plans.
 
 ## 🎥 Step-1 Choose your existing session replay provider
 
@@ -51,7 +31,7 @@ autoplay-install-skills --chatbot botpress
 <Accordion title="PostHog" icon="/images/recipes/posthog/logo.png" iconType="image">
 
 <Tip>
-  If you **already use PostHog** to capture events, register using your PostHog project id as the **`product_id`** and skip to step 3
+  If you **already use PostHog** to capture events, register using your PostHog project id as the **`product_id`** and skip to Step 2
 
   You can find your PostHog Project ID (often referred to as a Team ID) through the following methods:
 
@@ -59,26 +39,38 @@ autoplay-install-skills --chatbot botpress
   - **Project Settings:** Navigate to Project Settings in the PostHog sidebar. The ID is typically listed under the general project configuration or API sections.
 </Tip>
 
-### 🎯 Step 1 — Go to the project page in Autoplay and press "create one with Autoplay"
+### 🎯 Step 1 — Set up PostHog in your app
 
-First, you need to grab the unique IDs that tell our system who you are.
+Go to [posthog.com](https://posthog.com) and sign up or log in. Create a new project if you don't have one. Your **Project ID** is the number in the URL once you're inside the project:
 
-1. Go to [**app.autoplay.ai**](https://app.autoplay.ai) and sign up.
-2. Inside your dashboard, find your **Product ID** and **API Key**. Keep this page open—you will need both of these in the next step!
+```
+https://us.posthog.com/project/YOUR_POSTHOG_PROJECT_ID/...
+```
 
-Note: Save your product ID as this will be important for product registration with the SDK!
+**📺 How to find your PostHog Project ID and Project API Key**
 
----
+<iframe
+  src="https://app.arcade.software/share/uQizURhG2MTNIxQjiIA1"
+  title="Find your PostHog Project ID and Project API Key"
+  width="100%"
+  height="500"
+  allow="fullscreen"
+  style={{ borderRadius: "8px", border: "none" }}
+/>
 
-### 💻 Step 2 — Add the front end snippet to capture events
+**Save your Project ID** — you will use it in Steps 2 and 3.
 
-Next, we are going to add a tiny piece of tracking code (powered by PostHog) to your website. This acts as the "eyes" that see what users are clicking on.
+Now install the PostHog JavaScript SDK:
 
-Use your **PostHog Project API Key** (starts with `phc_`) here. Personal keys (`phx_...`) are admin keys and `posthog.init()` rejects them with `personal_api_key`.
+```bash
+npm install posthog-js
+```
 
-Copy the code snippet below into your website's frontend. Make sure to replace `YOUR_POSTHOG_PROJECT_API_KEY` and `YOUR_PRODUCT_ID` with your real values.
+<Tip>
+  **Where to find your PostHog Project API Key:** In PostHog, go to **Settings → Projects → [Your Project] → General**. Copy the **Project API Key** (also labelled **Project Token** in the PostHog UI — they are the same value) — it starts with `phc_`. Do not use a Personal API Key (starts with `phx_`) — `posthog.init()` rejects those.
+</Tip>
 
-JavaScript
+Copy the snippet below into your app's entry point (`main.ts`, `_app.tsx`, or root layout). Replace `YOUR_POSTHOG_PROJECT_API_KEY` with your API key from the Tip above, and `YOUR_POSTHOG_PROJECT_ID` with the project ID you saved above:
 
 ```javascript
 import posthog from 'posthog-js'
@@ -89,56 +81,47 @@ posthog.init('YOUR_POSTHOG_PROJECT_API_KEY', {
     // This stops recording if a user walks away for 2 minutes, keeping your data clean:
     session_idle_timeout_seconds: 120, 
     loaded: (posthog) => {
-        posthog.identify(posthog.get_distinct_id(), {
-            // Autoplay-specific field. Must match onboard_product(product_id=...).
-            product_id: 'YOUR_PRODUCT_ID', 
-        });
+        // Attach product_id to every event as a super-property. This is NOT an
+        // identify call, so it never creates an anonymous "identified" user.
+        // Must match onboard_product(product_id=...).
+        posthog.register({ product_id: 'YOUR_POSTHOG_PROJECT_ID' });
     },
 })
 ```
 
-**Highly Recommended: Tag users when they log in** If a user logs into your app, you can tell Autoplay who they are. This automatically links their web activity to their chatbot conversations, no extra work required. Just run this code right after your login process finishes:
+**Required: identify users on login.** The moment your auth flow knows who the user is, pass **your own user id** (never the anonymous `posthog.get_distinct_id()`). This makes PostHog's `distinct_id` equal your app's user id — so the same id reaches Autoplay as `user_id` — and links earlier anonymous activity to the identified person:
 
 ```javascript
+// On login:
 posthog.identify(user.id, {
-    product_id: 'YOUR_AUTOPLAY_PRODUCT_ID',
+    product_id: 'YOUR_POSTHOG_PROJECT_ID',
     email: user.email, // Added to the person profile and the $identify event.
 })
 
-// If you want payload.email on ongoing autocapture events, also register email as a super-property.
-posthog.register({ email: user.email })
+// On logout — clears identity so the next user starts clean:
+posthog.reset()
 ```
 
-_(Note: If you don't provide an email, anonymous users will still be tracked.)_
+<Warning>
+  Don't call `posthog.identify(posthog.get_distinct_id(), …)` — that re-stamps
+  the anonymous id and never sets a real user id. Always pass your app's stable
+  user id. Until a user logs in they stay anonymous (that's expected); the
+  `session_id` still scopes everything.
+</Warning>
 
-> **👋 Quick Tip:** Once you add this code to your site, jump into our [Slack workspace](https://join.slack.com/t/autoplay-ai-dev/shared_invite/zt-3uslbaddx-UT2Cl18BGiLkeMwJ439ppg) and drop a message in `#just-integrated`. We will check to make sure your data is flowing properly and help you get fully set up!
+> **👋 Quick Tip:** Once you add this code to your site, jump into our [Discord](https://discord.gg/jCbR2tQA5) and say hi — we will check your data is flowing and help you get fully set up!
 
 <Note>
-  **Identity plumbing for widget-based chatbots:** make sure the same user identity flows across all three layers: PostHog `distinct_id` / `user_id`, your chat widget session metadata, and the chatbot backend sender identifier. If those do not match, chat replies will look like "no recent activity" because events are stored under one key and fetched with another.
+  **Identity plumbing for widget-based support AI agents:** make sure the same user identity flows across all three layers: PostHog `distinct_id` / `user_id`, your chat widget session metadata, and the support AI agent backend sender identifier. If those do not match, chat replies will look like "no recent activity" because events are stored under one key and fetched with another.
 </Note>
 
 ---
 
-### 📝 Step 3 — Registering your product with Autoplay
+### 📝 Step 2 — Register your product with Autoplay
 
 Now that your website is tracking clicks, we need to create a secure "mailing address" (**Webhook URL**) and a shared **secret** (`X-PostHog-Secret`) so that data can be safely sent to Autoplay.
 
-Registration requires a valid **contact email** (stored on your connector product row) in addition to your **product id**. Existing deployments may still have older product rows **without** email until you re-register.
-
-Your stream consumer can pass the bearer token directly to `AsyncConnectorClient(token=...)` or via `AUTOPLAY_APP_UNKEY_TOKEN`.
-
-<Tip>
-  If you **already use PostHog**, register using your PostHog project id as the **`product_id`**
-
-  You can find your PostHog Project ID (often referred to as a Team ID) through the following methods:
-
-  - **URL:** The easiest way to find it is to look at the URL while logged into your project. The numeric value following /project/ in the address bar is your Project ID.
-  - **Project Settings:** Navigate to Project Settings in the PostHog sidebar. The ID is typically listed under the general project configuration or API sections.
-</Tip>
-
-Create a Python file with the script below. Paste your **Product ID** from Step 1 into the script and run it.
-
-Python
+The `autoplay-sdk` was installed at the top of this page. Create a Python file with the script below, replace the placeholders with your values from Step 1, and run it once:
 
 ```python
 import asyncio
@@ -146,55 +129,104 @@ from autoplay_sdk.admin import onboard_product
 
 async def main() -> None:
     result = await onboard_product(
-        "YOUR_AUTOPLAY_PRODUCT_ID",
-        contact_email="you@yourcompany.com",
+        "YOUR_POSTHOG_PROJECT_ID",    # your PostHog project ID from Step 1
+        contact_email="you@yourcompany.com",  # replace with your actual email
+        user_activity_provider=PostHogProvider(),
         print_operator_summary=True,
     )
-    # result still has the same full fields if you need them in code
 
 asyncio.run(main())
 ```
 
 This will print the following fields:
 
-- **product_id:** `{product_id_entered}`
-- **webhook_url:** `https://event-connector-luda.onrender.com/webhook/{product_id}`  
-  **stream_url:** `https://event-connector-luda.onrender.com/stream/{product_id}`
-- **webhook_secret:** `{secret}`  
-  **unkey_key:** `{secret}`
+- **product_id:** `YOUR_POSTHOG_PROJECT_ID`
+- **webhook_url:** `https://event-connector-luda.onrender.com/webhook/YOUR_POSTHOG_PROJECT_ID`
+- **stream_url:** `https://event-connector-luda.onrender.com/stream/YOUR_POSTHOG_PROJECT_ID`
+- **webhook_secret:** `{secret}`
+- **unkey_key:** `{secret}`
 
-**Important:** `onboard_product` registers an **`event_stream`** product. `result` includes your webhook, stream, and auth values—**save what prints in the terminal.**
+**Save what prints in the terminal** — you will need these values in Step 3 and Step 4:
 
-- **Step 4 (PostHog):** `result.webhook_url`, `result.webhook_secret`
-- **Step 5 (live stream):** `result.stream_url`, `result.unkey_key` (use as **Bearer**)
+- **Step 3 (PostHog webhook):** use the `webhook_url` and `webhook_secret` printed above
+- **Step 4 (live stream):** use the `stream_url` and `unkey_key` printed above (`unkey_key` is your Bearer token)
 
 <Note>
   **Re-registering your product**
 
   - A second `onboard_product` with the same `product_id` returns **409** until overwrite is allowed.
   - Pass **`force_reregister=True`** (same as CLI **`--force-reregister`**). You must still pass **`contact_email`** on every registration, including overwrites.
-  - After a successful overwrite, the **webhook secret rotates**. Update PostHog (**Step 4**) so **`X-PostHog-Secret`** matches the new secret.
+  - After a successful overwrite, the **webhook secret rotates**. Update PostHog (**Step 3**) so **`X-PostHog-Secret`** matches the new secret.
 </Note>
 
 ---
 
-### 🔗 Step 4 — Set up your PostHog webhook
+### 🔗 Step 3 — Set up your PostHog webhook
 
-Now we must tell the website tracker (Step 2) to send its data to the secure address (webhook) you just generated (Step 3).
+Now we must tell the website tracker (Step 1) to send its data to the secure address (webhook) you just generated (Step 2).
 
-**You have two choices:**
+**You have three choices:**
 
-**Option A — Managed (default)**
+**Option A — Automated with the SDK (recommended)**
 
-- Join our [Slack workspace](https://join.slack.com/t/autoplay-ai-dev/shared_invite/zt-3uslbaddx-UT2Cl18BGiLkeMwJ439ppg) and message **`#just-integrated`**.
+Let the SDK create and verify the destination for you — no clicking around in
+PostHog, no pasting Hog code. Run this once with the values from Step 2:
+
+<Tip>
+  **Where to find your PostHog Personal API Key:** In PostHog, go to **Settings → [Your name] → Personal API keys → Create personal API key**. Give it `project:read` and `hog_function:write` permissions. This is different from the Project API Key used in `posthog.init()`.
+</Tip>
+
+**📺 Generate your PostHog Personal API Key**
+
+<iframe
+  src="https://app.arcade.software/share/lOvmHy4FeRDtjD9xBTBb"
+  title="Generate your PostHog Personal API Key"
+  width="100%"
+  height="500"
+  allow="fullscreen"
+  style={{ borderRadius: "8px", border: "none" }}
+/>
+
+```python
+import asyncio
+from autoplay_sdk.providers import PostHogProvider
+
+async def main() -> None:
+    provider = PostHogProvider()
+    dest = await provider.create_destination(
+        host="https://us.posthog.com",             # your PostHog host (us.posthog.com or eu.posthog.com)
+        project_id="YOUR_POSTHOG_PROJECT_ID",      # your project ID from Step 1
+        personal_api_key="YOUR_PERSONAL_API_KEY",  # phx_... Personal API Key from the Tip above
+        webhook_url="YOUR_WEBHOOK_URL",            # webhook_url printed by Step 2
+        webhook_secret="YOUR_WEBHOOK_SECRET",      # webhook_secret printed by Step 2
+    )
+    status = await provider.verify(
+        host="https://us.posthog.com",
+        project_id="YOUR_POSTHOG_PROJECT_ID",
+        personal_api_key="YOUR_PERSONAL_API_KEY",
+        destination_id=dest.id,
+    )
+    print("destination", dest.id, "enabled:", status.ok)
+
+asyncio.run(main())
+```
+
+It's **idempotent** — it creates the "Autoplay Event Stream" destination (or
+updates it) and confirms it's enabled, so you can re-run it safely.
+
+**Option B — Managed**
+
+- Join our [Discord](https://discord.gg/jCbR2tQA5) and say hi.
 - We configure the PostHog webhook for you.
 - You receive a **1Password** link with your **Stream URL** and **API token** for Step 5.
 
-**Option B — Self-serve (DIY)**
+**Option C — Fully manual (advanced)**
+
+Add the destination by hand in PostHog — only needed if you can't run Option A:
 
 - In PostHog, add a **Webhook** destination.
-- **Webhook URL:** paste **`result.webhook_url`** from Step 3.
-- **`X-PostHog-Secret` header:** paste **`result.webhook_secret`** from Step 3. Do **not** create a new secret.
+- **Webhook URL:** paste the `webhook_url` printed by Step 2.
+- **`X-PostHog-Secret` header:** paste the `webhook_secret` printed by Step 2. Do **not** create a new secret.
 
 PostHog still requires the form-level **Webhook URL** field even if your Hog source code also sets `let url := ...`.
 
@@ -225,7 +257,7 @@ PostHog still requires the form-level **Webhook URL** field even if your Hog sou
   />
 </div>
 
-Below is the code to add in the source code
+Paste this into the **Event Body / Source** field of your PostHog webhook destination:
 
 ```text
 fun extractFromElementsChain(str, pattern) {
@@ -332,23 +364,16 @@ if (inputs.debug) {
 
 ---
 
-### 📡 Step 5 — Watch Your Data Arrive Live! (Receive your first event)
+### 📡 Step 4 — Watch Your Data Arrive Live! (Receive your first event)
 
-Everything is wired up! Let's turn on the monitor to see a live feed of your users' actions.
-
-Run this final script. If you used the DIY method in Step 4, use the `Stream URL` from Step 3 and your **Unkey token**. If we helped you in Slack, use the **stream URL** and **API token** from Autoplay’s 1Password handoff.
-
-Then run the script, it connects to the SSE endpoint and prints every event as it arrives.
-
-Python
+Everything is wired up! Use the `stream_url` and `unkey_key` you saved from Step 2. Run this script — it connects to the SSE endpoint and prints every event as it arrives:
 
 ```python
 import asyncio
 from autoplay_sdk import AsyncConnectorClient
 
-# Paste your Stream URL and Token here!
-STREAM_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
-API_TOKEN  = "unkey_xxxx..."
+STREAM_URL = "YOUR_STREAM_URL"   # stream_url printed by Step 2
+API_TOKEN  = "YOUR_UNKEY_KEY"    # unkey_key printed by Step 2
 # You can also set AUTOPLAY_APP_UNKEY_TOKEN in your environment.
 
 def on_actions(p):
@@ -384,8 +409,6 @@ _(Note: If your internet drops, the client will reconnect automatically. Press C
 
 **What you will see:** When you click around your app, your terminal will instantly populate with an AI summary of exactly what you are doing, looking something like this:
 
-Plaintext
-
 ```text
 === ACTIONS ===
   session_id   : ps_abc123
@@ -415,12 +438,34 @@ This output comes from the example script's `print(...)` statements. SDK callbac
 
 ---
 
-### 🚀 Next Steps & Advanced Features
+### 🔌 Next: choose your AI support agent → connect via MCP
+
+Your activity is now flowing into the connector. The next step is to **choose your existing AI support agent and connect it via MCP** — it then pulls a user's live activity on demand, the moment it needs context to answer.
+
+<AccordionGroup>
+<Accordion title="Fin AI (Intercom)" icon="/images/recipes/intercom/logo.png" iconType="image">
+
+Connect **Intercom Fin** to live user activity via the **MCP server** — add the MCP connector, the `Get Live User Activity` tool, and Messenger JWT identity.
+
+[Connect Fin via MCP ->](/recipes/intercom-tutorial/step-1-connect-real-time-events)
+
+</Accordion>
+
+<Accordion title="Maven (Coming soon)" icon="robot">
+
+Coming soon — Maven will connect the same way, via the MCP server.
+
+</Accordion>
+</AccordionGroup>
+
+---
+
+### 🚀 Other next steps
 
 Now that your data is flowing, here's how to put it to work:
 
 - **Typed Payloads:** Explore all available fields for Actions and Summaries.
-- **Inject into your LLM Response:** Pass real-time user events into your prompt so the LLM understands what a user just did—not just what they asked. Most users are in the wrong part of your product when they ask for help; this is what lets your copilot bridge that gap.
+- **Inject into your LLM Response:** Pass real-time user events into your prompt so the LLM understands what a user just did—not just what they asked. Most users are in the wrong part of your product when they ask for help; this is what lets your onboarding agent bridge that gap.
 - **Agentic RAG:** Build agents that track where a user is, where they need to be, and guide them there—*"You've been on this page for a few minutes—here's where you actually need to go."*
 - **Async Client:** Use Autoplay alongside LangChain or FastAPI.
 
@@ -439,20 +484,464 @@ Now that your data is flowing, here's how to put it to work:
     Use AsyncConnectorClient with LangChain or FastAPI
   </Card>
 
-  <Card title="Proactive copilot" icon="robot" href="/sdk/proactive-copilot">
+  <Card title="Proactive onboarding agent" icon="robot" href="/sdk/proactive-onboarding-agent">
     Combine real-time events, memory, and golden paths
   </Card>
 
-  <Card title="Chatbot tutorials" icon="comments" href="/recipes/intercom-tutorial">
+  <Card title="Support AI agent tutorials" icon="comments" href="/recipes/intercom-tutorial/step-1-connect-real-time-events">
     Step-by-step guides for Intercom, Ada, Botpress, and more
   </Card>
 
-  <Card title="AI agent skills" icon="wand-magic-sparkles" href="/recipes/intercom-tutorial">
-    Install Cursor / Claude skills with autoplay-install-skills
+  <Card title="AI agent skills" icon="wand-magic-sparkles" href="/get-started/agent-skills">
+    Browse, install, and download Cursor / Claude skills
   </Card>
 </CardGroup>
 
 For structured logging and `extra` field conventions used across the SDK, see [Logging](/sdk/logging). Release history is on the [Changelog](/changelog).
+
+</Accordion>
+
+<Accordion title="Amplitude" icon="/images/recipes/amplitude/logo.svg" iconType="image">
+
+<Tip>
+  If you **already use Amplitude** to capture events, skip to **Step 4** to register your product with Autoplay, then continue from Step 5 to identify on login, and Step 7 to derive your ingest URL.
+</Tip>
+
+### 🎯 Step 1 — Install the Amplitude Unified SDK
+
+The **Unified SDK** (`@amplitude/unified`) combines Analytics + Session Replay in one package — the same setup used in the Autoplay reference app.
+
+```bash
+npm install @amplitude/unified
+```
+
+---
+
+<Warning>
+  **Complete Amplitude setup before continuing.** When you log in for the first time, Amplitude shows a **"Let's get set up!"** screen with **"Waiting for your events..."** at the bottom. **You cannot access the Amplitude dashboard or create destinations until this step is finished.**
+
+  To unblock yourself, choose one of:
+  - **Complete the setup** — follow Steps 1–3 below, trigger a few events in your app. Once Amplitude receives them, **"Finish Setup"** activates and you reach the main dashboard.
+  - **Skip for now** — click **"Skip for now"** in the bottom-right corner to go directly to the dashboard. You can finish the SDK installation afterward, but do not move on to the Amplitude destination steps without completing Steps 1–4 first.
+</Warning>
+
+### 📲 Step 2 — Install and initialise Amplitude in your app
+
+<Warning>
+  **This step is required before you can create a destination in Step 8.** Amplitude only shows the **Data → Destinations** section and the destination catalog after it has received at least one live event from your app. If you skip or fail to complete this step, the catalog will be empty and you will not be able to add a destination.
+</Warning>
+
+The interactive walkthrough below gives you a visual overview of the Amplitude SDK setup. Steps 3–5 walk through all three parts with the exact code: **Step 3** initialises Amplitude, **Step 4** registers your product with Autoplay, and **Step 5** identifies users on login.
+
+**📺 Full setup walkthrough**
+
+<iframe
+  src="https://app.arcade.software/share/wRkSFI6KddHoaT8SBCbd"
+  title="Set up Amplitude in your app"
+  width="100%"
+  height="500"
+  allow="fullscreen"
+  style={{ borderRadius: "8px", border: "none" }}
+/>
+
+If you already have `amplitude.initAll(...)` running in your app and users are appearing in the Amplitude dashboard, skip to Step 4 to register with Autoplay.
+
+---
+
+### 💻 Step 3 — Initialize on app load
+
+Call `amplitude.initAll()` once at app startup — in `main.ts`, `_app.tsx`, or your root layout. Replace `YOUR_AMPLITUDE_API_KEY` with your project's API key (see the Tip below for where to find it):
+
+<Tip>
+  **Where to find your Amplitude API key:** In Amplitude, go to **Settings → Projects → [Your Project] → General**. Copy the **API Key** shown there. It's also displayed on the onboarding wizard screen under "Your API Key".
+</Tip>
+
+**📺 Copy your Amplitude API key**
+
+<iframe
+  src="https://app.arcade.software/share/ycesTzu0o9kI2N56wytr"
+  title="Copy your Amplitude API key"
+  width="100%"
+  height="500"
+  allow="fullscreen"
+  style={{ borderRadius: "8px", border: "none" }}
+/>
+
+```typescript
+import * as amplitude from '@amplitude/unified';
+
+amplitude.initAll('YOUR_AMPLITUDE_API_KEY', {
+  analytics: {
+    autocapture: true, // auto-captures clicks, page views, form interactions
+  },
+  sessionReplay: {
+    sampleRate: 1, // 1 = record 100% of sessions; lower in production if needed
+  },
+});
+```
+
+`autocapture: true` ensures that page views, clicks, and session lifecycle events flow to Autoplay automatically. Session Replay records what users actually do — Autoplay correlates those sessions to give your support AI agent real-time context.
+
+
+
+---
+
+### 📝 Step 4 — Registering your product with Autoplay
+
+<Tip>
+  **Where to find your `YOUR_AUTOPLAY_PRODUCT_ID`** — this is your **Amplitude project ID**, found in Amplitude under **Settings → Projects → select your project → Project ID**.
+</Tip>
+
+**📺 How to find your Amplitude Project ID**
+
+<iframe
+  src="https://app.arcade.software/share/gbMSMIenMpBYhCWbLFrh"
+  title="Find your Amplitude Project ID"
+  width="100%"
+  height="500"
+  allow="fullscreen"
+  style={{ borderRadius: "8px", border: "none" }}
+/>
+
+Use the same value everywhere: in Step 5's `identifyObj.set('product_id', ...)` and here in `onboard_product()`. The script will print your `amplitude_ingest_url` directly — you'll use it in Step 7 and Step 8.
+
+Create a Python file with the script below and run it once to generate your connector credentials:
+
+```python
+import asyncio
+from autoplay_sdk.admin import onboard_product
+from autoplay_sdk.providers import AmplitudeProvider
+
+async def main() -> None:
+    result = await onboard_product(
+        "YOUR_AUTOPLAY_PRODUCT_ID",
+        contact_email="you@yourcompany.com",
+        user_activity_provider=AmplitudeProvider(),
+        print_operator_summary=True,
+    )
+
+asyncio.run(main())
+```
+
+This will print the following fields:
+
+- **product_id:** `{product_id_entered}`
+- **stream_url:** `https://event-connector-luda.onrender.com/stream/{product_id}`
+- **amplitude_ingest_url:** `https://event-connector-luda.onrender.com/ingest/amplitude/{product_id}`
+- **unkey_key:** `{secret}`
+
+**Save what prints in the terminal** — you will need these values in Step 5 and Step 7.
+
+<Note>
+  **Re-registering your product**
+
+  A second `onboard_product` with the same `product_id` returns **409** until overwrite is allowed. Pass **`force_reregister=True`** to overwrite. You must still pass **`contact_email`** on every registration, including overwrites.
+</Note>
+
+---
+
+### 👤 Step 5 — Identify on login (required for session scoping)
+
+Run this immediately after your login flow completes. Use the values you just got from Step 4:
+
+- `YOUR_AUTOPLAY_PRODUCT_ID` — the Amplitude project ID you registered above
+- `YOUR_CONNECTOR_URL` — the domain part of `stream_url` (e.g. if `stream_url` is `https://event-connector-luda.onrender.com/stream/828048`, your connector URL is `https://event-connector-luda.onrender.com`)
+
+```typescript
+import * as amplitude from '@amplitude/unified';
+
+amplitude.setUserId(user.id);
+
+const identifyObj = new amplitude.Identify();
+identifyObj.set('product_id', 'YOUR_AUTOPLAY_PRODUCT_ID');
+identifyObj.set('email', user.email);
+identifyObj.set('name', user.name);
+amplitude.identify(identifyObj);
+
+// Link the Amplitude session to Autoplay's session store
+const sessionId = amplitude.getSessionId();
+if (sessionId) {
+  fetch('YOUR_CONNECTOR_URL/identify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: user.email,
+      session_id: String(sessionId),
+      product_id: 'YOUR_AUTOPLAY_PRODUCT_ID',
+    }),
+  });
+}
+```
+
+**Why both `setUserId` and `identify`?**
+
+`setUserId` tells Amplitude who the user is. The `Identify` call sets `user_properties` — including `product_id` and `email` — which Autoplay uses to map Amplitude events to the correct tenant and to link activity with your support AI agent's incoming conversation threads. The `/identify` POST links the live Amplitude session ID to Autoplay so the support AI agent can fetch real-time context immediately when a user opens the chat widget.
+
+<Warning>
+  Without `setUserId`, users are tracked by `device_id` only. The session is still scoped correctly for activity tracking, but `user_id` and `email` will be absent on incoming `ActionsPayload` events until identity is established.
+</Warning>
+
+On logout — reset so the next user starts clean:
+
+```typescript
+amplitude.reset()
+```
+
+---
+
+### 🔢 Step 6 — Understanding Amplitude session IDs
+
+Amplitude assigns each browser session a **numeric Unix-millisecond timestamp** as its ID (e.g. `1749012345678`). Autoplay automatically converts it to a string, so your backend always receives `payload.session_id` as a string like `"1749012345678"`.
+
+You don't need to do anything extra — the `/identify` POST in Step 5 already links the session to Autoplay at login. Every subsequent event arrives with `session_id` filled in automatically.
+
+<Note>
+  Amplitude initialises `session_id` to `-1` briefly on page load before the first session is established. Autoplay falls back to `device_id` for these early events, which is still a valid scoping key. This resolves within a few seconds and is completely normal.
+</Note>
+
+---
+
+### 🔗 Step 7 — Your Amplitude ingest URL
+
+Your connector printed the `amplitude_ingest_url` directly in Step 4 — use it as-is. Your **Bearer token** is the `unkey_key` also printed by Step 4.
+
+<Note>
+  The `amplitude_ingest_url` is **different** from the `webhook_url` also printed by Step 4. The `webhook_url` is for a different integration and will return `401` for Amplitude events. Always use the `amplitude_ingest_url` for Amplitude.
+</Note>
+
+---
+
+### ⚙️ Step 8 — Create the event streaming destination in Amplitude
+
+**📺 How to create the Amplitude event streaming destination**
+
+<iframe
+  src="https://app.arcade.software/share/NeCcl6dtC7DQdjOjue28"
+  title="Create Amplitude Event Streaming Destination"
+  width="100%"
+  height="500"
+  allow="fullscreen"
+  style={{ borderRadius: "8px", border: "none" }}
+/>
+
+Amplitude uses a **developer portal** to create custom event streaming destinations.
+
+**8a — Open the destination builder**
+
+1. In Amplitude, click **Data** in the left sidebar
+2. In the left sub-navigation, click **Destinations**
+3. Click **+ Add Destination** (top right)
+4. In the catalog that opens, search for **"HTTP"** or scroll to find it, then select it
+5. Choose **"Event Streaming"** as the type
+
+**8b — Fill in the Configuration tab**
+
+**Integration Name** — give the destination a name, e.g. `autoplay-connector`.
+
+**URL Endpoint**
+
+| Field | Value |
+|---|---|
+| Method | `POST` |
+| URL | Your `amplitude_ingest_url` from Step 7 (e.g. `https://your-connector.onrender.com/ingest/amplitude/your_product_id`) |
+
+**Create Parameters** — click **"Add New Parameter"** and add:
+
+| Parameter name | Value |
+|---|---|
+| `apiKey` | `Bearer` + your `amplitude_bearer_token` from Step 7 (e.g. `Bearer 4cmp...`) |
+
+**REST API Headers** — click **"Add New REST API Header"** and set:
+
+| Header Key | Header Value |
+|---|---|
+| `Authorization` | `${parameters.apiKey}` |
+
+**Event Body Editor** — replace the default Freemarker template with:
+
+```
+<#setting number_format="0.####">
+<#assign et = input.event_type!''>
+<#assign ep = input.event_properties!{}>
+<#assign up = input.user_properties!{}>
+
+{
+  "events": [
+    {
+      "event_type": "<#if et?starts_with('Viewed') || et == '[Amplitude] Page Viewed' || et == 'Page Viewed'>$pageview<#elseif et == '[Amplitude] Element Clicked' || et == '[Amplitude] Element Changed' || et?starts_with('Form')>$autocapture<#else>${et}</#if>",
+      "user_id": "${input.user_id!''}",
+      "device_id": "${input.device_id!''}",
+      "session_id": ${input.session_id!0},
+      "time": ${input.time!0},
+      "user_properties": {
+        <#list up?keys as k>"${k}": "${up[k]}"<#sep>, </#sep></#list>
+      },
+      "event_properties": {
+        "[Amplitude] Page URL": "${ep['Page URL']!ep['Page Location']!ep['[Amplitude] Page URL']!ep['[Amplitude] Page Location']!''}",
+        "[Amplitude] Page Title": "${ep['Page Title']!ep['[Amplitude] Page Title']!''}",
+        "$event_type": "<#if et == '[Amplitude] Element Changed'>change<#elseif et?starts_with('Form Submitted')>submit<#elseif et?starts_with('Form Started')>focus<#else>click</#if>",
+        "$current_url": "${ep['Page URL']!ep['Page Location']!ep['[Amplitude] Page URL']!ep['[Amplitude] Page Location']!''}",
+        "$button_text": "${ep['[Amplitude] Element Text']!ep['Element Text']!ep['Page Title']!''}",
+        "$elements_chain": "${ep['[Amplitude] Element Path']!ep['[Amplitude] Element Hierarchy']!ep['Element Path']!''}",
+        "$element_id": "${ep['[Amplitude] Element ID']!ep['Element ID']!''}",
+        "$element_tag": "${ep['[Amplitude] Element Tag']!ep['Element Tag']!''}"
+      }
+    }
+  ]
+}
+```
+
+<Note>
+  This template does two things the default Amplitude template does not:
+
+  **1. Event type normalisation** — Amplitude's autocapture sends events with names like `[Amplitude] Page Viewed` and `[Amplitude] Element Clicked`. The Autoplay connector needs these mapped to standard names it recognises. The template does that automatically:
+
+  | Amplitude event | Normalised to |
+  |---|---|
+  | `[Amplitude] Page Viewed`, `Page Viewed`, `Viewed *` | `$pageview` |
+  | `[Amplitude] Element Clicked`, `[Amplitude] Element Changed`, `Form *` | `$autocapture` |
+  | Everything else | passed through unchanged |
+
+  **2. Field mapping** — Amplitude stores click details (element text, URL, element path) under its own field names. The template copies them into the fields Autoplay expects so it can generate human-readable descriptions like "User clicked Sign Up button on the dashboard page".
+
+  Without this template, only page views appear in the Autoplay stream — clicks and form events are silently ignored.
+</Note>
+
+Click **"Next"** to proceed to the Testing tab.
+
+**8c — Configure and release on the Testing tab**
+
+1. Enable the **"Send Events"** toggle
+2. Under **"Select & filter events"**, keep it set to **"All Events"**
+3. Click **"Test Connection"** to send a test event and confirm you get a `200 OK`
+4. Click **"Release"** (top right) — this publishes the destination to the catalog
+
+**8d — Create a sync from the published destination**
+
+1. Go back to **Data → Destinations**
+2. Under **"New Destinations"**, find your destination
+3. Click it → **"Add New Sync"** page opens
+4. Enter a **Sync Name** (e.g., `production-stream`) and click **"Create Sync"**
+
+The sync is now active. Amplitude will stream all events to your connector endpoint in real time.
+
+---
+
+### 📡 Step 9 — Watch Your Data Arrive Live! (Receive your first event)
+
+Everything is wired up! Open a terminal and run:
+
+```bash
+curl -N "https://your-connector.onrender.com/stream/your_product_id" \
+  -H "Authorization: Bearer YOUR_UNKEY_KEY"
+```
+
+Or use the Python SDK:
+
+```python
+import asyncio
+from autoplay_sdk import AsyncConnectorClient
+
+STREAM_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
+API_TOKEN  = "unkey_xxxx..."
+
+def on_actions(p):
+    print("\n=== LIVE USER ACTIONS ===")
+    print(f"  Session ID   : {p.session_id}")
+    print(f"  User ID      : {p.user_id}")
+    print(f"  Product ID   : {p.product_id}")
+    print(f"  Total Clicks : {p.count}")
+    for i, action in enumerate(p.actions):
+        print(f"  [{i}] Action: {action.title}")
+        print(f"       Details: {action.description}")
+        print(f"       Page:    {action.canonical_url}")
+
+async def main():
+    async with AsyncConnectorClient(url=STREAM_URL, token=API_TOKEN) as client:
+        client.on_actions(on_actions)
+        print("Listening for live website clicks... (Press Ctrl+C to stop)")
+        await client.run()
+
+asyncio.run(main())
+```
+
+After clicking around your app, you should see `data:` lines arrive with `"type": "actions"` payloads. _(If your internet drops, the client reconnects automatically.)_
+
+**Common issues:**
+
+- **`401` on the connector:** Confirm the `Authorization` header is `Bearer result.unkey_key`, not the key alone. Confirm the URL ends with `/ingest/amplitude/your_product_id`.
+- **`404`:** Confirm `your_product_id` in the URL matches the `product_id` used in `onboard_product`.
+- **Events in Amplitude Live Events but not in SSE stream:** Confirm the sync is active and the Event Body template uses `event_type` (not `event_name`) inside `{"events": [...]}`.
+- **No events in Amplitude Live Events:** Confirm the sync "Send Events" toggle is on and that you are calling `amplitude.setUserId()` before tracking events.
+
+> **👋 Quick Tip:** Once you add this code to your site, jump into our [Discord](https://discord.gg/jCbR2tQA5) and say hi — we will check your data is flowing and help you get fully set up!
+
+---
+
+### 📦 What the payload looks like
+
+A sample Amplitude event that Autoplay receives:
+
+```json
+{
+  "event_type": "$pageview",
+  "session_id": 1749012345678,
+  "user_id": "user-462718483",
+  "device_id": "abc123def456",
+  "user_properties": {
+    "product_id": "your_product_id",
+    "email": "alice@example.com"
+  },
+  "event_properties": {
+    "[Amplitude] Page URL": "https://app.example.com/dashboard",
+    "[Amplitude] Page Title": "Dashboard"
+  },
+  "time": 1749012345678
+}
+```
+
+After normalization, `ActionsPayload` surfaces:
+- `session_id` — `"1749012345678"` (stringified)
+- `user_id` / `email` — from `user_properties` set via `amplitude.identify()`
+- `actions` — extracted page view actions with `canonical_url`, `title`, and `description`
+
+---
+
+### ⚠️ Common mistakes
+
+**Using `result.webhook_url` instead of the Amplitude ingest URL.**
+`Always use `/ingest/amplitude/{product_id}`.
+
+**Calling `amplitude.setUserId()` but not `amplitude.identify()` with `product_id`.**
+`setUserId` alone does not write `user_properties`. Without an explicit `Identify` call, `product_id` and `email` will be absent from every event — Autoplay will not be able to map the event to your tenant or to an active chat conversation.
+
+**Session ID is `−1` in early events.**
+Amplitude initializes `session_id` to `−1` briefly before the first session is established. Autoplay falls back to `device_id` for these events, which is still a valid scoping key. This is normal and resolves within a few seconds of page load.
+
+**Not calling `amplitude.init()` before the chat widget opens.**
+If the chat widget fires `GET /sessions/{product_id}/{session_id}` before Amplitude's session is established, there will be no activity to return. Initialize Amplitude at the earliest possible point in your app lifecycle.
+
+---
+
+### 🔌 Next: choose your AI support agent → connect via MCP
+
+Your activity is now flowing into the connector. The next step is to **choose your existing AI support agent and connect it via MCP** — it then pulls a user's live activity on demand, the moment it needs context to answer.
+
+<AccordionGroup>
+<Accordion title="Fin AI (Intercom)" icon="/images/recipes/intercom/logo.png" iconType="image">
+
+Connect **Intercom Fin** to live user activity via the **MCP server** — add the MCP connector, the `Get Live User Activity` tool, and Messenger JWT identity.
+
+[Connect Fin via MCP ->](/recipes/intercom-tutorial/step-1-connect-real-time-events)
+
+</Accordion>
+
+<Accordion title="Maven (Coming soon)" icon="robot">
+
+Coming soon — Maven will connect the same way, via the MCP server.
+
+</Accordion>
+</AccordionGroup>
 
 </Accordion>
 
@@ -475,48 +964,48 @@ Coming soon. Join our [Discord](https://discord.gg/jCbR2tQA5) for notifications.
 </Accordion>
 </AccordionGroup>
 
-## 🤖 Step-2 Choose your existing chatbot provider
+## 🤖 Step-2 choose your existing AI support agent
 
 <AccordionGroup>
 <Accordion title="Intercom" icon="/images/recipes/intercom/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/intercom-tutorial/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/intercom-tutorial/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Ada" icon="/images/recipes/ada/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/ada/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/ada/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Botpress" icon="/images/recipes/botpress/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/botpress/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/botpress/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Dify" icon="/images/recipes/dify/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/dify-tutorial)
+[View tutorial ->](/recipes/dify-tutorial/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Tidio" icon="/images/recipes/tidio/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/tidio/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/tidio/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Landbot" icon="/images/recipes/landbot/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/landbot/step-1-connect-real-time-events)
+[View tutorial ->](/recipes/landbot/step-1-connect-real-time-events)
 
 </Accordion>
 
 <Accordion title="Crisp AI" icon="/images/recipes/crisp/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/crisp-ai)
+[View tutorial ->](/recipes/crisp-ai/step-1-connect-real-time-events)
 
 </Accordion>
 
@@ -546,43 +1035,43 @@ Coming soon.
 <AccordionGroup>
 <Accordion title="Userpilot" icon="/images/recipes/userpilot/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/userpilot/how-to-setup)
+[View tutorial ->](/recipes/userpilot/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Chameleon" icon="/images/recipes/chameleon/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/chameleon/how-to-setup)
+[View tutorial ->](/recipes/chameleon/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Userflow" icon="/images/recipes/userflow/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/userflow/how-to-setup)
+[View tutorial ->](/recipes/userflow/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Pendo" icon="/images/recipes/pendo/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/pendo/how-to-setup)
+[View tutorial ->](/recipes/pendo/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Usertour" icon="/images/recipes/usertour/logo.svg" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/usertour/how-to-setup)
+[View tutorial ->](/recipes/usertour/how-to-setup)
 
 </Accordion>
 
 <Accordion title="UserGuiding" icon="/images/recipes/userguiding/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/userguiding/how-to-setup)
+[View tutorial ->](/recipes/userguiding/how-to-setup)
 
 </Accordion>
 
 <Accordion title="Told" icon="/images/recipes/told/logo.png" iconType="image">
 
-[View tutorial ->](https://developers.autoplay.ai/recipes/told/how-to-setup)
+[View tutorial ->](/recipes/told/how-to-setup)
 
 </Accordion>
 </AccordionGroup>
