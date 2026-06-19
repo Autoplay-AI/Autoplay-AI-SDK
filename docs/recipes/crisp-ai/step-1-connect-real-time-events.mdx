@@ -173,7 +173,7 @@ async def send_crisp_message(session_id: str, text: str):
 
 ### Code node: `get_event_data_from_file`
 
-The chatbot is grounded in data from a local text file. Swap this out with a database query, vector search, or API call depending on your use case.
+The support AI agent is grounded in data from a local text file. Swap this out with a database query, vector search, or API call depending on your use case.
 
 <Accordion title="Code: get_event_data_from_file — read shared context file">
 
@@ -747,7 +747,7 @@ agent_writer = AsyncAgentContextWriter(
 
 </Accordion>
 
-The summary is appended under a clear `=== SUMMARY ===` header so any consumer (like the Crisp chatbot) can distinguish raw action logs from synthesised summaries.
+The summary is appended under a clear `=== SUMMARY ===` header so any consumer (like the Crisp support AI agent) can distinguish raw action logs from synthesised summaries.
 
 `threshold=5` means the summarizer fires after every 5 actions. Lower it for faster summaries; raise it to reduce LLM calls. `debounce_ms=0` disables write debouncing — safe here since writes are cheap file appends.
 
@@ -923,7 +923,7 @@ if __name__ == "__main__":
 
 ---
 
-## 🌐 Step 5 — Add the chatbot to your frontend
+## 🌐 Step 5 — Add the support AI agent to your frontend
 
 Copy the Crisp embed snippet from your Crisp dashboard and paste it into your frontend `index.html` file, just before the closing `</body>` tag.
 
@@ -945,7 +945,7 @@ Copy the Crisp embed snippet from your Crisp dashboard and paste it into your fr
 
 ---
 
-That's it. Events will start appearing in `event_data.txt` as soon as the user interacts with your UI. Summaries are generated and appended automatically once the action threshold is reached. The Crisp chatbot will use all of this data to answer visitor questions with real-time context.
+That's it. Events will start appearing in `event_data.txt` as soon as the user interacts with your UI. Summaries are generated and appended automatically once the action threshold is reached. The Crisp support AI agent will use all of this data to answer visitor questions with real-time context.
 
 ---
 

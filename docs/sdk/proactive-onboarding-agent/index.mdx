@@ -1,12 +1,12 @@
 ---
-title: "The proactive + visual support agent gold standard"
-sidebarTitle: "✨ The proactive + visual support agent gold standard"
-description: "Step-by-step guide to building a customer support copilot that knows what users are doing in real time — and helps before they have to ask."
+title: "The proactive onboarding and adoption agent gold standard"
+sidebarTitle: "✨ The proactive onboarding and adoption agent gold standard"
+description: "Step-by-step guide to building a proactive onboarding and adoption agent that knows what users are doing in real time — and helps before they have to ask."
 ---
 
-🚫 **Most customer support chatbots are reactive.** No context. No memory. No idea what users actually need next.
+🚫 **Most customer support AI agents are reactive.** No context. No memory. No idea what users actually need next.
 
-✅ **A proactive chatbot is different.** It watches, learns, and acts — surfacing the right next step before users have to ask.
+✅ **A proactive onboarding agent is different.** It watches, learns, and acts — surfacing the right next step before users have to ask.
 
 | | |
 |---|---|
@@ -15,14 +15,14 @@ description: "Step-by-step guide to building a customer support copilot that kno
 | 💬 | Proactive chat + visual triggers |
 | 🗂️ | User memory & workflow ontology |
 
-**This is the blueprint for going from reactive chatbot to intelligent copilot.**
+**This is the blueprint for going from a reactive support AI agent to a proactive onboarding and adoption agent.**
 
 **Walkthrough** — same recipe in video form. [Open on YouTube](https://www.youtube.com/watch?v=N33U3nGNpaQ) if the player does not load.
 
 <iframe
   className="doc-embed"
   src="https://www.youtube.com/embed/N33U3nGNpaQ"
-  title="Proactive and visual copilot walkthrough"
+  title="Proactive onboarding agent walkthrough"
   frameBorder={0}
   loading="lazy"
   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -47,7 +47,7 @@ Use these SDK references as you wire the recipe into production:
 
 - **[UserSessionIndex](../user-session-index)** — required for production user-keyed chat so `user_id` resolves to the correct recent sessions before Step 2 context assembly.
 - **[compose_chat_pipeline(...)](../compose-chat-pipeline)** — compose safe default chat-ingestion wiring in Step 2.
-- **[build_copilot_app(...)](../build-copilot-app)** — stand up a minimal FastAPI bridge when you want an out-of-the-box serving layer.
+- **[build_copilot_app(...)](../build-support-agent-app)** — stand up a minimal FastAPI bridge when you want an out-of-the-box serving layer.
 
 You can build and ship real-time event ingestion today. Visual guidance wiring is covered in [Step 4](./step-4-enhance-with-user-memory). **Workflow ontology + user memory enrichment** (Chrome extension; docs with Autoplay via Slack) is part of [Step 5](./step-5-enrich-with-user-memory); expect an iterative loop on **Autoplay Atlas** labelling quality. The in-SDK [knowledge base query](../knowledge-base) and full user memory rollout are still rolling out.
 

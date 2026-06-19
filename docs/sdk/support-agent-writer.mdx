@@ -1,10 +1,10 @@
 ---
 title: BaseChatbotWriter
 sidebarTitle: "💬 BaseChatbotWriter"
-description: Base class for delivering session events to any chatbot platform — handles pre-link buffering, at-link flush, and post-link debouncing so you only implement the API call.
+description: Base class for delivering session events to any support AI agent platform — handles pre-link buffering, at-link flush, and post-link debouncing so you only implement the API call.
 ---
 
-`BaseChatbotWriter` is the delivery engine for any chatbot integration. Subclass it, implement two async methods, and you get the full delivery policy for free. For the complete session lifecycle (state creation, linking, persistence), use [`AutoplayChatbotManager`](#autoplaychatbotmanager-recommended) — it wraps `BaseChatbotWriter` and handles everything automatically.
+`BaseChatbotWriter` is the delivery engine for any support AI agent integration. Subclass it, implement two async methods, and you get the full delivery policy for free. For the complete session lifecycle (state creation, linking, persistence), use [`AutoplayChatbotManager`](#autoplaychatbotmanager-recommended) — it wraps `BaseChatbotWriter` and handles everything automatically.
 
 ---
 
@@ -18,7 +18,7 @@ from autoplay_sdk import AutoplayChatbotManager, BaseChatbotWriter
 # 1. Implement _post_note — the only platform-specific code
 class MyWriter(BaseChatbotWriter):
     async def _post_note(self, conversation_id: str, text: str) -> str | None:
-        # call your chatbot platform API here
+        # call your support AI agent platform API here
         ...
     async def _redact_part(self, conversation_id: str, part_id: str) -> None:
         pass  # implement if your platform supports note deletion
@@ -30,14 +30,14 @@ manager = AutoplayChatbotManager(writer=MyWriter(product_id="my_product"))
 async def on_actions(payload):
     await manager.on_actions(payload)
 
-# 4. Chatbot webhook handler — only the extraction lines differ per platform
+# 4. Support AI agent webhook handler — only the extraction lines differ per platform
 async def on_webhook(data):
     session_id = data["custom_attributes"]["session_id"]  # ← platform-specific
     conversation_id = data["id"]                          # ← platform-specific
     await manager.on_chatbot_event(session_id, conversation_id)
 ```
 
-`session_id` always comes from PostHog (via `ActionsPayload.session_id`). `conversation_id` comes from the chatbot platform webhook. `AutoplayChatbotManager` marries them and routes all future delivery to that conversation permanently.
+`session_id` always comes from PostHog (via `ActionsPayload.session_id`). `conversation_id` comes from the support AI agent platform webhook. `AutoplayChatbotManager` marries them and routes all future delivery to that conversation permanently.
 
 ### Production: Redis-backed persistence
 
@@ -99,7 +99,7 @@ write_actions() called (linked)
 
 `BaseChatbotWriter` handles delivery. `SessionState` is the source of truth for session identity and conversation ownership:
 
-- **`session_id`** — required, always set first. Comes from PostHog (`ActionsPayload.session_id`), never from the chatbot platform.
+- **`session_id`** — required, always set first. Comes from PostHog (`ActionsPayload.session_id`), never from the support AI agent platform.
 - **`metadata`** — open dict for optional extras (`user_id`, `email`, …).
 - **`conversation_linked` / `conversation_id`** — set by `link_conversation`; the permanent delivery target once set.
 - **`current_state`** — FSM (THINKING / PROACTIVE / REACTIVE).
