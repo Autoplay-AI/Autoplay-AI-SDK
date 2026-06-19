@@ -1,7 +1,7 @@
 ---
 title: "Step 1 — Connect real-time actions"
 sidebarTitle: "Step 1 — Connect real-time actions"
-description: Ingest structured ActionsPayload streams so your copilot sees what the user is doing right now.
+description: Ingest structured ActionsPayload streams so your onboarding agent sees what the user is doing right now.
 ---
 
 <Info>Available now.</Info>
@@ -30,7 +30,7 @@ The result is an `ActionsPayload` that your agent can read and reason over direc
   activity even when user identity is absent.
 </Note>
 
-### What your copilot can do at this stage
+### What your onboarding agent can do at this stage
 
 Your agent can see exactly what the user is doing right now — which page they're on, what they just clicked, and what their inferred intent is. It can respond contextually to any action without waiting for the user to describe the situation in chat.
 
@@ -48,7 +48,7 @@ async def on_actions(payload: ActionsPayload) -> None:
     current_context = payload.to_text()
 
     suggestion = await your_llm(
-        system="You are a product copilot. Based on what the user is doing, "
+        system="You are a product onboarding agent. Based on what the user is doing, "
                "suggest one helpful next step. Be brief.",
         user=f"## What the user is doing\n{current_context}",
     )

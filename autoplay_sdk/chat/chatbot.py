@@ -19,7 +19,7 @@ The connector calls two methods on every writer:
 
     on_session_linked(session_id, conversation_id)
         Called once when a destination conversation_id is first associated
-        with a PostHog session.  Use this to flush any pre-link buffer.
+        with an activity-provider session.  Use this to flush any pre-link buffer.
 
 BaseChatbotWriter
 -----------------
@@ -123,7 +123,7 @@ def format_chatbot_note_header(session_id: str | None, timestamp_unix: float) ->
     chatbot backend so formatting matches across integrations.
 
     Args:
-        session_id: PostHog session id; displayed as ``unknown`` when falsy.
+        session_id: Activity-provider session id; displayed as ``unknown`` when falsy.
         timestamp_unix: POSIX seconds (e.g. from an action's ``timestamp_start``
             or ``time.time()`` at post time), rendered as UTC.
 
@@ -166,12 +166,12 @@ class ConversationLink:
 class ConversationWebhookEvent:
     """Normalised session-link payload extracted from a chatbot platform webhook.
 
-    The connector uses this to look up the PostHog ``session_id`` and link it
+    The connector uses this to look up the activity-provider ``session_id`` and link it
     to the platform ``conversation_id``.
 
     Attributes:
         conversation_id: Platform-specific conversation identifier.
-        external_id: User's external ID in the platform (maps to PostHog
+        external_id: User's external ID in the platform (maps to the activity provider's
             ``distinct_id`` via the identity store).
         email: User's email; fallback lookup when ``external_id`` is absent
             or yields no match.
@@ -474,7 +474,7 @@ class ConversationWriter(Protocol):
         Args:
             conversation_id: Platform-specific conversation id (may be empty
                              pre-link for chatbot destinations).
-            session_id:      PostHog session identifier.
+            session_id:      Activity-provider session identifier.
             slim_actions:    Ordered list of ``{index, description,
                              timestamp_start, …}`` dicts.
             user_id:         Identified user id (optional).
@@ -493,12 +493,12 @@ class ConversationWriter(Protocol):
         """Notify the writer that a destination conversation has been linked.
 
         Called once when a destination ``conversation_id`` is first associated
-        with a PostHog session.  Writers that buffer pre-link actions should
+        with an activity-provider session.  Writers that buffer pre-link actions should
         flush them here.  No-op for destinations that do not use the link
         concept (e.g. SSE, webhook).
 
         Args:
-            session_id:      PostHog session identifier.
+            session_id:      Activity-provider session identifier.
             conversation_id: Platform-specific conversation id now linked.
         """
         ...
@@ -652,7 +652,7 @@ class BaseChatbotWriter:
         ``on_session_linked`` call (e.g. after a process restart or re-link).
 
         Args:
-            session_id:      PostHog session identifier.
+            session_id:      Activity-provider session identifier.
             conversation_id: Platform-specific conversation id.
         """
         if self._conv_map.get(session_id) == conversation_id:
@@ -721,7 +721,7 @@ class BaseChatbotWriter:
         Args:
             conversation_id: Passed through but ignored — resolved from
                              internal session map for chatbot destinations.
-            session_id:      PostHog session identifier.
+            session_id:      Activity-provider session identifier.
             slim_actions:    Ordered list of ``{index, description,
                              timestamp_start, …}`` dicts.
             user_id:         Ignored (available for subclass use if needed).
@@ -827,7 +827,7 @@ class BaseChatbotWriter:
         on the BaseChatbotWriter docs page (``sdk/chatbot-writer``).
 
         Args:
-            session_id:   PostHog session id used in the note header.
+            session_id:   Activity-provider session id used in the note header.
             slim_actions: Action dicts with ``description`` and ``timestamp_start``.
             bin_seconds:  Override ``_bin_seconds`` for this call.
                           Pass ``0`` to disable binning (used for post-link notes).
@@ -911,8 +911,8 @@ class AutoplayChatbotManager:
     async def on_actions(self, payload: ActionsPayload) -> None:
         """Call from your Autoplay stream handler.
 
-        Creates ``SessionState`` on first sight of a ``session_id`` (PostHog
-        is the ground truth).  Actions are buffered until
+        Creates ``SessionState`` on first sight of a ``session_id`` (the
+        activity provider is the ground truth).  Actions are buffered until
         ``on_chatbot_event`` links a ``conversation_id``.
         """
         if not payload.session_id:
@@ -945,8 +945,8 @@ class AutoplayChatbotManager:
         Parameters
         ----------
         session_id:
-            PostHog session identifier — the same value stored in the chatbot
-            widget's metadata (e.g. ``custom_attributes.session_id``).
+            Activity-provider session identifier — the same value stored in
+            the chatbot widget's metadata (e.g. ``custom_attributes.session_id``).
         conversation_id:
             Chatbot platform's conversation identifier.
         metadata:
