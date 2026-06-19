@@ -37,12 +37,12 @@ class SlimAction:
         raw_url:         Original URL as captured, before canonicalization.
         canonical_url:   Normalised URL with dynamic path segments collapsed to
                          ``:id`` (e.g. ``"https://app.example.com/projects/:id"``).
-        session_id:      PostHog session id for this action; ``None`` if unknown.
+        session_id:      Activity-provider session id for this action; ``None`` if unknown.
         user_id:         Distinct id / identified user id; ``None`` if anonymous.
-        email:           User email from PostHog properties when present; ``None``
+        email:           User email from the identity store when present; ``None``
                          if absent.
-        conversation_id: Intercom (or channel) conversation id when the PostHog
-                         session is linked; ``None`` until linking (see connector
+        conversation_id: Intercom (or channel) conversation id when the session
+                         is linked; ``None`` until linking (see connector
                          session store). Optional on the wire.
     """
 
