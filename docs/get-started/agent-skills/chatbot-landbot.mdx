@@ -1,0 +1,25 @@
+---
+title: "Chatbot Landbot"
+sidebarTitle: "Chatbot Landbot"
+description: "Wires the Autoplay SDK into Landbot for real-time user context. Use when the user mentions Landbot or asks how to give their Landbot chatbot real-time context from Autoplay."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+<a href="/files/skills/chatbot-landbot.txt" download="SKILL.md"><strong>Download `.md`</strong></a> · <a href="/files/skills/chatbot-landbot.txt" target="_blank"><strong>Open raw file</strong></a> · Install via CLI: `autoplay-install-skills`
+
+# Chatbot — Landbot
+
+> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+
+## ⚠️ Session scoping — critical
+
+Landbot conversations have a conversation ID. You must link the browser Autoplay `session_id` to the Landbot conversation before context can be delivered — see `autoplay-core` for the `conv_map` + `on_session_linked` pattern.
+
+Full tutorial coming soon. See the docs for current status.
+
+## Reference
+
+- Tutorial: https://developers.autoplay.ai/recipes/landbot
