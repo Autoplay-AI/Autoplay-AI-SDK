@@ -16,7 +16,7 @@ Small, dependency-light helpers in `autoplay_sdk/integrations/intercom.py` for D
 
 ### Webhook topics
 
-Subscribe in Intercom to **exactly** these topics so session linking and chatbot delivery stay aligned with `IntercomChatbot` parsing in the connector:
+Subscribe in Intercom to **exactly** these topics so session linking and support AI agent delivery stay aligned with `IntercomChatbot` parsing in the connector:
 
 | Name | Constant | Value |
 |------|----------|--------|
@@ -205,15 +205,15 @@ Webhook verification uses Intercom **`X-Hub-Signature-256`** and your app **clie
 
 ## Delivery stack in this repo
 
-- **`BaseChatbotWriter`** ([Chatbot writer](/sdk/chatbot-writer)) — pre-link buffer, post-link debounce, shared note body format (`format_chatbot_note_header`, numbered action lines, binning).
+- **`BaseChatbotWriter`** ([Support agent writer](/sdk/support-agent-writer)) — pre-link buffer, post-link debounce, shared note body format (`format_chatbot_note_header`, numbered action lines, binning).
 - **`IntercomChatbot`** (event connector `flows/chatbot/intercom.py`) — subclass; implements Intercom REST **admin notes** (`_post_note`, `_redact_part`) and webhook payload parsing for linking.
 
-For LLM summaries and redaction ordering, pair with **`AsyncAgentContextWriter`** as described on the chatbot-writer page.
+For LLM summaries and redaction ordering, pair with **`AsyncAgentContextWriter`** as described on the support agent writer page.
 
 ---
 
 ## Related
 
-- [Chatbot writer](/sdk/chatbot-writer) — `BaseChatbotWriter` contract and note format.
+- [Support agent writer](/sdk/support-agent-writer) — `BaseChatbotWriter` contract and note format.
 - [Agent context](/sdk/agent-context) — summariser + `overwrite_with_summary` flow.
 - [Agent session states](/sdk/agent-states) — FSM gates when using the optional proactive connector endpoint with `conversation_id`.
