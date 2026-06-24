@@ -1,0 +1,215 @@
+---
+title: "Step 1 — Connect real-time events"
+sidebarTitle: "Step 1 — Connect real-time events"
+description: "Connect Maven to a user's recent in-app activity via the Autoplay MCP server — one MCP connection, one tool, with verified user identity."
+---
+
+**Maven** pulls a user's recent in-app activity on demand via the **Autoplay MCP server** — it calls the tool the moment it needs context to answer. You'll do three things:
+
+<Steps>
+  <Step title="Connect Maven to the MCP server">
+    So Maven can call the `Get Live User Activity` tool.
+  </Step>
+  <Step title="Embed the Maven chat widget">
+    So your users can talk to Maven inside your app.
+  </Step>
+  <Step title="Pass a verified user identity">
+    So Maven knows *which* user is asking, and pulls the right activity.
+  </Step>
+</Steps>
+
+<Note>
+  **Prerequisite:** finish the [Quickstart](/quickstart) so activity is already flowing into the connector. You'll need your **`product_id`**, your **Unkey token**, and a **Maven agent** (created in Agent Designer).
+</Note>
+
+## 🎬 Watch the walkthrough
+
+Prefer to watch first? This short Loom covers **Part A below** — installing the MCP app on your Maven agent, configuring it with your MCP URL and token, and testing it in the Simulator.
+
+<Frame>
+  <iframe
+    src="https://www.loom.com/embed/0c942e53b456467aba4fcaf77f6668f2"
+    title="Connect the Autoplay MCP server to Maven"
+    frameBorder="0"
+    allowFullScreen
+    style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "12px" }}
+  />
+</Frame>
+
+---
+
+## 🔌 Part A — Add the Autoplay MCP server to Maven
+
+Maven discovers tools from any MCP server and registers them as actions your agent can call.
+
+<Steps>
+  <Step title="Open your agent's Apps">
+    In Maven AGI, open your agent, go to **Apps**, and find the **MCP** app (Browse & Install → search "MCP").
+  </Step>
+  <Step title="Configure the connection">
+    Install the MCP app and enter:
+
+    - **MCP URL:** `https://event-connector-luda.onrender.com/mcp/`
+    - **MCP auth token:** your **Unkey token** (from your product registration)
+  </Step>
+  <Step title="Install">
+    Click **Install**. Maven connects to the server and registers the **`get_live_user_activity`** tool as an action automatically.
+  </Step>
+</Steps>
+
+<Warning>
+  Install the MCP app **from inside an agent** (your agent → Apps → MCP), not from the global directory. Installing without an agent fails the post-install step.
+</Warning>
+
+<Tip>
+  Tool definitions are captured **at install time**. If the tool's description ever changes, **reinstall** the MCP app so Maven picks up the update.
+</Tip>
+
+<Check>
+  **Verify it now in the Simulator.** Open **Simulator** and ask: *"My product_id is `your-product-id` and my user_id is `a-real-user-id`. What have I done recently?"* Maven calls the tool and answers with that user's activity. (In the Simulator you pass the ids in the message; Parts B and C wire identity automatically so your real users never have to.)
+</Check>
+
+---
+
+## 💬 Part B — Embed the Maven chat widget
+
+This is the surface your users talk to. Maven distributes it as a **Chat** app.
+
+<Steps>
+  <Step title="Install the Chat app">
+    In your agent → **Apps** → **Browse & Install** → search **"Chat"** → install the **Chat** app.
+  </Step>
+  <Step title="Allow your domain">
+    Open the Chat app → **Settings** → **Security** → **Allowed domains** and add the domain your app runs on (e.g. `localhost` for local testing, then your production domain).
+  </Step>
+  <Step title="Copy your snippet">
+    Open the Chat app → **Settings** → **Instructions** tab to find your snippet with your real `organizationId` and `agentId`.
+  </Step>
+  <Step title="Add it to your app">
+    Drop the widget script into your site, just before the closing `</body>` tag:
+
+    ```html
+    <script src="https://chat.onmaven.app/js/widget.js" defer></script>
+    <script async>
+      addEventListener("load", function () {
+        Maven.ChatWidget.load({
+          organizationId: "YOUR_ORGANIZATION_ID",
+          agentId: "YOUR_AGENT_ID",
+        });
+      });
+    </script>
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  If your site uses a **Content Security Policy**, allow `chat.onmaven.app` in your `script-src`, `connect-src`, and `frame-src` directives.
+</Note>
+
+At this point the widget loads — but Maven doesn't yet know **who** the user is. That's Part C.
+
+---
+
+## 🔐 Part C — Pass a verified user identity
+
+Maven only pulls the *right* user's activity if it sends the correct `user_id` to the tool. The secure way is **signed user data**: your backend cryptographically signs the logged-in user's identity, so it can't be forged.
+
+### 1. Configure the keys — in Maven
+
+In the Chat app → **Settings** → **Security**, set:
+
+- **JWT Public Key** — the public half of a signing keypair you generate (Maven uses it to verify the signature).
+- **Encryption secret** — a shared secret (Maven uses it to decrypt the token).
+
+Generate them once:
+
+```bash
+# EC P-256 keypair (ES256) — paste the PUBLIC key into "JWT Public Key"
+openssl ecparam -genkey -name prime256v1 -noout -out private.pem
+openssl ec -in private.pem -pubout -out public.pem
+openssl pkcs8 -topk8 -nocrypt -in private.pem -out private_pkcs8.pem  # use this on your server
+
+# 32-byte base64url encryption secret — paste into "Encryption secret"
+openssl rand 32 | base64 | tr '+/' '-_' | tr -d '='
+```
+
+<Warning>
+  The **private key** and the **encryption secret** are server-side only. Never ship them to the browser or commit them.
+</Warning>
+
+### 2. Sign the user's identity — on your backend
+
+Add an endpoint your frontend calls for the logged-in user. It **signs** the user's data (ES256), then **encrypts** the signed token (JWE):
+
+```javascript
+// BACKEND — runs on your server, where the private key + secret are safe.
+import { SignJWT, EncryptJWT, importPKCS8, base64url } from "jose";
+
+export async function getMavenToken(user) {
+  const privateKey = await importPKCS8(process.env.MAVEN_PRIVATE_KEY_PKCS8, "ES256");
+
+  const signed = await new SignJWT({
+    id: user.id, // ← the SAME id your analytics identifies the user with
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+  })
+    .setProtectedHeader({ alg: "ES256" })
+    .setIssuedAt()
+    .setExpirationTime("1d")
+    .sign(privateKey);
+
+  return new EncryptJWT({ jwt: signed })
+    .setProtectedHeader({ alg: "dir", enc: "A128CBC-HS256" })
+    .encrypt(base64url.decode(process.env.MAVEN_ENCRYPTION_SECRET));
+}
+```
+
+<Tip>
+  Set **`id`** to the **same stable id your analytics identifies the user with** (the value you pass to `posthog.identify(...)` / Amplitude `setUserId(...)`). Maven fills the tool's `user_id` argument from this verified identity — so make sure `id` is your canonical user id, not just an email.
+</Tip>
+
+### 3. Hand the token to the widget — in your frontend
+
+Fetch the token and pass it as `signedUserData`. Send your constant `product_id` as `unsignedUserData`:
+
+```javascript
+const { token } = await fetch("/api/maven-token").then((r) => r.json());
+
+Maven.ChatWidget.load({
+  organizationId: "YOUR_ORGANIZATION_ID",
+  agentId: "YOUR_AGENT_ID",
+  signedUserData: token,                          // verified identity (incl. user_id)
+  unsignedUserData: { product_id: "YOUR_PRODUCT_ID" },
+});
+```
+
+<Warning>
+  **The single most important rule:** the `user_id` Maven sends **must equal** the id your activity is stored under — the same stable id you pass to `posthog.identify(...)` / Amplitude `setUserId(...)`. If they don't match, lookups come back empty. Pick **one** canonical user identifier and use it everywhere: your analytics `identify()`, the signed `user_id`, and the connector.
+</Warning>
+
+---
+
+## ✅ Test it
+
+1. Log in to your app as a user and **click around** a few pages.
+2. Wait a few seconds for the events to reach the connector.
+3. Open the Maven widget and ask: **"What have I done recently?"**
+
+Maven should answer with the pages and actions that user just took.
+
+<AccordionGroup>
+  <Accordion title="Maven says there's no recent activity">
+    Almost always an **identity mismatch** — the `user_id` Maven sent doesn't match the id your activity is stored under. Confirm your analytics `identify()` id, the signed `user_id` field, and the connector's stored id are all the **same** value.
+  </Accordion>
+  <Accordion title="The widget doesn't appear">
+    Check **Allowed domains** in the Chat app settings includes your domain, and that your CSP allows `chat.onmaven.app`.
+  </Accordion>
+  <Accordion title="No tools appear after installing the MCP app">
+    Verify the **MCP URL** and **token** are correct, and that you installed the MCP app **inside an agent**. Reinstall to re-discover tools.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+Once Maven can pull a user's activity on demand, you're done with Step 1. Next: **[Step 2 — Define proactive triggers](/recipes/maven/step-2-define-proactive-triggers)**.

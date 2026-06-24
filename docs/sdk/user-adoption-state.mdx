@@ -1,0 +1,183 @@
+---
+title: User adoption state
+sidebarTitle: "📈 User adoption state"
+description: Per-user adoption model (journey + mastery + onboarding) with an explore-first gate, onboarding plans, and a reusable query to tour matcher.
+---
+
+Use **`autoplay_sdk.user_adoption_state`** to track a user's longer-term product maturity, independent of the per-session [`SessionState`](/sdk/agent-states) FSM.
+
+## What it is
+
+`SessionState` tracks one conversation's moment-to-moment mode (`thinking` / `proactive_assistance` / `reactive_assistance`). `user_adoption_state` is a separate, longer-lived dimension keyed by `user_id`: where the user is in their lifecycle, how proficient they are, and how their onboarding is progressing.
+
+The journey and mastery values are an **agent (LLM) decision** via a versioned judge prompt; the resolved state is fed back into chat and proactive prompts so the assistant can adapt — more teaching during onboarding, lighter nudges for power users.
+
+<Note>
+The SDK ships **pure logic and prompt definitions only**: the state model, the explore-first gate, onboarding plans, the tour matcher, and three versioned prompts. Persistence (e.g. Redis) and the `acall_llm` runners that call these prompts are integration-owned.
+</Note>
+
+## The two axes
+
+Adoption is modeled as two **independent** axes set by the same judge call. A user can be `onboarded` yet still `intermediate`, or `onboarding` yet a fast `proficient`.
+
+| Axis | Enum | Values |
+| --- | --- | --- |
+| Lifecycle stage (coarse) | `JourneyState` | `onboarding`, `onboarded` |
+| Competence (fine) | `MasteryLevel` | `novice`, `beginner`, `intermediate`, `proficient`, `power_user` |
+
+Per-flow onboarding progress uses a third enum, because completion is inferred asynchronously from the live activity stream (rarely a clean 1:1 event):
+
+| Enum | Values |
+| --- | --- |
+| `WorkflowStatus` | `not_started`, `in_progress`, `completed` |
+
+## State model
+
+```python
+from autoplay_sdk.user_adoption_state import (
+    UserAdoptionState,
+    JourneyState,
+    MasteryLevel,
+    WorkflowStatus,
+)
+
+state = UserAdoptionState(
+    user_id="u_123",
+    metadata={"role": "consultant", "team": "energy-savings", "locale": "fr"},
+)
+
+state.set_mastery(rating=3, level=MasteryLevel.BEGINNER, description="Created one project, exploring templates.")
+state.set_journey_state(JourneyState.ONBOARDING, reason="still on basics")
+state.record_discovered_features(["document-templates", "projects-list"])
+```
+
+### `UserAdoptionState`
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `user_id` | `str` | Mandatory scope key. Raises if empty. |
+| `metadata` | `dict[str, Any]` | Fully dynamic, schema-less identity bag. No fixed keys; values must be JSON-serializable. |
+| `journey_state` | `JourneyState` | Coarse lifecycle stage. Defaults to `onboarding`. |
+| `mastery` | `Mastery` | Rating (0-10) + level + reason. |
+| `discovered_features` | `list[str]` | Features the user has already discovered. |
+| `onboarding` | `OnboardingState` | Welcome lifecycle + per-flow progress. |
+| `first_seen_at` / `last_updated_at` / `last_judged_at` | `float` | Lifecycle timestamps. |
+
+`role` is **not** special-cased in storage — it is just one conventional `metadata` key. A thin `state.role` convenience property reads `metadata.get("role")`.
+
+### Sub-objects
+
+- **`Mastery`** — `rating: int` (0-10, clamped), `level: MasteryLevel`, `description: str`.
+- **`WorkflowProgress`** — the agent's evolving belief about one target flow: `status`, `confidence` (0-1), `evidence`, and `first_detected_at` / `completed_at` / `last_evaluated_at`.
+- **`StepInAssessment`** — the latest "should I step in?" decision: `should_step_in`, `timing_assessment`, `reason`, `suggested_workflow_ids`. Persisted whether or not anything was sent, so timing is explainable.
+- **`OnboardingState`** — `welcomed`, `distinct_features_seen`, `explore_gate_passed`, a `workflow_progress: dict[str, WorkflowProgress]` map, `last_step_in`, cooldown/cadence timestamps, and `proactive_support_count`. Derived helpers: `completed_workflow_ids`, `in_progress_workflow_ids`, `outstanding_workflow_ids(plan_ids)`. Mutations: `upsert_workflow_progress(...)`, `record_step_in(...)`.
+
+### Persistence and prompt injection
+
+`to_dict()` / `from_dict()` round-trip the whole record (with `_v` snapshot versioning and defensive enum coercion, so an unknown enum value degrades to a safe default rather than raising). `to_prompt_block()` renders a compact `[USER ADOPTION STATE]` block (role + journey + mastery + a one-line guidance hint) to prepend to a chat prompt.
+
+```python
+snapshot = state.to_dict()           # JSON-serializable, store in Redis/etc.
+restored = UserAdoptionState.from_dict(snapshot)
+print(restored.to_prompt_block())
+```
+
+## Explore-first gate
+
+`evaluate_hard_gate()` is a pure, side-effect-free hard floor that guarantees a user is never interrupted too early. Intelligent timing on top of the floor is the LLM's job.
+
+```python
+from autoplay_sdk.user_adoption_state import ExplorationGateConfig, evaluate_hard_gate
+
+cfg = ExplorationGateConfig(
+    role_allowlist=frozenset({"consultant"}),
+    min_seconds_on_app=60.0,
+    min_distinct_features=3,
+    welcome_cooldown_s=600.0,
+    max_proactive_support=3,
+)
+
+passed, reason = evaluate_hard_gate(
+    state,
+    now=now_ts,
+    seconds_on_app=120,
+    distinct_features_seen=5,
+    cfg=cfg,
+)
+```
+
+It returns `(passed, reason)` and blocks when the role is not allowlisted, the user has not explored enough yet, they are already onboarded, a cooldown is in effect, or the nudge cap is reached. When it returns `True`, control passes to the LLM to decide whether now is the right moment and what to say.
+
+## Onboarding plans
+
+The host configures, per product (and optionally per role), the set of workflows a user should complete. The agent is handed this list and reasons about progress against it — it is never hardcoded in the SDK.
+
+```python
+from autoplay_sdk.user_adoption_state import OnboardingPlan, split_workflows
+
+plan = OnboardingPlan.from_config([
+    {"workflow_id": "flow-consultant-create-project", "name": "Create a project", "role": "consultant"},
+    {"workflow_id": "flow-consultant-projects", "name": "Browse projects", "role": "consultant"},
+])
+
+consultant_plan = plan.for_role("consultant")
+completed, in_progress, outstanding = split_workflows(
+    consultant_plan, state.onboarding.workflow_progress
+)
+```
+
+Each `workflow_id` lines up with a tour id so a suggested workflow can be delivered as a "show me" tour offer. `split_workflows()` is a deterministic prefilter/guardrail — the authoritative completion call is the LLM's, reflected in `WorkflowProgress.status`.
+
+## Query to tour matching
+
+A reusable primitive that generalizes role-filtered tour selection. The SDK builds the structured prompt input and parses/validates the LLM output; the `acall_llm` call itself is integration-owned.
+
+```python
+from autoplay_sdk.user_adoption_state import (
+    build_tour_match_input,
+    parse_tour_match_output,
+)
+
+catalog = [
+    {"tour_id": "flow-consultant-projects", "name": "Browse projects",
+     "use_when": "user wants to find or filter existing projects", "role": "consultant"},
+    {"tour_id": "flow-admin-settings", "name": "Settings", "role": "admin"},
+]
+
+prompt_input = build_tour_match_input(
+    user_query="how do I find my projects?",
+    role="consultant",
+    tour_catalog=catalog,   # already role-filtered in the rendered catalog
+)
+
+# ... call the LLM with TOUR_MATCH_PROMPT and prompt_input ...
+
+result = parse_tour_match_output(raw_llm_json, tour_catalog=catalog, role="consultant")
+result.primary_tour_id      # validated against the role-filtered catalog (or None)
+result.related_tour_ids     # disallowed / unknown ids dropped
+```
+
+`parse_tour_match_output()` validates returned ids against the role-filtered catalog and falls back to an empty result on malformed JSON, so a bad model response never raises into the caller.
+
+## Prompts
+
+Three versioned prompts ship in `autoplay_sdk.prompts` (each a `dict` with `name` / `description` / `version` / `content`, all returning a single JSON object). Call them via your integration's LLM client with `response_format={"type": "json_object"}`.
+
+| Constant | Name | Decides |
+| --- | --- | --- |
+| `ADOPTION_STATE_JUDGE_PROMPT` | `adoption_state_judge` (v0.1) | `journey_state` + `mastery` from aggregated activity. |
+| `TOUR_MATCH_PROMPT` | `tour_match` (v0.1) | The primary + related tours for a query. |
+| `ONBOARDING_WELCOME_PROMPT` | `onboarding_welcome` (v0.1) | Per-workflow completion, whether/when to send a welcome, and the next-flow "show me" offers. |
+
+```python
+from autoplay_sdk.prompts import (
+    ADOPTION_STATE_JUDGE_PROMPT,
+    TOUR_MATCH_PROMPT,
+    ONBOARDING_WELCOME_PROMPT,
+)
+```
+
+## See also
+
+- [Agent session states](/sdk/agent-states) — the per-session FSM this model complements.
+- [Changelog](/changelog) — added in `0.8.0`.
