@@ -6,6 +6,63 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.9.1] — 2026-06-16
+
+### Added
+
+- **Amplitude activity provider support** — adds the SDK provider wiring and
+  activity skill needed to configure Amplitude as an event source.
+
+### Documentation
+
+- Expanded the setup and quickstart docs for activity providers, agent skills,
+  MCP server setup, and Intercom tutorial assets.
+
+## [0.9.0] — 2026-06-12
+
+### Added
+
+- **`PostHogProvider.create_destination()` + `.verify()`** — deterministic,
+  idempotent creation (and verification) of the PostHog → Autoplay "Autoplay
+  Event Stream" hog_function destination, built on the provider abstraction.
+  Powers the one-command `autoplay-setup` onboarding flow (plumbing runs as
+  tested code, not via an agent).
+
+### Changed
+
+- **`activity-posthog` skill is now the single source** (modular: `SKILL.md` +
+  `references/` + `examples/`), replacing the forked `posthog-setup` skill the
+  setup bundle used to ship. Scoped to *frontend code only* (the CLI now owns
+  destination create/verify and the end-to-end event check). Identify uses the
+  app's **stable user id** on login (never the anonymous id) + `reset()` on
+  logout.
+
+---
+
+## [0.8.0] — 2026-06-09
+
+### Added
+
+- **`autoplay_sdk.user_adoption_state`** — a new per-user adoption-state module, orthogonal to the per-session `SessionState` FSM and keyed by `user_id`. Tracks where a user is in their product lifecycle and how proficient they are, decided by an LLM judge and fed back into chat / proactive prompts.
+- **Enums** — `JourneyState` (`onboarding` / `onboarded`), `MasteryLevel` (`novice` → `beginner` → `intermediate` → `proficient` → `power_user`), and `WorkflowStatus` (`not_started` / `in_progress` / `completed`).
+- **`UserAdoptionState`** — top-level per-user record: a fully dynamic, schema-less `metadata` bag (with a `role` convenience property), `journey_state`, `mastery`, `discovered_features`, and an `onboarding` sub-object. Mandatory non-empty `user_id` (raises otherwise, like `SessionState`); `to_dict()` / `from_dict()` with `_v` snapshot versioning and defensive enum coercion; transition helpers (`set_journey_state`, `set_mastery`, `record_discovered_features`, `mark_welcomed`, `mark_judged`) that log structured events; and `to_prompt_block()` for compact prompt injection.
+- **`Mastery`** (0-10 rating, clamped, + `MasteryLevel` + reason), **`WorkflowProgress`** (per-flow `status` / `confidence` / `evidence` / timestamps — the agent's evolving belief from the live activity stream), **`StepInAssessment`** (latest "should I step in?" decision + timing rationale), and **`OnboardingState`** (welcome lifecycle, `workflow_progress` map, derived `completed` / `in_progress` / `outstanding` helpers, `upsert_workflow_progress`, `record_step_in`).
+- **`ExplorationGateConfig`** + **`evaluate_hard_gate()`** — pure, side-effect-free "let the user explore first" floor (role allowlist, min time on app, min distinct features, welcome cooldown, nudge cap). Returns `(passed, reason)`; the LLM owns timing on top of the floor.
+- **`OnboardingWorkflow`** / **`OnboardingPlan`** (parsed from config, role-filterable via `for_role`) + pure **`split_workflows()`** → `(completed, in_progress, outstanding)`.
+- **Query → tour matching primitive** — **`build_tour_match_input()`** and **`parse_tour_match_output()`** (validates ids against a role-filtered catalog, safe fallback on malformed JSON), plus **`TourCatalogEntry`** and **`TourMatchResult`**.
+- **Versioned prompts** in `autoplay_sdk.prompts` (each a `dict` with `name` / `description` / `version` / `content`, JSON-object output): **`ADOPTION_STATE_JUDGE_PROMPT`**, **`TOUR_MATCH_PROMPT`**, **`ONBOARDING_WELCOME_PROMPT`** (all v0.1).
+- **Top-level exports** from `autoplay_sdk`: `user_adoption_state`, `UserAdoptionState`, `JourneyState`, `MasteryLevel`, `WorkflowStatus`.
+
+### Documentation
+
+- New [User adoption state](/sdk/user-adoption-state) reference page covering the two axes (journey vs mastery), the full state model, the explore-first gate, onboarding plans, and the query → tour matcher. The SDK ships pure logic + prompt definitions only; persistence and `acall_llm` runners are integration-owned.
+
+### Breaking changes
+
+None — the module and exports are purely additive.
+
+---
+
 ## [0.7.9] — 2026-05-25
 
 ### Breaking changes
