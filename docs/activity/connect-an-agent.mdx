@@ -1,0 +1,34 @@
+---
+title: "Connect an AI agent"
+sidebarTitle: "🤖 Connect an AI agent"
+description: "Wire any AI support agent to pull a user's live in-app activity — pick a door, satisfy identity, follow the per-agent recipe."
+---
+
+Any AI agent can pull [live user activity](/activity/overview). Wiring one is always the same three moves — only the per-agent specifics change.
+
+## 1. 🔌 Connect via MCP (recommended)
+
+The recommended way for an agent to read live activity is the **[MCP server](/mcp/server)** — one endpoint, the `get_live_user_activity` tool, Bearer auth. Point your agent at it and it can pull a user's recent activity on demand.
+
+<Note>
+  **Optional fallback — REST.** If an agent can't speak MCP but can call an external HTTP endpoint (e.g. Intercom's "data connectors"), the same activity is available at the **[REST endpoint](/activity/overview)** with the same Bearer auth. Reach for this only when MCP isn't an option.
+</Note>
+
+## 2. 🔑 Satisfy identity
+
+Make the agent send the **same `user_id`** that activity is stored under — your activity source's stable user id (e.g. the PostHog `identify` id, the Amplitude `user_id`). This is the step that most often gets skipped — see **[Identity](/activity/identity)**.
+
+## 3. 🤖 Follow the per-agent recipe
+
+<CardGroup cols={2}>
+  <Card title="Intercom Fin" icon="comments" href="/recipes/intercom-tutorial/step-1-connect-real-time-events">
+    Connect Fin to the MCP server + Messenger JWT identity verification.
+  </Card>
+  <Card title="More agents coming" icon="robot">
+    Maven and others follow the same pattern — pick a door, bind identity to your source's user id, point the agent at the endpoint.
+  </Card>
+</CardGroup>
+
+<Note>
+  Adding a new agent doesn't change this surface — the endpoint, the MCP tool, and the identity rule stay the same. A new agent just needs its own short recipe describing how *it* calls the endpoint and how *it* passes a verified `user_id`.
+</Note>
