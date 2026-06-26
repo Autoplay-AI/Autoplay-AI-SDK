@@ -18,7 +18,7 @@ Use **`autoplay_sdk.agent_state.v2`** (`SessionState`) as the only supported age
 | --- | --- | --- |
 | `thinking` | `AgentStateV2.THINKING` | Idle baseline. Proactive offers may fire — unless the cooldown period is still active. |
 | `proactive_assistance` | `AgentStateV2.PROACTIVE` | The assistant surfaced an unsolicited quick-reply offer. User has not yet responded. |
-| `reactive_assistance` | `AgentStateV2.REACTIVE` | The user opened the chatbot or sent a message; the session is in active dialogue. |
+| `reactive_assistance` | `AgentStateV2.REACTIVE` | The user opened the support AI agent or sent a message; the session is in active dialogue. |
 
 ### Transition rules
 
@@ -41,7 +41,7 @@ Use **`autoplay_sdk.agent_state.v2`** (`SessionState`) as the only supported age
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `interaction_timeout_s` | `20 s` | How long the user can go without interacting with the chatbot or visual guidance before returning to `thinking`. Applies in both `proactive` and `reactive` states. |
+| `interaction_timeout_s` | `20 s` | How long the user can go without interacting with the support AI agent or visual guidance before returning to `thinking`. Applies in both `proactive` and `reactive` states. |
 | `cooldown_period_s` | `60 s` | After returning to `thinking` from any active state, how long before proactive can fire again. Auto-clears when the period elapses. |
 
 ### Session-owned routing fields
@@ -118,7 +118,7 @@ Import `InvalidTransitionError` from `autoplay_sdk.agent_state.v2` with the rest
 | `can_deliver_proactive()` | Returns `(allowed: bool, reason: str)` — the canonical FSM gate check. Call `tick()` first. Returns `(True, "ok")` when `THINKING` with no active cooldown, `(False, "v2_state_<state>")` when not in THINKING, `(False, "v2_cooldown_active")` when cooldown is active. Do not replicate this check inline. |
 | `transition_to_proactive(trigger_id)` | Move to `PROACTIVE`. Returns `False` if cooldown is active; raises `InvalidTransitionError` if not in `THINKING`. |
 | `transition_to_reactive()` | Move to `REACTIVE`. Raises `InvalidTransitionError` if not in `THINKING`. Clears cooldown. |
-| `record_any_interaction()` | Reset `last_interaction_at`. Call on any chatbot or visual guidance activity. |
+| `record_any_interaction()` | Reset `last_interaction_at`. Call on any support AI agent or visual guidance activity. |
 | `record_user_interaction()` | User sent a chat message. |
 | `record_option_click()` | User clicked a quick-reply chip. |
 | `record_reaction()` | User added an emotional reaction. |
@@ -184,6 +184,6 @@ restored = SessionState.from_dict(blob)
 
 ## See also
 
-- [Chatbot context assembly](/sdk/chatbot-context-assembly) — query-time RAG assembly (`rag_query`).
-- [Proactive copilot](/sdk/proactive-copilot) — product framing for proactive experiences.
+- [Support AI agent context assembly](/sdk/support-agent-context-assembly) — query-time RAG assembly (`rag_query`).
+- [Proactive onboarding agent](/sdk/proactive-onboarding-agent) — product framing for proactive experiences.
 - [Logging](/sdk/logging) — **`autoplay_sdk.agent_state.v2.session_state`** logger and related `event_type` keys.
