@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Autoplay SDK",
-  "description": "Powering real-time and context Aware copilots",
+  "description": "Powering real-time, context-aware onboarding and adoption agents",
   "colors": {
     "primary": "#716EDB",
     "light": "#9895F1",
@@ -37,39 +37,120 @@
   "navigation": {
     "groups": [
       {
-        "group": "Get started",
+        "group": "Who We Are",
         "pages": [
-          "quickstart",
-          "sdk/overview",
+          "who-we-are/overview",
+          "who-we-are/our-story",
           {
-            "group": "✨ The proactive + visual support agent gold standard",
-            "root": "sdk/proactive-copilot",
+            "group": "🎯 Use cases",
+            "root": "who-we-are/use-cases",
+            "pages": [
+              "who-we-are/feature-adoptions/reduce-ticket-support",
+              "who-we-are/feature-adoptions/improve-retention",
+              "who-we-are/feature-adoptions/improve-csat",
+              "who-we-are/feature-adoptions/upsell-features"
+            ]
+          },
+          "who-we-are/pricing",
+          {
+            "group": "🥇 The proactive onboarding agent gold standard",
+            "root": "sdk/proactive-onboarding-agent",
             "expanded": true,
             "pages": [
-              "sdk/proactive-copilot/step-1-connect-real-time-actions",
-              "sdk/proactive-copilot/step-2-add-actions-to-llm-context",
-              "sdk/proactive-copilot/step-3-define-proactive-triggers",
-              "sdk/proactive-copilot/step-4-enhance-with-user-memory",
-              "sdk/proactive-copilot/step-5-enrich-with-user-memory"
+              "sdk/proactive-onboarding-agent/step-1-connect-real-time-actions",
+              "sdk/proactive-onboarding-agent/step-2-add-actions-to-llm-context",
+              "sdk/proactive-onboarding-agent/step-3-define-proactive-triggers",
+              "sdk/proactive-onboarding-agent/step-4-enhance-with-user-memory",
+              "sdk/proactive-onboarding-agent/step-5-enrich-with-user-memory"
             ]
           }
         ]
       },
       {
-        "group": "Chatbot Tutorials",
+        "group": "Get Started",
+        "pages": [
+          "quickstart",
+          {
+            "group": "🛠️ Agent skills",
+            "root": "get-started/agent-skills",
+            "pages": [
+              "get-started/agent-skills/autoplay-core",
+              "get-started/agent-skills/autoplay-migrate-imports",
+              "get-started/agent-skills/chatbot-ada",
+              "get-started/agent-skills/chatbot-botpress",
+              "get-started/agent-skills/chatbot-crisp",
+              "get-started/agent-skills/chatbot-dify",
+              "get-started/agent-skills/chatbot-intercom",
+              "get-started/agent-skills/chatbot-landbot",
+              "get-started/agent-skills/chatbot-tidio",
+              "get-started/agent-skills/activity-amplitude",
+              "get-started/agent-skills/activity-fullstory",
+              "get-started/agent-skills/activity-posthog"
+            ]
+          }
+        ]
+      },
+      {
+        "group": "Live User Activity",
         "pages": [
           {
-            "group": "Inkeep tutorial",
-            "icon": "/images/recipes/inkeep/logo.png",
-            "root": "recipes/inkeep",
-            "badge": "New",
+            "group": "PostHog",
+            "icon": "/images/recipes/posthog/logo.png",
+            "root": "recipes/posthog",
+            "pages": ["recipes/posthog/how-to-setup"]
+          },
+          {
+            "group": "Amplitude",
+            "icon": "/images/recipes/amplitude/logo.svg",
+            "root": "recipes/amplitude",
+            "pages": ["recipes/amplitude/how-to-setup"]
+          },
+          {
+            "group": "FullStory",
+            "icon": "/images/recipes/fullstory/logo.png",
+            "root": "recipes/fullstory",
+            "tag": "Coming Soon",
+            "pages": ["recipes/fullstory/how-to-setup"]
+          },
+          {
+            "group": "Datadog",
+            "icon": "/images/recipes/datadog/logo.svg",
+            "root": "recipes/datadog",
+            "tag": "Coming Soon",
+            "pages": ["recipes/datadog/how-to-setup"]
+          },
+          {
+            "group": "Pendo",
+            "icon": "/images/recipes/pendo/logo.png",
+            "root": "recipes/pendo",
+            "tag": "Coming Soon",
+            "pages": ["recipes/pendo/how-to-setup"]
+          }
+        ]
+      },
+      {
+        "group": "AI Support Agents",
+        "pages": [
+          {
+            "group": "Intercom",
+            "icon": "/images/recipes/intercom/logo.png",
+            "badge": "Coming Soon",
             "pages": [
-              "recipes/inkeep/step-1-connect-real-time-events",
-              "recipes/inkeep/step-2-proactive-guidance"
+              "recipes/intercom-tutorial/step-1-connect-real-time-events",
+              "recipes/intercom-tutorial/step-2-define-proactive-triggers"
             ]
           },
           {
-            "group": "Botpress tutorial",
+            "group": "Maven",
+            "icon": "/images/recipes/maven/logo.png",
+            "root": "recipes/maven",
+            "pages": [
+              "recipes/maven/step-1-connect-real-time-events",
+              "recipes/maven/step-2-define-proactive-triggers"
+            ]
+          },
+          {
+            "group": "Botpress",
             "icon": "/images/recipes/botpress/logo.png",
             "root": "recipes/botpress",
             "badge": "Coming Soon",
@@ -79,9 +160,8 @@
             ]
           },
           {
-            "group": "Dify tutorial",
+            "group": "Dify",
             "icon": "/images/recipes/dify/logo.png",
-            "root": "recipes/dify-tutorial",
             "badge": "Coming Soon",
             "pages": [
               "recipes/dify-tutorial/step-1-connect-real-time-events",
@@ -89,9 +169,8 @@
             ]
           },
           {
-            "group": "Crisp AI tutorial",
+            "group": "Crisp AI",
             "icon": "/images/recipes/crisp/logo.png",
-            "root": "recipes/crisp-ai",
             "badge": "Coming Soon",
             "pages": [
               "recipes/crisp-ai/step-1-connect-real-time-events",
@@ -99,17 +178,7 @@
             ]
           },
           {
-            "group": "Intercom tutorial",
-            "icon": "/images/recipes/intercom/logo.png",
-            "root": "recipes/intercom-tutorial",
-            "badge": "Coming Soon",
-            "pages": [
-              "recipes/intercom-tutorial/step-1-connect-real-time-events",
-              "recipes/intercom-tutorial/step-2-define-proactive-triggers"
-            ]
-          },
-          {
-            "group": "Landbot tutorial",
+            "group": "Landbot",
             "icon": "/images/recipes/landbot/logo.png",
             "root": "recipes/landbot",
             "badge": "Coming Soon",
@@ -119,7 +188,7 @@
             ]
           },
           {
-            "group": "Rasa tutorial",
+            "group": "Rasa",
             "icon": "/images/recipes/rasa/logo.png",
             "root": "recipes/rasa",
             "badge": "New",
@@ -129,7 +198,7 @@
             ]
           },
           {
-            "group": "Inkeep tutorial",
+            "group": "Inkeep",
             "icon": "/images/recipes/inkeep/logo.png",
             "root": "recipes/inkeep/index",
             "badge": "New",
@@ -139,9 +208,8 @@
             ]
           },
           {
-            "group": "Tidio tutorial",
+            "group": "Tidio",
             "icon": "/images/recipes/tidio/logo.png",
-            "root": "recipes/tidio",
             "badge": "Coming Soon",
             "pages": [
               "recipes/tidio/step-1-connect-real-time-events",
@@ -149,7 +217,7 @@
             ]
           },
           {
-            "group": "Ada tutorial",
+            "group": "Ada",
             "icon": "/images/recipes/ada/logo.png",
             "root": "recipes/ada",
             "badge": "Coming Soon",
@@ -161,39 +229,7 @@
         ]
       },
       {
-        "group": "User Activity Tutorials",
-        "pages": [
-          {
-            "group": "FullStory tutorial",
-            "icon": "/images/recipes/fullstory/logo.png",
-            "root": "recipes/fullstory",
-            "badge": "Coming Soon",
-            "pages": ["recipes/fullstory/how-to-setup"]
-          },
-          {
-            "group": "Datadog tutorial",
-            "icon": "/images/recipes/datadog/logo.svg",
-            "root": "recipes/datadog",
-            "badge": "Coming Soon",
-            "pages": ["recipes/datadog/how-to-setup"]
-          },
-          {
-            "group": "PostHog tutorial",
-            "icon": "/images/recipes/posthog/logo.png",
-            "root": "recipes/posthog",
-            "pages": ["recipes/posthog/how-to-setup"]
-          },
-          {
-            "group": "Pendo tutorial",
-            "icon": "/images/recipes/pendo/logo.png",
-            "root": "recipes/pendo",
-            "badge": "Coming Soon",
-            "pages": ["recipes/pendo/how-to-setup"]
-          }
-        ]
-      },
-      {
-        "group": "User Tour Tutorials",
+        "group": "Visual User Tours",
         "pages": [
           "recipes/user-tour/overview",
           "recipes/userpilot/how-to-setup",
@@ -216,20 +252,30 @@
         ]
       },
       {
+        "group": "🔌 Live activity via MCP",
+        "pages": [
+          "mcp/server",
+          "activity/connect-an-agent",
+          "activity/identity",
+          "activity/overview"
+        ]
+      },
+      {
         "group": "Build with events",
         "pages": [
           "sdk/rag-pipeline",
-          "sdk/chatbot-context-assembly",
+          "sdk/support-agent-context-assembly",
           "sdk/agent-states",
+          "sdk/user-adoption-state",
           "sdk/proactive-triggers",
           "sdk/proactive-triggers-authoring",
           "sdk/proactive-triggers-builtins",
           "sdk/summarizer",
           "sdk/agent-context",
-          "sdk/chatbot-writer",
+          "sdk/support-agent-writer",
           "sdk/user-session-index",
           "sdk/compose-chat-pipeline",
-          "sdk/build-copilot-app",
+          "sdk/build-support-agent-app",
           "sdk/rag-example"
         ]
       },
@@ -261,36 +307,84 @@
   },
   "redirects": [
     {
+      "source": "/sdk/proactive-copilot",
+      "destination": "/sdk/proactive-onboarding-agent"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-1-connect-real-time-actions",
+      "destination": "/sdk/proactive-onboarding-agent/step-1-connect-real-time-actions"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-2-add-actions-to-llm-context",
+      "destination": "/sdk/proactive-onboarding-agent/step-2-add-actions-to-llm-context"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-3-define-proactive-triggers",
+      "destination": "/sdk/proactive-onboarding-agent/step-3-define-proactive-triggers"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-4-enhance-with-user-memory",
+      "destination": "/sdk/proactive-onboarding-agent/step-4-enhance-with-user-memory"
+    },
+    {
+      "source": "/sdk/proactive-copilot/step-5-enrich-with-user-memory",
+      "destination": "/sdk/proactive-onboarding-agent/step-5-enrich-with-user-memory"
+    },
+    {
+      "source": "/sdk/chatbot-writer",
+      "destination": "/sdk/support-agent-writer"
+    },
+    {
+      "source": "/sdk/chatbot-context-assembly",
+      "destination": "/sdk/support-agent-context-assembly"
+    },
+    {
+      "source": "/sdk/build-copilot-app",
+      "destination": "/sdk/build-support-agent-app"
+    },
+    {
+      "source": "/recipes/intercom-tutorial/let-fin-pull-live-activity",
+      "destination": "/recipes/intercom-tutorial/step-1-connect-real-time-events"
+    },
+    {
+      "source": "/get-started/pricing",
+      "destination": "/who-we-are/pricing"
+    },
+    {
+      "source": "/sdk/overview",
+      "destination": "/who-we-are/overview"
+    },
+    {
       "source": "/sdk/proactive-copilot/step-2-add-to-llm-context",
-      "destination": "/sdk/proactive-copilot/step-2-add-actions-to-llm-context"
+      "destination": "/sdk/proactive-onboarding-agent/step-2-add-actions-to-llm-context"
     },
     {
       "source": "/sdk/rag-query",
-      "destination": "/sdk/chatbot-context-assembly"
+      "destination": "/sdk/support-agent-context-assembly"
     },
     {
       "source": "/sdk/self-hosted-bridge",
-      "destination": "/sdk/proactive-copilot"
+      "destination": "/sdk/proactive-onboarding-agent"
     },
     {
       "source": "/sdk/proactive-copilot/step-6-visual-pop-up-tours",
-      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+      "destination": "/sdk/proactive-onboarding-agent/step-3-define-proactive-triggers"
     },
     {
       "source": "/sdk/proactive-copilot/step-7-orchestrate-tours-and-ai",
-      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+      "destination": "/sdk/proactive-onboarding-agent/step-3-define-proactive-triggers"
     },
     {
       "source": "/sdk/proactive-copilot/step-5-orchestrate-tours-and-ai",
-      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+      "destination": "/sdk/proactive-onboarding-agent/step-3-define-proactive-triggers"
     },
     {
       "source": "/sdk/proactive-copilot/step-5-define-workflow-ontology",
-      "destination": "/sdk/proactive-copilot/step-5-enrich-with-user-memory"
+      "destination": "/sdk/proactive-onboarding-agent/step-5-enrich-with-user-memory"
     },
     {
       "source": "/sdk/proactive-copilot/step-6-orchestrate-tours-and-ai",
-      "destination": "/sdk/proactive-copilot/step-3-define-proactive-triggers"
+      "destination": "/sdk/proactive-onboarding-agent/step-3-define-proactive-triggers"
     }
   ]
 }

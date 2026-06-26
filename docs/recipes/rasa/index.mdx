@@ -1,7 +1,7 @@
 ---
 title: "Rasa tutorial"
 sidebarTitle: "Rasa tutorial"
-description: "Give your Rasa chatbot live awareness of what users are doing in your web app — using Autoplay's open SDK, fully self-hosted."
+description: "Give your Rasa support AI agent live awareness of what users are doing in your web app — using Autoplay's open SDK, fully self-hosted."
 icon: "/images/recipes/rasa/logo.png"
 ---
 
@@ -10,7 +10,7 @@ icon: "/images/recipes/rasa/logo.png"
 This tutorial shows you exactly how to wire it together using **Rasa 3.6** (open-source, self-hosted) and the **Autoplay SDK**. Everything stays on your infrastructure — your activity data, prompts, and LLM keys never leave it.
 
 **Who this is for:**
-- You already have (or are building) a Rasa-based chatbot for your product.
+- You already have (or are building) a Rasa-based support AI agent for your product.
 - You want it to give answers that adapt to where the user is in the UI, instead of canned responses.
 - You're comfortable with Python, Docker, and a small FastAPI service.
 
@@ -76,7 +76,7 @@ Before you start, you need:
 That's all the setup. The rest of this tutorial walks through every code file step by step — copy-paste runnable.
 
 <Note>
-  **Why a separate "bridge" service?** Rasa runs in Docker and can't import Python objects from your host. The bridge is a small FastAPI service that owns the Autoplay SDK pipeline and exposes a tiny HTTP surface (`/reply/{user_id}`) that Rasa's action server calls when a user chats. This same pattern works for any cross-process chatbot — Botpress on-prem, LangChain services, Twilio webhooks — not just Rasa.
+  **Why a separate "bridge" service?** Rasa runs in Docker and can't import Python objects from your host. The bridge is a small FastAPI service that owns the Autoplay SDK pipeline and exposes a tiny HTTP surface (`/reply/{user_id}`) that Rasa's action server calls when a user chats. This same pattern works for any cross-process support AI agent — Botpress on-prem, LangChain services, Twilio webhooks — not just Rasa.
 </Note>
 
 ---
