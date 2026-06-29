@@ -1,541 +1,229 @@
 ---
 title: "Step 1 — Connect real-time events"
 sidebarTitle: "Step 1 — Connect real-time events"
-description: "Set up the Tidio Lyro AI Agent, wire the backend server and listener, and embed the chat widget in your frontend app."
+description: "Give Lyro live awareness of what each user is doing — Lyro pulls it on demand via an Action that calls the Autoplay MCP server."
 ---
 
-This guide has three parts:
+**Lyro** (Tidio's AI agent) pulls a user's recent in-app activity on demand via a **Lyro Action** — a named API call that Lyro triggers when it needs context to answer. One Action, one API call to the Autoplay MCP server, and a user id wired in from the visitor session.
 
-1. **Setup Tidio AI Agent** — Add your knowledge base, configure agent instructions, and create an action that fetches live context from your server.
-2. **Setup API Server and Listener** — Run a FastAPI server and Autoplay SDK listener that capture and serve real-time events.
-3. **Add Chatbot to Frontend** — Embed the Tidio widget in your app.
+## 🎬 End-to-end walkthrough
+
+<div
+  style={{
+    position: "relative",
+    paddingBottom: "56.25%",
+    height: 0,
+    width: "100%",
+  }}
+>
+  <iframe
+    src="https://www.youtube.com/embed/9cf5BhQydCI"
+    title="Tidio Lyro AI Agent responding with real-time user context"
+    frameBorder={0}
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+    allowFullScreen
+    style={{
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width: "100%",
+      height: "100%",
+    }}
+  />
+</div>
 
 ---
 
-## 🤖 Part 1 — Setup Tidio AI Agent
+## 🤖 Create the Action
 
-### Data Sources
+In your Tidio dashboard, go to **Lyro AI Agent** → **Actions** → **+ Create Action** → **Create from scratch**.
 
-Go to [Lyro data sources](https://www.tidio.com/panel/lyro-ai/data-sources) and click **Add knowledge**.
+### Name
 
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_02_data_sources.png"
-    alt="Tidio Lyro data sources page with Add knowledge button"
-  />
-</Frame>
+Give the Action a clear, descriptive name — Lyro uses the name as context for when to trigger it:
 
-Select the **Website URL** option.
+```
+Get Live User Activity
+```
 
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_03_add_knowledge_modal.png"
-    alt="Add knowledge modal with Website URL option selected"
-  />
-</Frame>
+### Instructions
 
-Add your website URL.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_04_website_url_input.png"
-    alt="Website URL input field in Tidio Lyro data sources"
-  />
-</Frame>
-
-### Agent Guidance & Instructions
-
-In the left sidebar, go to **Behavior** → **Guidance** and edit the **Communication Style**. Select **Custom**.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_05_guidance_communication_style.png"
-    alt="Tidio Guidance panel with Communication Style set to Custom"
-  />
-</Frame>
-
-Paste the following into the **Instructions** box:
-
-<Warning>
-  Tidio's Instructions field has a 9,000-character limit. The prompt below fits within this limit, but if you customise it, make sure you stay under the ceiling.
-</Warning>
+The Instructions field tells Lyro **when** to call this Action. Fill it in with:
 
 ```text
-You are a friendly and helpful assistant for users of this product.
+Call this action before responding to any message where
+knowing what the user has recently done in the app would
+help give a better answer. This includes:
 
-Focus on helping people find their way in the UI, complete workflows, and
-understand features. Assume some users are seeing the product for the first time.
+- User seems stuck or asks where something is
+- User asks about something they were just doing
+- User mentions an error or unexpected behavior
+- You need to understand their recent navigation to give
+  specific directions instead of a generic walkthrough
 
-## 💬 How to use the "Current User Activity" record
+No information is required from the user — call this action
+directly. It returns a chronological list of recent in-app
+activity: pages visited, buttons clicked, forms submitted.
 
-You will get the user's recent activity from "Get Events Data" action. This shows
-what THIS user has been doing on the platform in the last 2 minutes — which page
-they are on and what they clicked. The activity is scoped to their session, so it
-reflects only their actions, not anyone else's.
-
-When this record is present:
-
-1. **Acknowledge their activity naturally** — for example:
-   "I can see you're currently on the Projects page" or
-   "It looks like you've been exploring the Dashboard."
-
-2. **Use it to give specific directions** — instead of generic
-   instructions, reference where they are:
-   "From the page you're on, click the blue 'Add Project' button
-   at the top right."
-
-3. **Detect if they might be lost** — if their actions show them
-   clicking around without a clear pattern, gently offer help:
-   "It looks like you might be looking for something specific.
-   Can I help you find it?"
-
-4. **Don't force it** — if the user's question has nothing to do
-   with their current activity, just answer the question normally.
-   Don't mention their activity unless it's helpful.
-
-## ❓ How to answer questions
-
-- **Be specific**: reference actual button names, tab labels, and
-  menu items from the knowledge base.
-- **Use numbered steps**: when explaining how to do something,
-  always use a numbered list.
-- **Keep it simple**: avoid technical jargon. Explain as if the
-  user has never used the platform before.
-- **Be encouraging**: use phrases like "Great question!" or
-  "That's easy to do" to make users feel comfortable.
-- **Offer next steps**: after answering, suggest what they might
-  want to do next.
-- **Admit when you don't know**: if the knowledge base doesn't
-  have the answer, say so honestly.
-
-## 🌐 Language
-
-Respond in the same language the user writes in.
-
-## ✅ Examples of good responses
-
-User is on the Dashboard, asks "How do I create a project?":
-  "I can see you're currently on the Dashboard. To create a new
-   project:
-   1. Click on 'My Projects' in the left sidebar
-   2. Click the 'Add Project' button at the top right
-   3. Choose the type, template, or options that match what you're creating
-   4. Fill in the required details and click 'Create'
-   Would you like me to explain what each field means?"
-
-User is on the Invoice page, asks "Where are settings?":
-  "The settings aren't on this page — you can find them by clicking
-   on your profile icon in the top right corner, then selecting
-   'Settings' from the dropdown menu."
-
-User has no activity context, asks "What can I do here?":
-  "Welcome! Here's what you can do:
-   1. Dashboard — see an overview of your work
-   2. My Projects — create and manage projects
-   3. Reports — view analytics or exports
-   4. Billing — manage invoices or account settings
-   What would you like to explore first?"
+Do NOT call this action when:
+- The user is asking about billing or account details
+- The question can be answered without knowing recent activity
 ```
 
-Press **Save and close**.
+---
 
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_06_tone_of_voice_instructions.png"
-    alt="Tidio agent instructions filled in with the custom prompt"
-  />
-</Frame>
+## ⚙️ Build the Action sequence
 
-### Setup Actions for Autoplay SDK API Service
+Click **Create sequence** in the Action sequence section.
+
+In the sequence builder, click the empty step and select **API call** from the right panel.
+
+### Configure the API call
+
+Set up the API call to the Autoplay MCP server:
+
+- **Method:** `POST`
+- **URL:** `https://event-connector-luda.onrender.com/mcp/`
+
+Under **Headers**, add:
+
+| Key | Value |
+|---|---|
+| `Authorization` | `Bearer YOUR_UNKEY_TOKEN` |
+| `Content-Type` | `application/json` |
+
+Under **Body**, paste:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "get_live_user_activity",
+    "arguments": {
+      "product_id": "YOUR_PRODUCT_ID",
+      "user_id": "{{contact.user_id}}"
+    }
+  },
+  "id": 1
+}
+```
 
 <Tip>
-  Lyro Actions are available on all Tidio plans, but direct setup support from Tidio is only included on the Plus plan and above. If you hit issues, the Tidio docs at [help.tidio.com](https://help.tidio.com) are the best self-serve resource.
+  Replace `YOUR_PRODUCT_ID` with your actual product id from
+  your Autoplay dashboard. `{{contact.user_id}}` is a Tidio
+  template variable — see *Identity* below for how to set it.
 </Tip>
 
-<Warning>
-  A small number of Tidio accounts still use a legacy version of this feature, where you'll see two separate options — **Simple Actions** and **Smart Actions** — instead of a single "Actions" menu. If you see this, use **Smart Actions**. The steps are the same.
-</Warning>
+### Save the response
 
-Go to **Actions** → **Create Action** → **Create from Scratch**.
+After the API call step, add an **Update session variable** step. Save the activity data from the response so Lyro can reference it when composing its reply:
 
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_07_actions_create_scratch.png"
-    alt="Tidio Actions panel with Create from Scratch option"
-  />
-</Frame>
+- **Variable name:** `activity`
+- **Value:** the `result.content[0].text` field from the API response
 
-Add a **name** (e.g. `Get Events Data`) and a brief description in the **Instructions** field.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_08_action_name_instructions.png"
-    alt="Tidio action name and instructions fields filled in"
-  />
-</Frame>
-
-Click **Edit Sequence**.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_09_edit_sequence.png"
-    alt="Edit Sequence view in Tidio action builder"
-  />
-</Frame>
-
-Add an **API call** node.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_10_api_call_node.png"
-    alt="API call node added to the Tidio action sequence"
-  />
-</Frame>
-
-Click **API call** → **Configure HTTP request**.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_11_configure_http_request.png"
-    alt="Configure HTTP request panel in Tidio API call node"
-  />
-</Frame>
-
-Fill in the request configuration:
-
-- **Request name** — any descriptive name
-- **Authentication** — select **API key**
-- **Secret key** — set any secret string, or generate one:
-
-```bash
-openssl rand -hex 32
-```
-
-- Add a new header with key `x-secret-key` and value referencing the **API key** variable you just set.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_12_http_request_response.png"
-    alt="x-secret-key header configured in the Tidio HTTP request"
-  />
-</Frame>
-
-- **Method** — `POST`
-- **URL** — your Autoplay SDK event server's public URL (e.g. the Ngrok HTTPS URL from Part 2)
-
-Click **Test request** — this calls the server and returns a response. In the right panel, click **context** on the response.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_13_session_variable_context.png"
-    alt="Test request response panel with context field highlighted"
-  />
-</Frame>
-
-Add a new **session variable** and save it as `context`.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_14_output_variables_options.png"
-    alt="Session variable named context saved in Tidio action"
-  />
-</Frame>
-
-Finally click **Add request** → **Save and close** to save the action.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_15_action_saved.png"
-    alt="Tidio action saved and ready with the context variable"
-  />
-</Frame>
-
-<Info>
-  Make sure the action is enabled and that the `context` session variable is available to the agent in its instructions. The agent references it automatically through the "Get Events Data" action.
-</Info>
+Click **Save and close**.
 
 ---
 
-## 🐍 Part 2 — Setup API Server and Listener
+## 🔐 Identity — wire the user id into the session
 
-### Prerequisites
+Lyro needs the current user's stable id to pass as `user_id` in the API call. Set it from your frontend via the Tidio JS SDK **after the user logs in**:
 
-- Python 3.10+
-- An OpenAI API key
-- `uvicorn` for serving the FastAPI app
-- (Optional) [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) or [Ngrok](https://ngrok.com/docs/guides/share-localhost/quickstart) for local development
-
-Install dependencies:
-
-```bash
-pip install fastapi httpx openai uvicorn autoplay-sdk
+```javascript
+// After login — set your app's stable user id on the Tidio contact.
+// This becomes available as {{contact.user_id}} in Lyro Actions.
+window.tidioChatApi.on("ready", function () {
+  window.tidioChatApi.setVisitorData({
+    custom: {
+      user_id: currentUser.id,
+    },
+  });
+});
 ```
 
-### Project Structure
+The value you set **must exactly equal** the id your activity source uses:
 
-```
-|- .env          # store your env var secrets
-|- listener.py   # the Autoplay SDK event listener
-|- server.py     # FastAPI server that serves events to Tidio
-```
+<Tabs>
+  <Tab title="PostHog">
+    ```javascript
+    // These two must be identical:
+    posthog.identify(currentUser.id);      // activity source
 
-### Setup your secrets in a `.env` file
+    window.tidioChatApi.on("ready", function () {
+      window.tidioChatApi.setVisitorData({
+        custom: { user_id: currentUser.id },
+      });
+    });
+    ```
+  </Tab>
+  <Tab title="Amplitude">
+    ```javascript
+    // These two must be identical:
+    amplitude.setUserId(currentUser.id);   // activity source
 
-```bash
-EVENTS_FILE_PATH="event_data.txt"
+    window.tidioChatApi.on("ready", function () {
+      window.tidioChatApi.setVisitorData({
+        custom: { user_id: currentUser.id },
+      });
+    });
+    ```
+  </Tab>
+</Tabs>
 
-AUTOPLAY_STREAM_URL="YOUR_AUTOPLAY_STREAM_URL"
-AUTOPLAY_UNKEY_API_KEY="YOUR_AUTOPLAY_UNKEY_API_KEY"
+<Note>
+  **How the pieces fit:** your frontend identifies the user
+  in your activity source → Autoplay stores activity under
+  that id → your frontend also sets `custom.user_id` on the
+  Tidio contact → Lyro reads `{{contact.user_id}}` and passes
+  it in the API call → the buckets match.
+</Note>
 
-API_KEY="YOUR_API_KEY"
-```
+## 💬 Update the Guidance instructions
 
-<Info>
-  `API_KEY` is the same secret string you set in the Tidio action's API key field. It can be any string, e.g. `"DKFGEO293KDDA92"`, or the output of `openssl rand -hex 32`.
-</Info>
+Go to **Lyro AI Agent** → **Behavior** → **Guidance** → **Communication Style** → **Custom**. Add this to the instructions so Lyro knows how to use the activity data returned by the Action:
 
-### Setup the API Server (`server.py`)
+```text
+When you call the "Get Live User Activity" action, use the
+returned activity to understand where the user is in the
+product and what they've already tried. Reference it to give
+specific, context-aware answers instead of generic walkthroughs.
 
-```python
-import os
-from fastapi import FastAPI, Header, Query, HTTPException
-from dotenv import load_dotenv
-
-load_dotenv()
-
-app = FastAPI()
-
-EVENTS_FILE = os.getenv("EVENTS_FILE_PATH", "events.txt")
-API_KEY = os.getenv("API_KEY")
-PORT = int(os.getenv("PORT", 5000))
-
-
-def read_events() -> str:
-    if not os.path.exists(EVENTS_FILE):
-        return "No events recorded yet."
-    with open(EVENTS_FILE, "r", encoding="utf-8") as f:
-        content = f.read().strip()
-    return content or "No events recorded yet."
-
-
-def trim_events(content: str, max_lines: int = 100) -> str:
-    lines = content.splitlines()
-    return "\n".join(lines[-max_lines:])
-
-
-@app.post("/context")
-def generate_event_context(
-    secret: str | None = Query(default=None),
-    x_secret_key: str | None = Header(default=None),
-):
-    token = x_secret_key or secret
-    if API_KEY and token != API_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    raw = read_events()
-    context = trim_events(raw, max_lines=100)
-    return {
-        "context": context,
-        "line_count": len(context.splitlines()),
-    }
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    print(f"Starting context server on port {PORT}...")
-    uvicorn.run("server:app", host="0.0.0.0", port=PORT)
+Do not mention the activity data directly — just use it to
+give better, more targeted answers.
 ```
 
-### Setup the Event Listener (`listener.py`)
+## ✅ Test the full loop
 
-```python
-import asyncio
-import os
-import time
+1. **Log in** to your app as a test user — fires your activity source's identify call and sets `custom.user_id` on the Tidio contact.
+2. **Click around** — visit a couple of pages, click a button, submit a form.
+3. **Open the Tidio chat widget** as that same logged-in user.
+4. **Ask Lyro:** *"What have I been doing in the app recently?"*
+5. Lyro triggers **Get Live User Activity**, calls the Autoplay MCP server, and answers with **what you actually just did**.
 
-import dotenv
-import openai
-from autoplay_sdk import (
-    ActionsPayload,
-    AsyncAgentContextWriter,
-    AsyncConnectorClient,
-    AsyncSessionSummarizer,
-)
+Common issues:
 
-dotenv.load_dotenv()
+- **401 / auth error** → the `Authorization` header is missing or the token is wrong — revisit the API call headers above.
+- **Empty activity returned** → identity is working but that user has no recent activity yet. Browse around in your app first, then re-test.
+- **Wrong user's activity** → `{{contact.user_id}}` doesn't match the id your activity source uses. Check both are identical.
 
-STREAM_URL = os.getenv("AUTOPLAY_STREAM_URL")
-UNKEY_API_KEY = os.getenv("AUTOPLAY_UNKEY_API_KEY")
-EVENTS_FILE_PATH = os.getenv("EVENTS_FILE_PATH")
+<Note>
+  **"No recent activity" = identity mismatch.** Confirm the
+  **same** value in all three:
 
-async_openai = openai.AsyncOpenAI()
+  1. the stable id your activity source identifies the user
+     with (PostHog: `posthog.identify(id)`,
+     Amplitude: `amplitude.setUserId(id)`),
+  2. the `custom.user_id` you set via `tidioChatApi.setVisitorData`,
+  3. the `{{contact.user_id}}` referenced in the Action's
+     API call body.
 
+  If they don't match, activity is stored under one key
+  and fetched with another, and the lookup comes back empty.
+</Note>
 
-def api_call(func):
-    async def wrapper(*args, **kwargs):
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            print(f"Error in API call: {e}")
-
-    return wrapper
-
-
-@api_call
-async def llm(prompt: str) -> str:
-    r = await async_openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=256,
-    )
-    return r.choices[0].message.content
-
-
-@api_call
-async def write_actions_to_file(payload: ActionsPayload):
-    print("\n=== WRITING ACTIONS TO FILE ===")
-    # Reset file if last modified more than 2 minutes ago (new session)
-    if os.path.exists(EVENTS_FILE_PATH):
-        last_modified_time = os.path.getmtime(EVENTS_FILE_PATH)
-        if time.time() - last_modified_time > 2 * 60:
-            open(EVENTS_FILE_PATH, "w").close()
-    with open(EVENTS_FILE_PATH, "a") as f:
-        for i, action in enumerate(payload.actions):
-            f.write(f"[{i}] Action: {action.title}\n")
-            f.write(f"     Details: {action.description}\n")
-            f.write(f"     Page:    {action.canonical_url}\n")
-
-
-# Raw actions are written directly to file; tell the writer to do nothing for actions
-async def dummy_write_actions(session_id: str, text: str) -> None:
-    pass
-
-
-@api_call
-async def overwrite_summary(session_id: str, summary: str) -> None:
-    print("\n=== OVERWRITING SUMMARY ===")
-    with open(EVENTS_FILE_PATH, "a") as f:
-        f.write(f"\n=== SUMMARY ===\n{summary}\n")
-
-
-summarizer = AsyncSessionSummarizer(llm=llm, threshold=5)
-
-agent_writer = AsyncAgentContextWriter(
-    summarizer=summarizer,
-    write_actions=dummy_write_actions,
-    overwrite_with_summary=overwrite_summary,
-    debounce_ms=0,
-)
-
-
-async def handle_actions_interceptor(payload: ActionsPayload):
-    await write_actions_to_file(payload)
-    await agent_writer.add(payload)
-
-
-async def main():
-    async with AsyncConnectorClient(url=STREAM_URL, token=UNKEY_API_KEY) as client:
-        client.on_actions(handle_actions_interceptor)
-        print("Listening for live website clicks... (Press Ctrl+C to stop)")
-        await client.run()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-### Run the server, listener, and expose to the internet
-
-**Start the API server:**
-
-```bash
-uvicorn server:app --reload --port 5000
-```
-
-**Expose it publicly with Ngrok:**
-
-```bash
-ngrok http 5000
-```
-
-Copy the Ngrok HTTPS URL and paste it as the **URL** in the Tidio API call action from Part 1.
-
-**Start the listener:**
-
-```bash
-python listener.py
-```
-
----
-
-## 🌐 Part 3 — Add Chatbot to your Frontend App
-
-Go to [https://www.tidio.com/panel/settings/live-chat/installation](https://www.tidio.com/panel/settings/live-chat/installation) and copy the **Code Snippet**.
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_16_tidio_installation.png"
-    alt="Tidio installation settings page with the Code Snippet"
-  />
-</Frame>
-
-Open your frontend application and paste the snippet just before the closing `</body>` tag of your `index.html`, as recommended by Tidio's installation guide:
-
-```html
-<!-- Tidio chat widget — paste from your Tidio installation settings -->
-<script src="//code.tidio.co/YOUR_PUBLIC_KEY.js" async></script>
-```
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_17_html_snippet.png"
-    alt="Tidio HTML snippet pasted inside index.html"
-  />
-</Frame>
-
-<Info>
-  The exact snippet is generated by Tidio — copy it directly from the installation settings page rather than using the example above.
-</Info>
-
----
-
-## ✨ Final result
-
-After everything is running, you should see live events flowing through the listener and server, and the Tidio Lyro agent responding with real-time context.
-
-### Listener
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_18_listener_terminal.png"
-    alt="Terminal showing the Autoplay SDK listener receiving live events"
-  />
-</Frame>
-
-### API Server
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_19_api_server_terminal.png"
-    alt="Terminal showing the FastAPI server responding to Tidio requests"
-  />
-</Frame>
-
-### Chatbot
-
-<Frame>
-  <img
-    src="/images/recipes/tidio/tidio_img_20_final_chatbot.png"
-    alt="Tidio Lyro AI Agent in action with context-aware responses"
-  />
-</Frame>
+Once Lyro is answering with real activity, jump into our [Discord](https://discord.gg/jCbR2tQA5) — we'll confirm the Action is calling correctly and help you tune the trigger instructions.
 
 ---
 
