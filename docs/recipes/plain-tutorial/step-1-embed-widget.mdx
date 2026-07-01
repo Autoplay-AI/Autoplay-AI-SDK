@@ -1,0 +1,135 @@
+---
+title: "Step 1 — Set Up Plain and Embed the Chat Widget"
+sidebarTitle: "Step 1 — Set Up & Embed Widget"
+description: "Create a Plain workspace, generate a Machine User API key, and embed the chat bubble in your app — one widget component, ready for Autoplay enrichment in Step 2."
+---
+
+**Plain** surfaces live user context the moment a support thread opens — no asking, no digging. This step gets the chat widget embedded in your app and generates the Machine User API key [Step 2](/recipes/plain-tutorial/step-2-enrich-threads) uses to attach recent in-app activity to every thread automatically.
+
+## 🎬 Watch the walkthrough
+
+Prefer to watch first? This Loom walks through the full setup — workspace, Machine User, widget embed, and a working chat bubble.
+
+<Frame>
+  <iframe
+    src="https://www.loom.com/embed/f854a14a669f4a58bafa995603e767bf"
+    title="Set up Plain and embed the chat widget"
+    frameBorder="0"
+    allowFullScreen
+    style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "12px" }}
+  />
+</Frame>
+
+## 🔧 1. Create your Plain workspace
+
+Go to [plain.com](https://plain.com) and sign up. You'll be prompted to create a **workspace** — the container for your team's inbox, settings, and integrations. Give it your product or company name.
+
+Once inside, create a **Live Chat app** — this generates the App ID the widget uses to know which workspace to connect to:
+
+1. Go to **Settings → Live chat apps**
+2. Click **New live chat app**
+3. Give it a name (e.g. `My App Chat`)
+4. Copy the **App ID** — it starts with `liveChatApp_`
+
+You'll paste this into the widget component in step 3.
+
+## 🤖 2. Create a Machine User
+
+A Machine User is a service account that authenticates server-side API calls to Plain. You'll need one for Step 2 — the Autoplay enrichment route reads thread data and writes notes on behalf of this user.
+
+1. Go to **Settings → Machine users**
+2. Click **New machine user**
+3. Give it a name (e.g. `Autoplay Integration`)
+4. Under **Roles**, assign at least **Member** (required to read threads and create notes)
+5. Click **Create**, then **Create API key** — copy the key immediately, it won't be shown again
+
+Prefer to watch? This Loom shows the full Machine User creation flow:
+
+<Frame>
+  <iframe
+    src="https://www.loom.com/embed/5da799d289c748d6a2d5d9e3998efb43"
+    title="Create a Plain Machine User and API key"
+    frameBorder="0"
+    allowFullScreen
+    style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "12px" }}
+  />
+</Frame>
+
+Save the key to your environment config now:
+
+```env
+PLAIN_API_KEY=your_machine_user_api_key_here
+```
+
+<Warning>
+  This key is a server-side secret. Never expose it in client-side code or commit it to source control.
+</Warning>
+
+## ⚡ 3. Embed the chat widget
+
+### Create the widget component
+
+Plain loads via a CDN script. Wrap it so it initialises after the page is interactive and never blocks the initial render.
+
+<Accordion title="plain-chat-widget — expand to copy">
+```tsx
+"use client";
+
+import Script from "next/script";
+
+export function PlainChatWidget({ userId }: { userId?: string }) {
+  return (
+    <Script id="plain-chat-widget" strategy="afterInteractive">{`
+      (function(d, script) {
+        script = d.createElement('script');
+        script.async = false;
+        script.onload = function() {
+          Plain.init({
+            appId: 'YOUR_PLAIN_APP_ID',  // paste your liveChatApp_... ID here
+          });
+        };
+        script.src = 'https://chat.cdn-plain.com/index.js';
+        d.getElementsByTagName('head')[0].appendChild(script);
+      }(document));
+    `}</Script>
+  );
+}
+```
+</Accordion>
+
+Replace `YOUR_PLAIN_APP_ID` with the `liveChatApp_...` ID you copied in step 1. The `userId` prop is wired up in [Step 2](/recipes/plain-tutorial/step-2-enrich-threads) — leave it as-is for now.
+
+### Mount the widget globally
+
+Add `<PlainChatWidget />` to your app's top-level entry point so the chat bubble appears on every page without re-mounting between navigations.
+
+<Accordion title="Root layout — expand to copy">
+```tsx
+import { PlainChatWidget } from './providers/plain-chat-widget';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        {children}
+        <PlainChatWidget />
+      </body>
+    </html>
+  );
+}
+```
+</Accordion>
+
+## ✅ Test the widget
+
+1. Start your dev server and visit any page
+2. You should see a **chat bubble** in the bottom-right corner
+3. Click it — the Plain chat panel should open
+4. Send a test message — it should appear in your Plain inbox under the **Conversations** tab
+
+- **Widget not appearing?** Open the browser console and look for errors from `chat.cdn-plain.com`. The most common cause is an incorrect or unpublished App ID — verify it matches exactly what Plain shows under **Settings → Live chat apps**.
+- **App ID accepted but no bubble?** Confirm the Live Chat app is published (not in draft) in Plain Settings.
+
+Once the chat bubble is appearing and test messages land in your Plain inbox, jump into our [Discord](https://discord.gg/jCbR2tQA5) — we'll confirm the widget is wired up correctly and help you get the enrichment layer running in Step 2.
+
+**Next:** [Step 2 — Connect Autoplay SDK to Plain](./step-2-enrich-threads)
