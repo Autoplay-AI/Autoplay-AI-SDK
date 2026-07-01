@@ -91,7 +91,7 @@ def actions_bucket_id(product_id: str | None, session_id: str | None) -> str:
 
     **Legacy:** if ``product_id`` is missing or empty, the bucket is ``session_id``
     only (backward compatible). Otherwise ``"{product_id}\\x1f{session_id}"`` so
-    concurrent products never share the same PostHog session string by accident.
+    concurrent products never share the same activity-provider session string by accident.
     """
     sid = (session_id or "unknown").strip()
     pid = (product_id or "").strip()

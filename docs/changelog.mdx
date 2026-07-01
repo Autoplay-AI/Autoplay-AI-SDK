@@ -8,51 +8,105 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 ---
 
-## [0.8.4] — 2026-05-21
-
-### Changed
-
-- **`ConversationEvent` renamed to `ConversationEventType`** — the old name implied a data container rather than a type discriminator. A deprecated backward-compat alias `ConversationEvent = ConversationEventType` is exported from both `autoplay_sdk` and `autoplay_sdk.chat`; it will be removed in the next major version. Update any import of `ConversationEvent` to `ConversationEventType`.
+## [0.10.0] — 2026-06-21
 
 ### Added
 
-- **`BaseChatbotWriter.__init_subclass__` enforcement** — raises `TypeError` at class-definition time when a subclass sets `SESSION_LINK_WEBHOOK_TOPICS` without overriding `_parse_session_link_webhook_payload`. Converts a silent production crash into a startup error. Subclasses that leave `SESSION_LINK_WEBHOOK_TOPICS = ()` are unaffected.
-
----
-
-## [0.8.3] — 2026-05-21
-
-### Changed
-
-- `AutoplayChatbotManager.on_chatbot_event` always saves after linking, regardless of store type (no more `isinstance` guard). `on_actions` does not save — no `SessionState` mutation occurs during action delivery.
-- `InMemorySessionStateStore` gains a no-op `save()` for uniform call sites.
-
-### Added
-
-- `AutoplayChatbotManager.save_state(state)` — call after any external FSM transition to persist THINKING/PROACTIVE/REACTIVE state and all sub-state data to Redis.
-
----
-
-## [0.8.2] — 2026-05-21
+- **`autoplay_sdk.storage`** — a new, self-contained subsystem for cross-session persistence of `UserAdoptionState` plus frozen per-session snapshots, behind a pluggable adapter interface.
+  - **`AutoplayStorageAdapter`** — a `@runtime_checkable Protocol` (mirrors `BufferBackend`) with async `save_user_state` / `get_user_state` / `save_session_snapshot` / `get_session_snapshot`. The wire boundary is plain JSON dicts, so custom adapters stay decoupled from the SDK's model classes.
+  - **`StorageManager`** — fans writes out to every adapter (one failing sink never blocks the others) and reads from the first adapter that returns a value (list the readable primary first).
+  - **`RedisStorageAdapter(redis_url=...)`** — primary read+write adapter; owns a lazy `redis.asyncio` pool with graceful degradation (mirrors `RedisSessionStateStore`), `SET NX` write-once for snapshots. Needs the `redis` extra.
+  - **`InMemoryStorageAdapter`** — tests/dev adapter with write-once snapshot semantics.
+  - **Product-scoped key builders** — `user_state_key(product_id, user_id)` and `session_key(product_id, user_id, session_id)`.
+  - **Session lifecycle helpers** — `init_user_state`, `on_session_start`, `on_session_end`, `build_agent_context`. `on_session_end` resolves the onboarding summary via an injected `summarizer` callable or a pre-computed `summary=` — **the SDK never calls an LLM**.
+- **Write-only analytics sinks** — `AmplitudeStorageAdapter` / `PostHogStorageAdapter` (deep-import from `autoplay_sdk.storage.adapters.{amplitude,posthog}`), gated behind a new `autoplay-sdk[analytics]` extra. They `save_*` (with optional `property_prefix=`) and return `None` from `get_*`; failures are best-effort (logged, never raised).
+- **`SessionSnapshot`** — a new frozen, write-once per-session model with `to_dict` / `from_dict` (defensive) and a `SessionSnapshot.from_adoption_state(...)` helper that builds the snapshot from a live `UserAdoptionState` (reusing the model's derived helpers — no hand-rolled mapping).
+- **`SessionIndexEntry`** + a bounded sessions index on `UserAdoptionState` — `sessions_count` (monotonic lifetime total), `current_session_id`, and `sessions_index` (capped to the most recent 50 via `record_session`), plus `set_current_session`.
+- **`OnboardingState.summary`** and **`OnboardingState.completion_rate`** — cross-session briefing + cached completion snapshot.
+- **`ONBOARDING_SUMMARY_PROMPT`** (v0.1, plain-text output) in `autoplay_sdk.prompts` and a pure **`build_onboarding_summary_input(snapshot)`** builder in `autoplay_sdk.user_adoption_state`.
+- **Exports** — storage symbols re-exported from top-level `autoplay_sdk`; `SessionSnapshot`, `SessionIndexEntry`, `COMPLETION_RATE_DENOMINATOR_*`, and `build_onboarding_summary_input` from `autoplay_sdk.user_adoption_state`. Sink adapters stay deep-import only.
 
 ### Documentation
 
-- `chatbot-writer.mdx`: leads with `AutoplayChatbotManager` as the recommended path, updated session-first linking section, added Production persistence section with `RedisSessionStateStore`.
-- `autoplay-core` skill: added **Integration Self-Reasoning Checklist** covering session identity, race conditions, chatbot linking, proactive triggers, and production persistence.
+- New page [State storage & session capture](/sdk/storage) covering the three-step integration flow, the adapter/manager model, Redis key schema, write-only sinks, and the injected-summarizer pattern.
+- [User adoption state](/sdk/user-adoption-state) persistence note updated to point at the new storage adapters.
+
+### Breaking changes
+
+None — purely additive. The new `UserAdoptionState` fields (`sessions`, `onboarding.summary`, `onboarding.completion_rate`) read with safe defaults, so existing snapshots load unchanged and the `_v` snapshot version is unchanged.
 
 ---
 
-## [0.8.1] — 2026-05-21
+## [0.9.2] — 2026-06-21
 
 ### Added
 
-- **`RedisSessionStateStore`** — Redis-backed `SessionState` store for production. Key pattern `autoplay:session_state:{session_id}`, configurable TTL (default 24 h), graceful fallback on Redis errors. Requires `pip install "autoplay-sdk[redis]"`.
-- **`AutoplayChatbotManager(session_store=...)`** — optional parameter to inject a custom store. Defaults to `InMemorySessionStateStore()`. Pass `RedisSessionStateStore(redis_url=...)` for production.
-- `AutoplayChatbotManager.on_chatbot_event` persists state back to Redis after linking so the conversation link survives restarts.
+- **Onboarding workflow steps** — each `OnboardingWorkflow` can now declare an ordered list of **`WorkflowStep`**s (`step_id`, `name`, `description`, `required`), configured per product under `integration_config.onboarding_workflows[].steps`. Steps are *context/signal* for the LLM (what "done" looks like) and for explainability — they are **not** a checklist gate. `required` is a hint, not a hard gate. Helper `OnboardingWorkflow.required_step_ids`.
+- **`StepProgress`** — the agent's per-step belief (`step_id`, `status` reusing `WorkflowStatus`, `confidence`, `evidence`, `completed_at`, `last_evaluated_at`), a deliberate parallel to `WorkflowProgress` one level down.
+- **`WorkflowProgress.steps`** — a `dict[str, StepProgress]` map of per-step beliefs, with a `completed_step_ids` helper and an `upsert_step_progress(step_id, *, status, confidence, evidence="", now=None)` mutation (write-once `completed_at`, mirroring `upsert_workflow_progress`).
+- **`is_plan_complete(plan, workflow_progress)`** — thin convenience wrapper over `split_workflows` (`True` when no outstanding workflows; an empty plan is never complete). Completion stays the LLM's call via `WorkflowProgress.status` — steps never gate it.
+- **`step_completion_ratio(workflow, wp)`** — fraction of a workflow's declared steps the LLM believes are `completed`. For display/telemetry only; never used to decide completion.
+- **Exports** — `WorkflowStep`, `StepProgress`, `is_plan_complete`, `step_completion_ratio` added to `autoplay_sdk.user_adoption_state`.
+
+### Documentation
+
+- [User adoption state](/sdk/user-adoption-state) updated with the steps data model, the product-config `steps` schema, and the completion semantics (LLM-authoritative; steps are signal, not a gate).
+
+### Breaking changes
+
+None — purely additive. `steps` is read with safe defaults, so existing snapshots (no `steps` key) load unchanged and the `_v` snapshot version is unchanged.
 
 ---
 
-## [0.8.0] — 2026-05-21
+## [0.9.1] — 2026-06-16
+
+### Added
+
+- **Amplitude activity provider support** — adds the SDK provider wiring and activity skill needed to configure Amplitude as an event source.
+
+### Documentation
+
+- Expanded the setup and quickstart docs for activity providers, agent skills, MCP server setup, and Intercom tutorial assets.
+
+---
+
+## [0.9.0] — 2026-06-12
+
+### Added
+
+- **`PostHogProvider.create_destination()` + `.verify()`** — deterministic, idempotent creation (and verification) of the PostHog → Autoplay "Autoplay Event Stream" hog_function destination, built on the provider abstraction. Powers the one-command `autoplay-setup` onboarding flow (plumbing runs as tested code, not via an agent).
+
+### Changed
+
+- **`activity-posthog` skill is now the single source** (modular: `SKILL.md` + `references/` + `examples/`), replacing the forked `posthog-setup` skill the setup bundle used to ship. Scoped to *frontend code only* (the CLI now owns destination create/verify and the end-to-end event check). Identify uses the app's **stable user id** on login (never the anonymous id) + `reset()` on logout.
+
+---
+
+## [0.8.0] — 2026-06-09
+
+### Added
+
+- **`autoplay_sdk.user_adoption_state`** — a new per-user adoption-state module, orthogonal to the per-session `SessionState` FSM and keyed by `user_id`. Tracks where a user is in their product lifecycle and how proficient they are, decided by an LLM judge and fed back into chat / proactive prompts.
+- **Enums** — `JourneyState` (`onboarding` / `onboarded`), `MasteryLevel` (`novice` → `beginner` → `intermediate` → `proficient` → `power_user`), and `WorkflowStatus` (`not_started` / `in_progress` / `completed`).
+- **`UserAdoptionState`** — top-level per-user record: a fully dynamic, schema-less `metadata` bag (with a `role` convenience property), `journey_state`, `mastery`, `discovered_features`, and an `onboarding` sub-object. Mandatory non-empty `user_id` (raises otherwise, like `SessionState`); `to_dict()` / `from_dict()` with `_v` snapshot versioning and defensive enum coercion; transition helpers (`set_journey_state`, `set_mastery`, `record_discovered_features`, `mark_welcomed`, `mark_judged`) that log structured events; and `to_prompt_block()` for compact prompt injection.
+- **`Mastery`** (0-10 rating, clamped, + `MasteryLevel` + reason), **`WorkflowProgress`** (per-flow `status` / `confidence` / `evidence` / timestamps — the agent's evolving belief from the live activity stream), **`StepInAssessment`** (latest "should I step in?" decision + timing rationale), and **`OnboardingState`** (welcome lifecycle, `workflow_progress` map, derived `completed` / `in_progress` / `outstanding` helpers, `upsert_workflow_progress`, `record_step_in`).
+- **`ExplorationGateConfig`** + **`evaluate_hard_gate()`** — pure, side-effect-free "let the user explore first" floor (role allowlist, min time on app, min distinct features, welcome cooldown, nudge cap). Returns `(passed, reason)`; the LLM owns timing on top of the floor.
+- **`OnboardingWorkflow`** / **`OnboardingPlan`** (parsed from config, role-filterable via `for_role`) + pure **`split_workflows()`** → `(completed, in_progress, outstanding)`.
+- **Query → tour matching primitive** — **`build_tour_match_input()`** and **`parse_tour_match_output()`** (validates ids against a role-filtered catalog, safe fallback on malformed JSON), plus **`TourCatalogEntry`** and **`TourMatchResult`**.
+- **Versioned prompts** in `autoplay_sdk.prompts` (each a `dict` with `name` / `description` / `version` / `content`, JSON-object output): **`ADOPTION_STATE_JUDGE_PROMPT`**, **`TOUR_MATCH_PROMPT`**, **`ONBOARDING_WELCOME_PROMPT`** (all v0.1).
+- **Top-level exports** from `autoplay_sdk`: `user_adoption_state`, `UserAdoptionState`, `JourneyState`, `MasteryLevel`, `WorkflowStatus`.
+
+### Documentation
+
+- New [User adoption state](/sdk/user-adoption-state) reference page covering the two axes (journey vs mastery), the full state model, the explore-first gate, onboarding plans, and the query → tour matcher. The SDK ships pure logic + prompt definitions only; persistence and `acall_llm` runners are integration-owned.
+
+### Breaking changes
+
+None — the module and exports are purely additive.
+
+---
+
+## [0.7.9] — 2026-05-25
 
 ### Breaking changes
 
@@ -60,24 +114,37 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 ### Added
 
+- **`SessionState.can_deliver_proactive() -> tuple[bool, str]`** — canonical FSM gate check.
+  Returns `(True, "ok")` when the session is THINKING with no active cooldown; `(False, reason)` otherwise.
+  Callers must call `tick()` before this method. Replaces any inline `current_state == THINKING and not thinking.cooldown_active` pattern.
+- **`SessionState`** now holds `session_id: str` (the only mandatory scope key) and `metadata: dict[str, Any]` (open bag for optional identity context — `user_id`, `email`, any future fields). Both fields are persisted via `to_dict()` / `from_dict()` and default to empty for backward compatibility.
+- **`RedisSessionStateStore`** — Redis-backed `SessionState` store for production use. Key pattern `autoplay:session_state:{session_id}`, configurable TTL (default 24 h), graceful fallback on Redis errors. Requires `pip install "autoplay-sdk[redis]"`.
 - **`AutoplayChatbotManager`** — high-level wrapper that handles all session lifecycle automatically. Developers implement only `_post_note` and call two methods: `on_actions(payload)` from the Autoplay stream and `on_chatbot_event(session_id, conversation_id)` from the chatbot webhook.
+- **`AutoplayChatbotManager(session_store=...)`** — optional parameter to inject a custom store. Defaults to `InMemorySessionStateStore()`. Pass `RedisSessionStateStore(redis_url=...)` for production.
+- **`AutoplayChatbotManager.save_state(state)`** — public method for persisting state after external FSM transitions (`transition_to_proactive`, `transition_to_reactive`, `tick`, `start_cooldown`, interaction recorders). `on_actions` and `on_chatbot_event` call this automatically; use `save_state` only for mutations that happen outside those entry points.
 - **`InMemorySessionStateStore`** — canonical store for `SessionState` objects. `get_or_create(session_id)` is the first call in every handler. `async` interface for drop-in Redis-backed replacement.
-- `link_conversation` now auto-detects `ConversationEventType.NEW` vs `REPLY_EXISTING` from the store when `event` is not passed.
-- `link_conversation` raises `ValueError` if `session_id` is empty after resolution.
+- **`BaseChatbotWriter.__init_subclass__` enforcement** — raises `TypeError` at class-definition time (module import) when a subclass sets `SESSION_LINK_WEBHOOK_TOPICS` without overriding `_parse_session_link_webhook_payload`. Converts a silent production crash into a startup error caught by tests and local runs. Subclasses that leave `SESSION_LINK_WEBHOOK_TOPICS = ()` are unaffected.
+- `link_conversation` now auto-detects `ConversationEventType.NEW` vs `REPLY_EXISTING` from the store when `event` is not passed — removes the last manual determination from integration authors.
+- `link_conversation` now infers `session_id` from `state.session_id` when not passed explicitly. Existing callers that pass `session_id` are unaffected.
+- `link_conversation` raises `ValueError` if `session_id` is empty after resolution, with a clear message pointing to `InMemorySessionStateStore.get_or_create`.
 - `AutoplayChatbotManager` and `InMemorySessionStateStore` exported from top-level `autoplay_sdk`.
+- `AutoplayChatbotManager.on_chatbot_event` now persists the updated `SessionState` back to `RedisSessionStateStore` after linking so the conversation link survives restarts.
+- `redis` optional extra added to `pyproject.toml`: `pip install "autoplay-sdk[redis]"`.
 
----
+### Changed
 
-## [0.7.9] — 2026-05-21
-
-### Added
-
-- `SessionState` now holds `session_id: str` (the only mandatory scope key) and `metadata: dict[str, Any]` (open bag for optional identity context — `user_id`, `email`, any future fields). Both fields are persisted via `to_dict()` / `from_dict()` and default to empty for backward compatibility.
-- `link_conversation()` now infers `session_id` from `state.session_id` when not passed explicitly. Existing callers that pass `session_id` are unaffected.
+- **`ConversationEvent` renamed to `ConversationEventType`** — the old name was misleading because it read as a data container rather than a type discriminator. A deprecated backward-compat alias `ConversationEvent = ConversationEventType` is exported from both `autoplay_sdk` and `autoplay_sdk.chat`; it will be removed in the next major version. Update any import of `ConversationEvent` to `ConversationEventType`.
+- **`proactive_fsm_gate_for_session` delivery invariant clarified** — no linked conversation → first proactive → always allowed (a new conversation will be created and linked). A linked conversation → check FSM via `can_deliver_proactive()`. The `fallback_conversation_id` parameter has been removed.
+- **Polling gates use `session.can_deliver_proactive()` directly** — polling paths (`context_payload.py`, `routes.py`) load and tick the session for the known `conversation_id`, then call `can_deliver_proactive()` on the already-loaded session. They no longer go through `proactive_fsm_gate_for_session` (which has delivery-specific semantics).
+- `AutoplayChatbotManager.on_chatbot_event` removes the `isinstance(store, RedisSessionStateStore)` guard — `save` is always called regardless of which store is wired. `on_actions` does not save (no state mutation occurs during action delivery; first-creation is already persisted by `get_or_create`).
+- `InMemorySessionStateStore` gains a no-op `save(state)` method so all call sites are uniform.
 
 ### Documentation
 
-- Added **Universal Scoping Pattern** section to `autoplay-core` skill — the canonical 4-step flow (scope → parse webhook → link → deliver) that applies identically to every chatbot integration.
+- [BaseChatbotWriter](/sdk/support-agent-writer): rewritten to lead with `AutoplayChatbotManager` as the recommended path, updated session-first linking section to show `InMemorySessionStateStore` + `get_or_create` pattern, added Production persistence section with `RedisSessionStateStore` one-line swap.
+- `autoplay-core` skill: added **Integration Self-Reasoning Checklist** — 5 categories agents must reason through before an integration is complete: session identity, race conditions, chatbot linking, proactive triggers, and production persistence. Section 4 updated to use `can_deliver_proactive()` as the canonical gate check and fixes a stale method reference (`to_proactive` → `transition_to_proactive`). Added **Universal Scoping Pattern** — the canonical 4-step flow (scope → parse webhook → link → deliver) that applies identically to every chatbot integration.
+- `SessionState` class docstring now lists `conversation_linked` and `conversation_id` in its Fields section.
+- [Agent session states](/sdk/agent-states) Key Methods table now includes `can_deliver_proactive()`; `ThinkingState` table now includes `active_cooldown_period_s`.
 
 ---
 
@@ -110,7 +177,7 @@ The canonical changelog for releases and PyPI sdists also lives in the repositor
 
 ### Documentation
 
-- Updated [BaseChatbotWriter](/sdk/chatbot-writer) with a new **session-first linking** section covering:
+- Updated [BaseChatbotWriter](/sdk/support-agent-writer) with a new **session-first linking** section covering:
   - `ConversationEventType.NEW` vs `ConversationEventType.REPLY_EXISTING`
   - canonical dual-write flow via `link_conversation(...)` (`ConversationLinkStore` write, then `SessionState.on_conversation_linked(...)`)
   - hot-path routing with `resolve_linked_conversation_id(state)` from session-owned state.
@@ -218,7 +285,7 @@ See [Migration 0.7.4](/sdk/migration-0.7.4) for upgrade steps.
 
 ### Documentation
 
-- Added dedicated references for [`UserSessionIndex`](/sdk/user-session-index), [`compose_chat_pipeline(...)`](/sdk/compose-chat-pipeline), and [`build_copilot_app(...)`](/sdk/build-copilot-app), including lifecycle details, endpoint status semantics, and failure troubleshooting.
+- Added dedicated references for [`UserSessionIndex`](/sdk/user-session-index), [`compose_chat_pipeline(...)`](/sdk/compose-chat-pipeline), and [`build_copilot_app(...)`](/sdk/build-support-agent-app), including lifecycle details, endpoint status semantics, and failure troubleshooting.
 - Updated [Logging](/sdk/logging) with explicit observability guidance for `autoplay_sdk.chat_pipeline`, `autoplay_sdk.user_index`, and `autoplay_sdk.serve.fastapi`, including recommended app-layer log points for self-hosted bridges.
 - Added a clearer self-hosted quick-reference and troubleshooting section in `README.md` (repository package docs), covering primitive selection and common `404`/identity/product-scope failure modes.
 
@@ -342,7 +409,7 @@ For full **Added** / **Changed** / **Breaking** detail, see the same version in 
 
 ### Documentation
 
-- [Chatbot context assembly](/sdk/chatbot-context-assembly) — delta activity and observability cross-links.
+- [Support AI agent context assembly](/sdk/support-agent-context-assembly) — delta activity and observability cross-links.
 
 ### Breaking changes
 
@@ -417,7 +484,7 @@ None.
 
 ### Documentation
 
-- **BaseChatbotWriter — Note body format** — [BaseChatbotWriter](/sdk/chatbot-writer) now documents the full plain-text contract for `_post_note` bodies (header via `format_chatbot_note_header`, sorted 1-based action lines, binning vs post-link, empty list, summary notes). `_format_note` docstring points to that page as the single source of truth.
+- **BaseChatbotWriter — Note body format** — [BaseChatbotWriter](/sdk/support-agent-writer) now documents the full plain-text contract for `_post_note` bodies (header via `format_chatbot_note_header`, sorted 1-based action lines, binning vs post-link, empty list, summary notes). `_format_note` docstring points to that page as the single source of truth.
 
 - **Logging** — New [Logging](/sdk/logging) reference page (module loggers, `%` formatting, `exc_info`, structured `extra`, secrets guidance including HTTP bodies, common logging mistakes). [Quickstart](/quickstart) links to it for discoverability.
 
