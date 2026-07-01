@@ -1,0 +1,75 @@
+fun extractFromElementsChain(str, pattern) {
+    try {
+        if (empty(str)) {
+            return ''
+        }
+        let startIdx := position(str, pattern)
+        if (startIdx <= 0) {
+            return ''
+        }
+        let sub := substring(str, startIdx + length(pattern), length(str) - startIdx - length(pattern) + 1)
+        let endIdx := position(sub, '"')
+        if (endIdx > 0) {
+            return substring(sub, 1, endIdx - 1)
+        }
+        return ''
+    } catch (err) {
+        print(f'extractFromElementsChain error for pattern {pattern}:', err)
+        return ''
+    }
+}
+
+let elements_chain := event.elements_chain ?? ''
+let element_id := ''
+let input_field_name := ''
+let link_destination := ''
+let button_or_link_text := ''
+
+element_id := extractFromElementsChain(elements_chain, 'attr__id="')
+input_field_name := extractFromElementsChain(elements_chain, 'attr__name="')
+link_destination := extractFromElementsChain(elements_chain, 'attr__href="')
+button_or_link_text := extractFromElementsChain(elements_chain, 'text="')
+
+let payload := {
+    'event': event.event,
+    'referrer': event.properties?.$referrer ?? '',
+    'email': event.properties?.email ?? event.person?.properties?.email ?? '',
+    'timestamp': event.timestamp ?? '',
+    'element_id': element_id,
+    'event_type': event.properties?.$event_type ?? '',
+    'session_id': event.properties?.$session_id ?? '',
+    'current_url': event.properties?.$current_url ?? '',
+    'distinct_id': event.distinct_id ?? '',
+    'elements_chain': elements_chain,
+    'input_field_name': input_field_name,
+    'link_destination': link_destination,
+    'button_or_link_text': button_or_link_text
+}
+
+let headers := {
+    'Content-Type': 'application/json',
+    'x-posthog-secret': inputs.headers['x-posthog-secret']
+}
+
+let req := {
+    'headers': headers,
+    'body': jsonStringify(payload),
+    'method': 'POST'
+}
+
+let url := inputs.url
+
+if (inputs.debug) {
+    print('Request payload', payload)
+    print('Request', url, req)
+}
+
+let res := fetch(url, req)
+
+if (res.status >= 400) {
+    print('Webhook error response', res.status, res.body)
+    throw Error(f'Webhook returned {res.status}: {res.body}')
+}
+if (inputs.debug) {
+    print('Response', res.status, res.body)
+}
