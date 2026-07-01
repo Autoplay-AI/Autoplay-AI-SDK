@@ -245,7 +245,7 @@ MAX_ACTIONS=30
 
 ## 🔌 Step 5 — Wire the SDK pipeline
 
-Create `bridge/copilot_server.py`. The Autoplay SDK pipeline is identical to every other chatbot recipe — only the HTTP surface differs.
+Create `bridge/copilot_server.py`. The Autoplay SDK pipeline is identical to every other support AI agent recipe — only the HTTP surface differs.
 
 ### 5a. Imports and config
 
@@ -916,7 +916,7 @@ cd ~/inkeep-agents && docker compose down -v && docker compose up -d
 
 You now have an Inkeep AI chat widget whose opening message is grounded in what the user was actually doing — no generic "How can I help?" when you can see they just failed to connect a data source.
 
-- **Reusable bridge:** the Autoplay SDK pipeline is identical to every other chatbot recipe — swap Inkeep for a different widget later without rewriting context logic.
+- **Reusable bridge:** the Autoplay SDK pipeline is identical to every other support AI agent recipe — swap Inkeep for a different widget later without rewriting context logic.
 - **Bring-your-own model:** the Inkeep agents framework calls your LLM key directly; no per-seat or per-call fee to Inkeep for the chat itself.
 - **SDK-managed plumbing:** reconnects, backpressure, summary ordering, and context assembly are handled for you; the bridge only needs to read and return the assembled string.
 - **Self-hosted:** your events, conversation history, and LLM keys never leave your infrastructure.
