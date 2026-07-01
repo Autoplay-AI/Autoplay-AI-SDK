@@ -1,0 +1,61 @@
+---
+title: "Step 1 — Set Up Plain and Embed the Chat Widget"
+sidebarTitle: "Step 1 — Set Up & Embed Widget"
+description: "Generate a Machine User API key — the one credential Step 2 needs to automatically attach in-app activity to every Plain support thread."
+---
+
+**Plain** surfaces live user context the moment a support thread opens — no asking, no digging. This step creates the server-side credential [Step 2](/recipes/plain-tutorial/step-2-enrich-threads) uses to attach recent in-app activity to every thread automatically.
+
+<Info>
+  **Before you begin.** You'll need a Plain workspace with a Live Chat app created and the `liveChatApp_...` App ID copied. Follow [Plain's setup guide](https://plain.com/docs) if you haven't done that yet.
+</Info>
+
+## 🎬 Watch the walkthrough
+
+Prefer to watch first? This Loom walks through the full setup — workspace, Machine User, and a working chat bubble.
+
+<Frame>
+  <iframe
+    src="https://www.loom.com/embed/f854a14a669f4a58bafa995603e767bf"
+    title="Set up Plain and embed the chat widget"
+    frameBorder="0"
+    allowFullScreen
+    style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "12px" }}
+  />
+</Frame>
+
+## 🤖 1. Create a Machine User
+
+A Machine User is a service account that authenticates server-side API calls to Plain. Step 2 reads thread data and writes notes on behalf of this user.
+
+1. Go to **Settings → Machine users**
+2. Click **New machine user**
+3. Give it a name (e.g. `Autoplay Integration`)
+4. Under **Roles**, assign at least **Member** (required to read threads and create notes)
+5. Click **Create**, then **Create API key** — copy the key immediately, it won't be shown again
+
+Prefer to watch? This Loom shows the full Machine User creation flow:
+
+<Frame>
+  <iframe
+    src="https://www.loom.com/embed/5da799d289c748d6a2d5d9e3998efb43"
+    title="Create a Plain Machine User and API key"
+    frameBorder="0"
+    allowFullScreen
+    style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "12px" }}
+  />
+</Frame>
+
+Save the key to your environment config now:
+
+```env
+PLAIN_API_KEY=your_machine_user_api_key_here
+```
+
+<Warning>
+  This key is a server-side secret. Never expose it in client-side code or commit it to source control.
+</Warning>
+
+Once the key is saved, jump into our [Discord](https://discord.gg/jCbR2tQA5) — we'll confirm the setup and help you wire up the enrichment layer in Step 2.
+
+**Next:** [Step 2 — Connect Autoplay SDK to Plain](./step-2-enrich-threads)
