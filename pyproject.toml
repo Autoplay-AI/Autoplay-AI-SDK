@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autoplay-sdk"
-version = "0.7.9"
+version = "0.10.0"
 description = "Real-time event streaming client for Autoplay connectors"
 readme = "README.md"
 license = { text = "MIT" }
@@ -35,6 +35,12 @@ serve = [
 redis = [
     "redis>=5.0",
 ]
+# Write-only analytics sink adapters (Amplitude / PostHog). These use httpx,
+# which is already a core dependency, so this extra is primarily an explicit
+# opt-in marker — importing the sink modules works wherever httpx is present.
+analytics = [
+    "httpx>=0.27.0",
+]
 test = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
@@ -55,7 +61,31 @@ packages = ["autoplay_sdk"]
 include = [
   "autoplay_sdk/py.typed",
 ]
-force-include = { "autoplay_sdk/skills" = "autoplay_sdk/skills" }
+# autoplay_sdk/skills/ is a Markdown-only data tree (no __init__.py).
+# The repo-root .gitignore excludes `skills/` globally; the `!` re-includes
+# for autoplay_sdk/skills resolve from the repo root, not from this
+# sub-project root, so Hatchling's VCS-aware file scan drops the
+# directory and we need `force-include` to ship it. The `exclude` rule
+# below is what makes this safe across Hatchling versions: newer
+# Hatchling auto-includes data files surfaced by `packages`, which
+# would collide with `force-include` and raise "A second file is being
+# added to the wheel archive at the same path". Excluding the skills
+# tree from `packages` keeps `force-include` as the SOLE source of
+# those files on every Hatchling version.
+exclude = [
+  "autoplay_sdk/skills/**",
+  # autoplay_sdk/storage/ is a real importable subpackage, but the repo-root
+  # .gitignore has an un-anchored `storage/` rule (for runtime data dirs).
+  # Hatchling evaluates that rule relative to THIS sub-project root, where the
+  # `!/src/**/storage/` negation no longer matches, so
+  # its VCS-aware scan drops the whole tree from the wheel — the source tree and
+  # editable installs still see it (git tracks it), which is why this only broke
+  # the Docker/Render build. Same trap as skills/ above: exclude from the
+  # packages auto-include and ship it via force-include as the sole source,
+  # avoiding the "second file at same path" collision on newer Hatchling.
+  "autoplay_sdk/storage/**",
+]
+force-include = { "autoplay_sdk/skills" = "autoplay_sdk/skills", "autoplay_sdk/storage" = "autoplay_sdk/storage" }
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -64,7 +94,16 @@ include = [
     "CHANGELOG.md",
     "pyproject.toml",
 ]
-force-include = { "autoplay_sdk/skills" = "autoplay_sdk/skills" }
+exclude = [
+  "autoplay_sdk/skills/**",
+  # Same gitignore trap as the wheel target: the root `storage/` rule makes
+  # Hatchling's VCS scan drop autoplay_sdk/storage/ from the sdist too. Must be
+  # force-included here as well — `python -m build` (used by publish-sdk.yml)
+  # builds the wheel FROM the sdist, so a storage-less sdist makes the wheel's
+  # own force-include fail with "Forced include not found".
+  "autoplay_sdk/storage/**",
+]
+force-include = { "autoplay_sdk/skills" = "autoplay_sdk/skills", "autoplay_sdk/storage" = "autoplay_sdk/storage" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
