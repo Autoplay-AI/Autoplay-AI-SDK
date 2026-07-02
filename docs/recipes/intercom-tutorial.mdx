@@ -1,0 +1,52 @@
+---
+title: "Intercom + Autoplay"
+sidebarTitle: "Overview"
+description: "Give Intercom Fin a user's live in-app activity — Fin pulls it on demand via the MCP server."
+icon: "/images/recipes/intercom/logo.png"
+---
+
+Let **Intercom Fin** answer with full awareness of what a user just did in your app. Fin **pulls** a user's recent in-app activity on demand — **via the [MCP server](/mcp/server)** — at the moment it's about to answer.
+
+<Card title="🔌 Connect Fin to live activity" icon="plug" href="/recipes/intercom-tutorial/step-1-connect-real-time-events">
+  Point Fin at the Autoplay MCP server (with Messenger JWT identity verification) so it pulls a user's live activity on demand.
+</Card>
+
+## ✨ What it looks like
+
+<Tabs sync={false}>
+  <Tab title="Without real-time context">
+    ```text
+    User: How do I create a project?
+
+    Bot: To create a project, go to My Projects in the sidebar and click Add Project.
+
+    (Could be on any page. No idea where they are.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    User: How do I create a project?
+
+    Bot: You're on the Pricing page comparing plans. Open My Projects from the sidebar,
+    click Add Project, then pick a workspace that matches what you're configuring here.
+
+    (Fin pulled the user's recent activity — its answer matches what they're doing.)
+    ```
+  </Tab>
+</Tabs>
+
+<Frame>
+  <img
+    src="/images/recipes/intercom/intercom-final.png"
+    alt="Intercom conversation where Fin answers using the user's live in-app activity"
+  />
+</Frame>
+
+## 📋 Prerequisites
+
+Complete the [Quickstart](/quickstart) so activity is flowing into the connector:
+
+- **Your activity source set up** — PostHog (or Amplitude) capturing events, with `identify` setting a stable `user_id`.
+- **A registered product** — your `product_id` and **Unkey token**.
+
+Then connect Fin to the MCP server using the recipe above.

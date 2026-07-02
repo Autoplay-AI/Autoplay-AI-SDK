@@ -1,0 +1,46 @@
+---
+title: "Maven + Autoplay"
+sidebarTitle: "Overview"
+description: "Give Maven a user's live in-app activity — Maven pulls it on demand via the MCP server."
+icon: "/images/recipes/maven/logo.png"
+---
+
+Let **Maven** answer with full awareness of what a user just did in your app. Maven **pulls** a user's recent in-app activity on demand — **via the [MCP server](/mcp/server)** — at the moment it's about to answer.
+
+<Card title="🔌 Connect Maven to live activity" icon="plug" href="/recipes/maven/step-1-connect-real-time-events">
+  Add the Autoplay MCP server to your Maven agent and embed the Maven chat widget with verified identity, so Maven pulls a user's live activity on demand.
+</Card>
+
+## ✨ What it looks like
+
+<Tabs sync={false}>
+  <Tab title="Without real-time context">
+    ```text
+    User: How do I schedule a post?
+
+    Maven: To schedule a post, open the calendar and pick a date and time.
+
+    (Could be on any page. No idea where they are.)
+    ```
+  </Tab>
+  <Tab title="With real-time context">
+    ```text
+    User: How do I schedule a post?
+
+    Maven: You just uploaded a media item and you're on the calendar now —
+    drag that item onto a date, then set the time in the post editor that opens.
+
+    (Maven pulled the user's recent activity — its answer matches what they're doing.)
+    ```
+  </Tab>
+</Tabs>
+
+## 📋 Prerequisites
+
+Complete the [Quickstart](/quickstart) so activity is flowing into the connector:
+
+- **Your activity source set up** — PostHog (or Amplitude) capturing events, with `identify` setting a stable `user_id`.
+- **A registered product** — your `product_id` and **Unkey token**.
+- **A Maven agent** — created in Maven AGI (Agent Designer).
+
+Then connect Maven to the MCP server using the recipe above.
