@@ -1,0 +1,307 @@
+---
+title: "Step 1 — Connect real-time events"
+sidebarTitle: "Step 1 — Connect real-time events"
+description: "Attach a user's last 10 in-app actions to every Plain support thread automatically — one Machine User credential, one API route, one widget callback."
+---
+
+**Plain** surfaces live user context the moment a support thread opens — no asking, no digging. The moment a user opens a new thread, a server-side route fetches their recent Autoplay actions and writes them as a note — your support team sees exactly what the user was doing before they asked for help.
+
+<Info>
+  **Before you begin.** You'll need a Plain workspace with a Live Chat app created (App ID copied) and a Machine User with an API key generated. See [Plain's Machine User docs](https://www.plain.com/docs/agents/machine-users) if you haven't done that yet.
+</Info>
+
+## 🎬 Watch the walkthrough
+
+Prefer to watch first? This Loom walks through the full setup — workspace, Machine User, and a working chat bubble.
+
+<Frame>
+  <iframe
+    src="https://www.loom.com/embed/f854a14a669f4a58bafa995603e767bf"
+    title="Set up Plain and embed the chat widget"
+    frameBorder="0"
+    allowFullScreen
+    style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "12px" }}
+  />
+</Frame>
+
+## How it works
+
+A server-side API route bridges the Autoplay SDK and Plain's GraphQL API. Here's the full sequence:
+
+1. **User opens a thread in Plain** — Plain fires the `onNewThread` callback in your widget.
+2. **Widget POSTs to your webhook** — sends `{ customerId, threadId }`.
+3. **Server fetches live activity** — calls the Autoplay SDK for the user's last 10 in-app actions, scoped to your Product ID.
+4. **Server resolves the Plain customer** — queries Plain's GraphQL API to get the Plain-internal customer ID from the thread.
+5. **A note appears on the thread** — your team sees the last 10 actions before they've typed a word.
+
+## Prerequisites
+
+- A Plain workspace with a Live Chat app created and the `liveChatApp_...` App ID copied
+- A Plain Machine User with an API key (see below)
+- A registered Autoplay product — run `onboard_product` from the [Quickstart](/quickstart) if you haven't yet
+
+## 🤖 Create a Machine User
+
+A Machine User is a service account that authenticates server-side API calls to Plain — this integration reads thread data and writes notes on behalf of this user. Create one in **Settings → Machine users**, assign at least the **Member** role (required to read threads and create notes), then generate an API key. See [Plain's Machine User docs](https://www.plain.com/docs/agents/machine-users) for the setup flow.
+
+## 🔑 Set your environment variables
+
+Running `onboard_product` from the [Quickstart](/quickstart) registers your product and prints your Autoplay credentials to the terminal, including `stream_url` and `unkey_key`. Map those into the variables below and add all four to your environment config before running.
+
+| Env variable | Description |
+|---|---|
+| `PLAIN_API_KEY` | Machine User API key — Plain → Settings → Machine users |
+| `CONNECTOR_URL` | Base URL of your Autoplay connector, e.g. `https://event-connector-luda.onrender.com` — same host as your `stream_url`, without the `/stream/{product_id}` path |
+| `UNKEY_KEY` | Bearer token for the live-activity API — the same token that authenticates your SSE stream |
+| `PRODUCT_ID` | Your Autoplay Product ID — scopes activity queries to your product |
+
+<Warning>
+  All four are server-side secrets or identifiers — never prefix them with `NEXT_PUBLIC_` (or any framework's client-exposure prefix) or reference them in client-side code.
+</Warning>
+
+## 🔌 Create the API route
+
+Write the handler once as plain JavaScript, with no framework imports — then mount it under whatever server you run. It receives `{ customerId, threadId }` from the widget, fetches the user's recent Autoplay actions, and attaches them as a note on the Plain thread.
+
+<Accordion title="plain-chat-webhook.js — expand to copy">
+```js
+const CONNECTOR_URL       = process.env.CONNECTOR_URL ?? "http://localhost:8000";
+const UNKEY_KEY           = process.env.UNKEY_KEY ?? "";
+const AUTOPLAY_PRODUCT_ID = process.env.PRODUCT_ID ?? "";
+const PLAIN_API_KEY       = process.env.PLAIN_API_KEY ?? "";
+const PLAIN_API_URL       = "https://core-api.uk.plain.com/graphql/v1";
+
+async function plainRequest(query, variables) {
+  const res = await fetch(PLAIN_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${PLAIN_API_KEY}`,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  return res.json();
+}
+
+async function getPlainCustomerIdFromThread(threadId) {
+  const data = await plainRequest(
+    `query GetThread($threadId: ID!) {
+      thread(threadId: $threadId) {
+        customer { id }
+      }
+    }`,
+    { threadId }
+  );
+  return data?.data?.thread?.customer?.id ?? null;
+}
+
+
+// Call this from your route/controller with the parsed JSON body.
+export async function handlePlainChatWebhook({ customerId, threadId }) {
+  if (!customerId || !threadId) return { ok: true };
+
+  const url = `${CONNECTOR_URL}/users/${encodeURIComponent(AUTOPLAY_PRODUCT_ID)}/${encodeURIComponent(customerId)}/live-activity`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${UNKEY_KEY}` },
+  });
+
+  if (!res.ok) {
+    console.log(`[plain-chat] Autoplay fetch failed: ${res.status} for user=${customerId}`);
+    return { ok: true };
+  }
+
+  const { actions = [] } = await res.json();
+  console.log(`[plain-chat] user=${customerId} actions=${actions.length}`);
+
+  if (actions.length > 0) {
+    const plainCustomerId = await getPlainCustomerIdFromThread(threadId);
+    console.log(`[plain-chat] threadId=${threadId} plainCustomerId=${plainCustomerId ?? "null"}`);
+
+    if (plainCustomerId) {
+      const lines = actions
+        .slice(-10)
+        .reverse()
+        .map((a, i) => `${i + 1}. ${a.description}`);
+
+      const noteText = `Recent user activity (last 10 actions): ${lines.join(". ")}`;
+      console.log(`[plain-chat] writing note (${lines.length} actions): ${noteText.slice(0, 80)}…`);
+    }
+  }
+
+  return { ok: true };
+}
+```
+</Accordion>
+
+Wire `handlePlainChatWebhook` to a `POST` endpoint on your server — pass it the parsed JSON body and return its result as the JSON response. The widget below expects it at `/plain-chat-webhook`, but the path is arbitrary as long as it matches what the widget script fetches.
+
+## 💬 Add the `onNewThread` callback
+
+Add this plain `<script>` snippet to your page — no framework required. Replace `YOUR_PLAIN_APP_ID` with the `liveChatApp_...` App ID you copied in the prerequisites. The `callbacks.onNewThread` handler fires the moment a user opens a new thread — it posts the logged-in user's id and the thread id to the route you just created. It reads the user id off `USER_ID`, which your server sets before this script runs (next section).
+
+<Accordion title="plain-chat-widget.js — expand to copy">
+```js
+(function (d, script) {
+  script = d.createElement('script');
+  script.async = false;
+  script.onload = function () {
+    Plain.init({
+      appId: 'YOUR_PLAIN_APP_ID', // paste your liveChatApp_... ID here
+      callbacks: {
+        onNewThread: async function (data) {
+          var uid = USER_ID || null;
+          if (!uid) return;
+          await fetch('/plain-chat-webhook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerId: uid,
+              threadId: data.threadId,
+            }),
+          });
+        },
+      },
+    });
+  };
+  script.src = 'https://chat.cdn-plain.com/index.js';
+  d.getElementsByTagName('head')[0].appendChild(script);
+})(document);
+```
+</Accordion>
+
+Serve this file as a static script (e.g. `/public/plain-chat-widget.js`) and load it with a plain `<script src="/plain-chat-widget.js" defer></script>` tag, right after the snippet that sets `USER_ID` below.
+
+## 🔐 Wire up identity — set `USER_ID` from your server
+
+Whatever server-renders the page must set `USER_ID` **before** `plain-chat-widget.js` loads, using the logged-in user's Autoplay id. Always JSON-encode the value when inlining it into a `<script>` tag — it safely escapes special characters and inlines `null` when no user is logged in, so the widget's `if (!uid) return` guard skips the fetch.
+
+```html
+<script>USER_ID = /* JSON-encode the logged-in user's id, or null */;</script>
+<script src="/plain-chat-widget.js" defer></script>
+```
+
+Resolve the user id from your own auth/session layer and JSON-encode it with whatever your server language provides — the only requirement is that this snippet renders before the widget script tag.
+
+<Warning>
+  **Use the same ID you track events with in Autoplay.** If your Autoplay activity is stored under a numeric database user ID, pass that — not email or display name. A mismatch returns an empty action list and no note is created.
+</Warning>
+
+<Note>
+  **How the pieces fit:** your app identifies the user in Autoplay → Autoplay stores activity under that id → your server sets `USER_ID` to that same id before the widget script loads → the widget sends it to `/plain-chat-webhook` → the handler fetches activity for that exact id → the note appears on the thread.
+</Note>
+
+## ✅ Test the full loop
+
+1. Set all four environment variables and restart your server
+2. Log in to your app as a test user
+3. Interact with your app for a few minutes — visit pages, click buttons — so Autoplay has recorded actions for this user
+4. Open the Plain chat widget and send a first message (this creates a new thread)
+5. Open the thread in your Plain inbox — you should see a note **"Recent user activity (last 10 actions)"** automatically attached
+
+- **Note never appears?** Check your server logs — the route logs the action count, resolved Plain customer ID, and note text. If `actions.length` is `0`, the user has no Autoplay activity yet — interact with the app first, then open a fresh thread.
+- **`onNewThread` not firing?** Open the browser console and confirm `Plain.init()` ran without errors.
+- **`401 Unauthorized`?** Re-copy `PLAIN_API_KEY` from Plain → Settings → Machine users.
+
+<Note>
+  **"No note" = identity mismatch.** Confirm the **same** value in all three:
+
+  1. the id your activity source identifies the user with,
+  2. the `userId` your server resolves and sets on `USER_ID`,
+  3. the `customerId` arriving at `/plain-chat-webhook`.
+
+  If they don't match, activity is stored under one key and fetched with another — the lookup returns empty and no note is written.
+</Note>
+
+### Why `upsertCustomTimelineEntry` no longer works
+
+Older Plain SDK versions (≤ 2.x) and some Plain support documentation reference a mutation called `upsertCustomTimelineEntry`. **This mutation has been permanently removed from Plain's GraphQL API server-side** — it does not appear in the schema returned by any key type (Machine User or workspace admin).
+
+Confirmed via live schema introspection (June 2026):
+```
+"Cannot query field \"upsertCustomTimelineEntry\" on type \"Mutation\""
+"Unknown type \"UpsertCustomTimelineEntryInput\""
+```
+
+Downgrading `@team-plain/typescript-sdk` to v2.x makes the method reappear in your IDE but the call fails at runtime with the same error — the SDK is just a wrapper around the same GraphQL endpoint.
+
+Plain split `upsertCustomTimelineEntry` into two replacements in SDK v3.0.0:
+
+| Mutation | Scope | Plan required |
+|---|---|---|
+| `createCustomerEvent` | Customer timeline (Ari reads this) | Events API — paid plan |
+| `createThreadEvent` | Thread timeline (Ari reads this) | Events API — paid plan |
+
+### Implementation (Events API plan required)
+
+<Warning>
+  **This requires Plain's Events API**, which is gated behind a paid plan. The `createCustomerEvent` and `createThreadEvent` mutations return `FORBIDDEN` on the Foundation ($35/month) plan even with correct permissions set on the Machine User. Verify your plan at [plain.com/pricing](https://plain.com/pricing) before implementing.
+</Warning>
+
+When the Events API is unlocked on your plan,  with `createCustomerEvent` for Ari context. Run both in parallel so human agents see the note too:
+
+```ts
+async function createCustomerEvent(email: string, text: string) {
+  const truncated = text.length > 1900 ? text.slice(0, 1900) + "…" : text;
+  return plainRequest(
+    `mutation CreateCustomerEvent($input: CreateCustomerEventInput!) {
+      createCustomerEvent(input: $input) {
+        customerEvent { id }
+        error { message type }
+      }
+    }`,
+    {
+      input: {
+        customerIdentifier: { emailAddress: email },
+        title: "Recent User Activity",
+        components: [{ componentPlainText: { plainText: truncated } }],
+      },
+    }
+  );
+}
+
+async function createThreadEvent(threadId: string, text: string) {
+  const truncated = text.length > 1900 ? text.slice(0, 1900) + "…" : text;
+  return plainRequest(
+    `mutation CreateThreadEvent($input: CreateThreadEventInput!) {
+      createThreadEvent(input: $input) {
+        threadEvent { id }
+        error { message type }
+      }
+    }`,
+    {
+      input: {
+        threadId,
+        title: "Recent User Activity",
+        components: [{ componentPlainText: { plainText: truncated } }],
+      },
+    }
+  );
+}
+
+// In your POST handler — run all three in parallel:
+await Promise.all([
+  createCustomerEvent(userEmail, noteText),   // Ari reads this (paid plan)
+  createThreadEvent(threadId, noteText),       // Ari reads this (paid plan)
+]);
+```
+
+<Info>
+  **Timing matters.** The event must be written to the thread **before** Ari is assigned. In the Plain workflow, the order must be: HTTP request step (your route) → Assign to AI agent. If Ari is assigned first, it won't see the event.
+</Info>
+
+### Machine User permissions required
+
+For `createCustomerEvent` and `createThreadEvent`, grant these permissions to the Machine User in Plain → Settings → Machine users:
+
+- `customerEvent:create`
+- `threadEvent:create`
+- `thread:read` (to look up the customer from the thread ID)
+
+Without `thread:read` you'll get `FORBIDDEN: missing thread:read`. Without `customerEvent:create` / `threadEvent:create` you'll get `FORBIDDEN: missing [permission]`. Once permissions are correct but plan is insufficient, you get `FORBIDDEN: Events APIs are not available on your current billing plan`.
+
+---
+
+
+Once notes are appearing on Plain threads automatically, jump into our [Discord](https://discord.gg/jCbR2tQA5) — we'll confirm the enrichment is pulling activity cleanly and help you tune what gets surfaced to your support team.
+
+Once Plain is enriching threads automatically, you're done with Step 1. Next: **[Step 2 — Define proactive triggers](/recipes/plain-tutorial/step-2-define-proactive-triggers)**.

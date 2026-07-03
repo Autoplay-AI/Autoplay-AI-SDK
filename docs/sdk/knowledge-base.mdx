@@ -1,7 +1,7 @@
 ---
 title: Knowledge base
 sidebarTitle: "📚 Knowledge base"
-description: Query your product's golden paths from Autoplay's vector database to give your chatbot structured adoption context.
+description: Query your product's golden paths from Autoplay's vector database to give your support AI agent structured adoption context.
 tag: Coming soon
 ---
 
@@ -17,15 +17,15 @@ When you onboard with Autoplay, your product's **golden paths** are indexed in A
 
 A golden path is a curated sequence of steps that represents the ideal journey a user takes to successfully adopt a feature — for example, the optimal path from sign-up to first meaningful action in your product.
 
-Your chatbot can query this knowledge base at inference time to retrieve the most relevant adoption guidance for any question a user asks.
+Your support AI agent can query this knowledge base at inference time to retrieve the most relevant adoption guidance for any question a user asks.
 
 ---
 
 ## Why it matters
 
-Real-time session data (delivered via the SDK) tells your chatbot **what a user is doing right now**. The knowledge base tells it **what they should be doing** — and how to bridge the gap.
+Real-time session data (delivered via the SDK) tells your support AI agent **what a user is doing right now**. The knowledge base tells it **what they should be doing** — and how to bridge the gap.
 
-Together, they give the chatbot two sources of structured context:
+Together, they give the support AI agent two sources of structured context:
 
 | Source | What it contains | How it's delivered |
 |---|---|---|
@@ -39,13 +39,13 @@ Together, they give the chatbot two sources of structured context:
 ```
 User asks: "How do I set up my first dashboard?"
          ↓
-Chatbot retrieves two sources in parallel:
+Support AI agent retrieves two sources in parallel:
   1. Real-time session context  ←  EventBuffer / RedisEventBuffer
   2. Relevant golden paths      ←  GET /knowledge-base/{product_id}?query=...
          ↓
 Both are injected into the LLM context window
          ↓
-Chatbot answers with structured, product-specific guidance
+Support AI agent answers with structured, product-specific guidance
 ```
 
 ---
@@ -84,7 +84,7 @@ Authorization: Bearer <api_key>
 
 ---
 
-## Chatbot integration example
+## Support AI agent integration example
 
 Inject the knowledge base results alongside the live session context in your system prompt:
 
