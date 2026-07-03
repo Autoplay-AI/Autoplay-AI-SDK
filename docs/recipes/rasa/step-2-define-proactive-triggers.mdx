@@ -1,7 +1,7 @@
 ---
 title: "Step 2 — Define proactive triggers"
 sidebarTitle: "Step 2 — Define proactive triggers"
-description: "Make your Rasa copilot proactive — detect when a user is using the slow path of a workflow and surface a toast with two CTAs: 'Show me' (visual tour via Usertour) and 'Open chat' (proactive bot message with an LLM-grounded follow-up)."
+description: "Make your Rasa support AI agent proactive — detect when a user is using the slow path of a workflow and surface a toast with two CTAs: 'Show me' (visual tour via Usertour) and 'Open chat' (proactive bot message with an LLM-grounded follow-up)."
 ---
 
 ### End-to-end walkthrough
@@ -1577,7 +1577,7 @@ Same restart rules as Step 1: `docker compose restart action-server` after `acti
 
 ## What you've built
 
-You now have a Rasa chatbot that goes proactive *and* visual — driven by the SDK's trigger registry, gated by `agent_state.v2.SessionState`, surfaced through a host-app toast that gives the user a real choice between *show me* and *tell me*.
+You now have a Rasa support AI agent that goes proactive *and* visual — driven by the SDK's trigger registry, gated by `agent_state.v2.SessionState`, surfaced through a host-app toast that gives the user a real choice between *show me* and *tell me*.
 
 A few things worth noting:
 
