@@ -6,6 +6,138 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) st
 
 ---
 
+## [0.11.0] — 2026-07-02
+
+### Changed
+
+- **`onboard_product` / `onboard_product_sync` now register against the AWS activity connector.** `DEFAULT_CONNECTOR_URL` is `https://connector.autoplay.ai` (was the legacy Render connector). The `POST /products` request body now carries `provider` + optional `ingest_secret` + `force` (replacing `webhook_secret` / `integration_type=event_stream` / `force_reregister`), and the response is read from `credentials.{ingest_secret, mcp_key}` + `setup.{ingest_url, ingest_auth, mcp_url, mcp_auth}`.
+- `OnboardProductResult` reshaped to the AWS model: `product_id`, `provider`, `ingest_url`, `ingest_secret`, `ingest_auth`, `mcp_url`, `mcp_key`, `mcp_auth`, `connector_response`.
+
+### Added
+
+- `build_aws_register_payload` and `post_aws_register_product` in `autoplay_sdk.admin.connector_registration_http`.
+
+### Removed
+
+- Render/SSE-shaped fields from `OnboardProductResult`: `webhook_url`, `stream_url`, `webhook_secret`, `unkey_key`, `unkey_key_id`, `integration_type`, `render_sync_performed`.
+- `onboard_product` keyword args `webhook_secret` and `force_reregister` (replaced by `ingest_secret` and `force`); `user_activity_provider` is now required.
+
+### Breaking changes
+
+`onboard_product` targets a different connector with a different request/response contract. **Existing Render customers are unaffected** — they stay on their pinned SDK version and the legacy connector; only new onboarding is routed to AWS. If you call `onboard_product`, use `result.ingest_url` + `result.ingest_secret` to configure your provider's webhook, and `result.mcp_url` + `result.mcp_key` for the agent's MCP read, instead of the old `webhook_url` / `stream_url` / `unkey_key`. The legacy Render onboarding flow remains available in `autoplay_sdk.admin.product_onboarding` / `autoplay_sdk.admin.onboard` for internal Render tooling.
+
+---
+
+## [0.10.0] — 2026-06-21
+
+### Added
+
+- **`autoplay_sdk.storage`** — a new, self-contained subsystem for cross-session persistence of `UserAdoptionState` plus frozen per-session snapshots, behind a pluggable adapter interface.
+  - **`AutoplayStorageAdapter`** — a `@runtime_checkable Protocol` (mirrors `BufferBackend`) with async `save_user_state` / `get_user_state` / `save_session_snapshot` / `get_session_snapshot`. The wire boundary is plain JSON dicts, so custom adapters stay decoupled from the SDK's model classes.
+  - **`StorageManager`** — fans writes out to every adapter (one failing sink never blocks the others) and reads from the first adapter that returns a value (list the readable primary first).
+  - **`RedisStorageAdapter(redis_url=...)`** — primary read+write adapter; owns a lazy `redis.asyncio` pool with graceful degradation (mirrors `RedisSessionStateStore`), `SET NX` write-once for snapshots. Needs the `redis` extra.
+  - **`InMemoryStorageAdapter`** — tests/dev adapter with write-once snapshot semantics.
+  - **Product-scoped key builders** — `user_state_key(product_id, user_id)` and `session_key(product_id, user_id, session_id)`.
+  - **Session lifecycle helpers** — `init_user_state`, `on_session_start`, `on_session_end`, `build_agent_context`. `on_session_end` resolves the onboarding summary via an injected `summarizer` callable or a pre-computed `summary=` — **the SDK never calls an LLM**.
+- **Write-only analytics sinks** — `AmplitudeStorageAdapter` / `PostHogStorageAdapter` (deep-import from `autoplay_sdk.storage.adapters.{amplitude,posthog}`), gated behind a new `autoplay-sdk[analytics]` extra. They `save_*` (with optional `property_prefix=`) and return `None` from `get_*`; failures are best-effort (logged, never raised).
+- **`SessionSnapshot`** — a new frozen, write-once per-session model with `to_dict` / `from_dict` (defensive) and a `SessionSnapshot.from_adoption_state(...)` helper that builds the snapshot from a live `UserAdoptionState` (reusing the model's derived helpers — no hand-rolled mapping).
+- **`SessionIndexEntry`** + a bounded sessions index on `UserAdoptionState` — `sessions_count` (monotonic lifetime total), `current_session_id`, and `sessions_index` (capped to the most recent 50 via `record_session`), plus `set_current_session`.
+- **`OnboardingState.summary`** and **`OnboardingState.completion_rate`** — cross-session briefing + cached completion snapshot.
+- **`ONBOARDING_SUMMARY_PROMPT`** (v0.1, plain-text output) in `autoplay_sdk.prompts` and a pure **`build_onboarding_summary_input(snapshot)`** builder in `autoplay_sdk.user_adoption_state`.
+- **Exports** — storage symbols re-exported from top-level `autoplay_sdk`; `SessionSnapshot`, `SessionIndexEntry`, `COMPLETION_RATE_DENOMINATOR_*`, and `build_onboarding_summary_input` from `autoplay_sdk.user_adoption_state`. Sink adapters stay deep-import only.
+- **`autoplay_sdk.observability`** — a pluggable error-reporter seam (`set_error_reporter` / `report_error`) so a host application can forward SDK-internal failures to its own sink (Slack, Bugsnag, logs, …). The SDK calls `report_error` at its swallow points — RAG embed/upsert, Redis state/snapshot writes, and event-buffer overflow drops — so those otherwise-silent failures become observable. Best-effort and a no-op until a reporter is registered; reporting never raises into SDK logic.
+
+### Documentation
+
+- New page [State storage & session capture](/sdk/storage) covering the three-step integration flow, the adapter/manager model, Redis key schema, write-only sinks, and the injected-summarizer pattern.
+- [User adoption state](/sdk/user-adoption-state) persistence note updated to point at the new storage adapters.
+
+### Breaking changes
+
+None — purely additive. The new `UserAdoptionState` fields (`sessions`, `onboarding.summary`, `onboarding.completion_rate`) read with safe defaults, so existing snapshots load unchanged and the `_v` snapshot version is unchanged.
+
+---
+
+## [0.9.2] — 2026-06-21
+
+### Added
+
+- **Onboarding workflow steps** — each `OnboardingWorkflow` can now declare an ordered list of **`WorkflowStep`**s (`step_id`, `name`, `description`, `required`), configured per product under `integration_config.onboarding_workflows[].steps`. Steps are *context/signal* for the LLM (what "done" looks like) and for explainability — they are **not** a checklist gate. `required` is a hint, not a hard gate. Helper `OnboardingWorkflow.required_step_ids`.
+- **`StepProgress`** — the agent's per-step belief (`step_id`, `status` reusing `WorkflowStatus`, `confidence`, `evidence`, `completed_at`, `last_evaluated_at`), a deliberate parallel to `WorkflowProgress` one level down.
+- **`WorkflowProgress.steps`** — a `dict[str, StepProgress]` map of per-step beliefs, with a `completed_step_ids` helper and an `upsert_step_progress(step_id, *, status, confidence, evidence="", now=None)` mutation (write-once `completed_at`, mirroring `upsert_workflow_progress`).
+- **`is_plan_complete(plan, workflow_progress)`** — thin convenience wrapper over `split_workflows` (`True` when no outstanding workflows; an empty plan is never complete). Completion stays the LLM's call via `WorkflowProgress.status` — steps never gate it.
+- **`step_completion_ratio(workflow, wp)`** — fraction of a workflow's declared steps the LLM believes are `completed`. For display/telemetry only; never used to decide completion.
+- **Exports** — `WorkflowStep`, `StepProgress`, `is_plan_complete`, `step_completion_ratio` added to `autoplay_sdk.user_adoption_state`.
+
+### Documentation
+
+- [User adoption state](/sdk/user-adoption-state) updated with the steps data model, the product-config `steps` schema, and the completion semantics (LLM-authoritative; steps are signal, not a gate).
+
+### Breaking changes
+
+None — purely additive. `steps` is read with safe defaults, so existing snapshots (no `steps` key) load unchanged and the `_v` snapshot version is unchanged.
+
+---
+
+## [0.9.1] — 2026-06-16
+
+### Added
+
+- **Amplitude activity provider support** — adds the SDK provider wiring and
+  activity skill needed to configure Amplitude as an event source.
+
+### Documentation
+
+- Expanded the setup and quickstart docs for activity providers, agent skills,
+  MCP server setup, and Intercom tutorial assets.
+
+---
+
+## [0.9.0] — 2026-06-12
+
+### Added
+
+- **`PostHogProvider.create_destination()` + `.verify()`** — deterministic,
+  idempotent creation (and verification) of the PostHog → Autoplay "Autoplay
+  Event Stream" hog_function destination, built on the provider abstraction.
+  Powers the one-command `autoplay-setup` onboarding flow (plumbing runs as
+  tested code, not via an agent).
+
+### Changed
+
+- **`activity-posthog` skill is now the single source** (modular: `SKILL.md` +
+  `references/` + `examples/`), replacing the forked `posthog-setup` skill the
+  setup bundle used to ship. Scoped to *frontend code only* (the CLI now owns
+  destination create/verify and the end-to-end event check). Identify uses the
+  app's **stable user id** on login (never the anonymous id) + `reset()` on
+  logout.
+
+---
+
+## [0.8.0] — 2026-06-09
+
+### Added
+
+- **`autoplay_sdk.user_adoption_state`** — a new per-user adoption-state module, orthogonal to the per-session `SessionState` FSM and keyed by `user_id`. Tracks where a user is in their product lifecycle and how proficient they are, decided by an LLM judge and fed back into chat / proactive prompts.
+- **Enums** — `JourneyState` (`onboarding` / `onboarded`), `MasteryLevel` (`novice` → `beginner` → `intermediate` → `proficient` → `power_user`), and `WorkflowStatus` (`not_started` / `in_progress` / `completed`).
+- **`UserAdoptionState`** — top-level per-user record: a fully dynamic, schema-less `metadata` bag (with a `role` convenience property), `journey_state`, `mastery`, `discovered_features`, and an `onboarding` sub-object. Mandatory non-empty `user_id` (raises otherwise, like `SessionState`); `to_dict()` / `from_dict()` with `_v` snapshot versioning and defensive enum coercion; transition helpers (`set_journey_state`, `set_mastery`, `record_discovered_features`, `mark_welcomed`, `mark_judged`) that log structured events; and `to_prompt_block()` for compact prompt injection.
+- **`Mastery`** (0-10 rating, clamped, + `MasteryLevel` + reason), **`WorkflowProgress`** (per-flow `status` / `confidence` / `evidence` / timestamps — the agent's evolving belief from the live activity stream), **`StepInAssessment`** (latest "should I step in?" decision + timing rationale), and **`OnboardingState`** (welcome lifecycle, `workflow_progress` map, derived `completed` / `in_progress` / `outstanding` helpers, `upsert_workflow_progress`, `record_step_in`).
+- **`ExplorationGateConfig`** + **`evaluate_hard_gate()`** — pure, side-effect-free "let the user explore first" floor (role allowlist, min time on app, min distinct features, welcome cooldown, nudge cap). Returns `(passed, reason)`; the LLM owns timing on top of the floor.
+- **`OnboardingWorkflow`** / **`OnboardingPlan`** (parsed from config, role-filterable via `for_role`) + pure **`split_workflows()`** → `(completed, in_progress, outstanding)`.
+- **Query → tour matching primitive** — **`build_tour_match_input()`** and **`parse_tour_match_output()`** (validates ids against a role-filtered catalog, safe fallback on malformed JSON), plus **`TourCatalogEntry`** and **`TourMatchResult`**.
+- **Versioned prompts** in `autoplay_sdk.prompts` (each a `dict` with `name` / `description` / `version` / `content`, JSON-object output): **`ADOPTION_STATE_JUDGE_PROMPT`**, **`TOUR_MATCH_PROMPT`**, **`ONBOARDING_WELCOME_PROMPT`** (all v0.1).
+- **Top-level exports** from `autoplay_sdk`: `user_adoption_state`, `UserAdoptionState`, `JourneyState`, `MasteryLevel`, `WorkflowStatus`.
+
+### Documentation
+
+- New [User adoption state](/sdk/user-adoption-state) reference page covering the two axes (journey vs mastery), the full state model, the explore-first gate, onboarding plans, and the query → tour matcher. The SDK ships pure logic + prompt definitions only; persistence and `acall_llm` runners are integration-owned.
+
+### Breaking changes
+
+None — the module and exports are purely additive.
+
+---
+
 ## [0.7.9] — 2026-05-25
 
 ### Breaking changes
