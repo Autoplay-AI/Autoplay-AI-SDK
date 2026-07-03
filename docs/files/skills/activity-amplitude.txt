@@ -1,0 +1,279 @@
+---
+name: activity-amplitude
+description: >-
+  Configures Amplitude as the event source for Autoplay using the @amplitude/unified SDK.
+  Installs the SDK, initializes it with autocapture and session replay, calls
+  amplitude.setUserId() and amplitude.identify() with product_id on login, creates a
+  server-side proxy for the identify call so credentials stay server-side, runs the
+  Autoplay registration script to get ingest/stream URLs, and guides the customer through
+  creating an Amplitude HTTP Event Streaming destination with the Freemarker template.
+  Also patches Content-Security-Policy headers if the project uses them. Use when the
+  customer mentions Amplitude, @amplitude/unified, amplitude.init, or asks how to capture
+  user events for Autoplay using Amplitude.
+disable-model-invocation: true
+---
+
+# Autoplay × Amplitude Integration Guide
+
+This guide is structured for an AI agent. Steps marked **🤖 AGENT** are handled autonomously. Steps marked **🧑 HUMAN** require customer input — each includes an Arcade walkthrough link.
+
+---
+
+## Step 1 — Understand the project
+
+**🤖 AGENT**
+
+Before writing any code, read the project to determine:
+
+- **Frontend framework** — Next.js, Nuxt, Angular, Vue, SvelteKit, plain React, etc.
+- **Auth system** — what library handles login/logout and how to get the current user and session ID
+- **Env var conventions** — how the project names and exposes environment variables (e.g. `VITE_`, `NEXT_PUBLIC_`, `NG_APP_`, no prefix, etc.)
+- **App entry point** — where to initialize SDKs (e.g. `main.ts`, `app.module.ts`, `_app.tsx`, `main.js`)
+- **Package manager** — npm, yarn, pnpm, bun
+
+Do not write any code until this is understood. The implementation in later steps must follow the patterns already established in the project.
+
+---
+
+## Step 2 — Install the Amplitude SDK
+
+**🤖 AGENT**
+
+Check if `@amplitude/unified` is already in the project's dependencies. If not, install it using the project's package manager:
+
+```
+npm install @amplitude/unified
+# or yarn / pnpm / bun equivalent
+```
+
+---
+
+## Step 3 — Get Amplitude credentials
+
+### 🧑 HUMAN — Amplitude API Key
+
+Ask the customer to open their Amplitude project and copy the API Key.
+
+> 📺 [How to find your Amplitude API Key](https://app.arcade.software/share/ycesTzu0o9kI2N56wytr)
+
+### 🧑 HUMAN — Amplitude Project ID
+
+Ask the customer to go to **Settings → Projects → [their project]** and copy the numeric Project ID.
+
+> 📺 [How to find your Amplitude Project ID](https://app.arcade.software/share/gbMSMIenMpBYhCWbLFrh)
+
+---
+
+## Step 4 — Register with Autoplay
+
+**🤖 AGENT**
+
+Once the Project ID is known, run the registration script. Create a temporary virtual environment if needed:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install autoplay-sdk
+```
+
+```python
+import asyncio
+from autoplay_sdk.admin import onboard_product
+from autoplay_sdk.providers import AmplitudeProvider
+
+async def main():
+    result = await onboard_product(
+        "<AMPLITUDE_PROJECT_ID>",
+        contact_email="<customer email>",
+        user_activity_provider=AmplitudeProvider(),
+        print_operator_summary=True,
+    )
+
+asyncio.run(main())
+```
+
+The script prints three values. Store them — they are needed in Steps 5 and 6:
+
+| Key | Used for |
+|-----|----------|
+| `amplitude_ingest_url` | Amplitude dashboard HTTP destination URL |
+| `stream_url` | Identify endpoint called from the app |
+| `unkey_key` | Bearer token for both |
+
+Add these to the project's env file using whatever naming convention the project already uses. Also add the Amplitude API Key and Project ID from Step 3. The values that must be accessible client-side (API Key, Product ID) should use the framework's public env prefix. The rest can stay server-side.
+
+---
+
+## Step 5 — Wire Amplitude into the app
+
+**🤖 AGENT**
+
+Based on what was learned in Step 1, implement the following using the project's existing patterns:
+
+### Initialize Amplitude at app startup
+
+Call `amplitude.initAll()` once, as early as possible in the app lifecycle — at the framework's equivalent of app bootstrap:
+
+```js
+import * as amplitude from '@amplitude/unified';
+
+amplitude.initAll('<AMPLITUDE_API_KEY>', {
+  analytics: { autocapture: true },
+  sessionReplay: { sampleRate: 1 },
+});
+```
+
+`autocapture: true` is required — it captures page views, clicks, and form interactions automatically.
+
+### Identify the user on login
+
+Find where the project handles successful login and add the following immediately after the user object is available. Use whatever the project's auth system provides for user ID, email, and name:
+
+```js
+amplitude.setUserId(<user.id>);
+
+const identifyObj = new amplitude.Identify();
+identifyObj.set('product_id', '<AUTOPLAY_PRODUCT_ID>');
+identifyObj.set('email', <user.email>);
+identifyObj.set('name', <user.name or display name>);
+amplitude.identify(identifyObj);
+```
+
+Then link the Amplitude session to Autoplay. The `session_id` comes from Amplitude, not the auth system:
+
+```js
+const sessionId = amplitude.getSessionId();
+if (sessionId) {
+  // POST to your backend proxy (see below) — do not call stream_url directly from the client
+  fetch('<your identify proxy endpoint>', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: <user.email>,
+      session_id: String(sessionId),
+      product_id: '<AUTOPLAY_PRODUCT_ID>',
+    }),
+  });
+}
+```
+
+### Create a server-side proxy for the identify call
+
+The `stream_url` and `unkey_key` should not be exposed to the client. Create a backend endpoint using whatever the project's server-side routing supports (Next.js route handler, Express endpoint, Nuxt server route, Angular API proxy, etc.) that forwards the identify payload:
+
+```
+POST <stream_url>/identify
+Content-Type: application/json
+
+{ email, session_id, product_id }
+```
+
+No auth header is needed for the identify call.
+
+### Reset on logout
+
+Find where the project handles logout and call:
+
+```js
+amplitude.reset();
+```
+
+---
+
+## Step 6 — Create the Amplitude Event Streaming destination
+
+### 🧑 HUMAN
+
+The agent cannot access the Amplitude dashboard. Ask the customer to:
+
+1. Go to **Data → Destinations → Add Destination → HTTP → Event Streaming**
+2. Configure the destination:
+
+| Field | Value |
+|-------|-------|
+| Endpoint URL | `amplitude_ingest_url` from Step 4 |
+| Authentication | Bearer Token |
+| Token | `unkey_key` from Step 4 |
+| Events to send | All events |
+
+3. In the **Event Body** section, paste this Freemarker template exactly:
+
+```
+<#setting number_format="0.####">
+<#assign et = input.event_type!''>
+<#assign ep = input.event_properties!{}>
+<#assign up = input.user_properties!{}>
+
+{
+  "events": [
+    {
+      "event_type": "<#if et?starts_with('Viewed') || et == '[Amplitude] Page Viewed' || et == 'Page Viewed'>$pageview<#elseif et == '[Amplitude] Element Clicked' || et == '[Amplitude] Element Changed' || et?starts_with('Form')>$autocapture<#else>${et}</#if>",
+      "user_id": "${input.user_id!''}",
+      "device_id": "${input.device_id!''}",
+      "session_id": ${input.session_id!0},
+      "time": ${input.time!0},
+      "user_properties": {
+        <#list up?keys as k>"${k}": "${up[k]}"<#sep>, </#sep></#list>
+      },
+      "event_properties": {
+        "[Amplitude] Page URL": "${ep['Page URL']!ep['Page Location']!ep['[Amplitude] Page URL']!ep['[Amplitude] Page Location']!''}",
+        "[Amplitude] Page Title": "${ep['Page Title']!ep['[Amplitude] Page Title']!''}",
+        "$event_type": "<#if et == '[Amplitude] Element Changed'>change<#elseif et?starts_with('Form Submitted')>submit<#elseif et?starts_with('Form Started')>focus<#else>click</#if>",
+        "$current_url": "${ep['Page URL']!ep['Page Location']!ep['[Amplitude] Page URL']!ep['[Amplitude] Page Location']!''}",
+        "$button_text": "${ep['[Amplitude] Element Text']!ep['Element Text']!ep['Page Title']!''}",
+        "$elements_chain": "${ep['[Amplitude] Element Path']!ep['[Amplitude] Element Hierarchy']!ep['Element Path']!''}",
+        "$element_id": "${ep['[Amplitude] Element ID']!ep['Element ID']!''}",
+        "$element_tag": "${ep['[Amplitude] Element Tag']!ep['Element Tag']!''}"
+      }
+    }
+  ]
+}
+```
+
+> 📺 [Walkthrough: Set up Amplitude Event Streaming destination](https://app.arcade.software/share/NeCcl6dtC7DQdjOjue28)
+
+---
+
+## Step 7 — Verify
+
+**🤖 AGENT** (customer triggers events)
+
+Ask the customer to log in and navigate around their app. Then stream live events to confirm data is flowing:
+
+```bash
+curl -N "<stream_url>" \
+  -H "Authorization: Bearer <unkey_key>"
+```
+
+Session activity should appear within seconds.
+
+---
+
+## Content Security Policy (CSP)
+
+**🤖 AGENT**
+
+If the project sets a `Content-Security-Policy` header (common in Next.js via `next.config.ts`, or via middleware), the Amplitude SDK will be blocked unless the following three directives are updated:
+
+| Directive | What to add | Why |
+|-----------|-------------|-----|
+| `connect-src` | `https://*.amplitude.com` | SDK fetches remote config, sends events, and streams session replay data to Amplitude subdomains |
+| `script-src` | `https://cdn.amplitude.com` | SDK dynamically loads the engagement/split script from the Amplitude CDN |
+| `worker-src` | `'self' blob:` | SDK spawns a Web Worker from a blob URL for background event compression |
+
+If `worker-src` is not explicitly set, browsers fall back to `script-src`, which blocks blob workers.
+
+The SDK degrades gracefully when workers are blocked (falls back to main-thread sending), but the CSP violations will spam the console and session replay may not function correctly.
+
+---
+
+## Common mistakes
+
+| Problem | Fix |
+|---------|-----|
+| `401` errors on destination | Bearer token must be `Bearer <unkey_key>` — no extra spaces or quotes |
+| `404` errors | Project ID in the URL must exactly match what was used at registration |
+| Missing clicks / form events | Event Body Freemarker template must be present |
+| `session_id = -1` | Normal during Amplitude init — resolves within seconds |
+| No data in Autoplay | Confirm `autocapture: true` is set in `initAll` |
+| Using wrong ingest URL | Use `amplitude_ingest_url` for the destination, not `webhook_url` |
+| CSP errors in console | Add `https://*.amplitude.com` to `connect-src`, `https://cdn.amplitude.com` to `script-src`, and `'self' blob:` to `worker-src` |
