@@ -338,7 +338,7 @@ agent_writer = AsyncAgentContextWriter(
 
 ### 2d. Track which sessions belong to which user
 
-`AsyncContextStore` keys actions by `session_id`. Chat copilots start from `user_id` (your auth ID, surfaced via the widget's `customData.userId`). The bridge maintains an index between them.
+`AsyncContextStore` keys actions by `session_id`. Chat support AI agents start from `user_id` (your auth ID, surfaced via the widget's `customData.userId`). The bridge maintains an index between them.
 
 <AccordionGroup>
 <Accordion title="copilot_server.py session indexing (expand to copy)">
@@ -1131,7 +1131,7 @@ After editing the bridge: re-run `uvicorn` (or use `--reload` during development
 
 ## What you've built
 
-You now have a Rasa chatbot with replies grounded in real user activity.
+You now have a Rasa support AI agent with replies grounded in real user activity.
 
 - **Reusable bridge:** switch chat frameworks later without rewriting SDK logic.
 - **Bring-your-own model:** swap LLM providers with the same async callable contract.
