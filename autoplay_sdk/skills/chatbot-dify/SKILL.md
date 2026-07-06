@@ -10,13 +10,13 @@ disable-model-invocation: true
 
 # Chatbot — Dify
 
-> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+> Read `autoplay-core` first for install and credentials (`product_id`, `mcp_url`, `mcp_key`).
 
-## ⚠️ Session scoping — critical
+## Scoping pattern for Dify
 
-Dify retrieves context via an **External Knowledge ID**. That ID must match the key you used when storing events. Pick `session_id` or `email` and use it consistently — if they don't match, retrieval returns empty or the wrong user's data.
+The Dify Agent pulls a user's live activity on demand via an **Autoplay MCP server** added under Tools → MCP — no External Knowledge Base, no session-linking. The read is keyed by `product_id` + `user_id` only.
 
-See the full tutorial for step-by-step setup including the External Knowledge API endpoint, retrieval handler, and proactive trigger scoping.
+Wire the current user's stable id as a Dify input variable (`{{user_id}}`) referenced in the agent instructions, and pass it in `inputs.user_id` on every Dify API call — it must exactly equal the id your activity source identifies the user with. See the full tutorial for the MCP server setup and identity wiring.
 
 ## Reference
 
