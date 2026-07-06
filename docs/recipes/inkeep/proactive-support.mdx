@@ -24,7 +24,8 @@ The AI never starts cold. It knows what the user was doing before they even type
 User actions (clicks, page views, errors)
         │
         ▼
-   FastAPI bridge  ──  Autoplay SDK pipeline
+   FastAPI bridge  ──  httpx pull from the Autoplay connector
+        │              (stateless REST read, keyed by user_id)
         │
         │  ≥ 3 repetitive actions without completion?
         ▼
@@ -34,10 +35,10 @@ User actions (clicks, page views, errors)
    ▼                         ▼
 Show me                  Open chat
 (in-app guided tour)     (InkeepEmbeddedChat +
-                          session context as introMessage)
+                          user context as introMessage)
 ```
 
-The bridge owns all trigger and context logic. Inkeep stays a clean conversational layer — it receives context, not raw events.
+The bridge owns all trigger and context logic. Inkeep stays a clean conversational layer — it receives context, not raw events. The ingestion half of this diagram is a stateless pull: the bridge asks the connector for a user's recent activity exactly when it needs it, rather than holding a stream connection open. The "SSE event → proactive popup" half is your own app's internal channel for pushing the toast to the frontend — unrelated to how Autoplay delivers activity, and unchanged here.
 
 ## Get started
 
@@ -49,7 +50,7 @@ This integration is covered in two focused steps:
     icon="plug"
     href="./step-1-connect-real-time-events"
   >
-    Build the FastAPI bridge, subscribe to Autoplay SDK events, run the Inkeep agents framework in Docker, and embed `InkeepEmbeddedChat` in your frontend. **~45 min.**
+    Build the FastAPI bridge, pull live activity from the Autoplay connector on demand, run the Inkeep agents framework in Docker, and embed `InkeepEmbeddedChat` in your frontend. **~45 min.**
   </Card>
   <Card
     title="Step 2 — Define proactive triggers"

@@ -11,9 +11,15 @@ disable-model-invocation: true
 
 # Chatbot — Intercom
 
-> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+> Read `autoplay-core` first for install and credentials (`product_id`, `mcp_url`, `mcp_key`).
 
-## Scoping pattern for Intercom
+<Warning>
+**Reactive Q&A now uses a different, simpler path.** The current [Intercom tutorial](https://developers.autoplay.ai/recipes/intercom-tutorial) has Fin pull a user's live activity on demand via the Autoplay **MCP server** (`get_live_user_activity`) with Messenger JWT identity — no webhook, no `BaseChatbotWriter`, no admin notes, no session-linking needed for that path. If the user just wants Fin to answer questions with real-time context, point them at that tutorial instead of this skill.
+
+**This skill covers proactive quick-replies** — Autoplay autonomously sending a Messenger quick-reply chip (and, optionally, admin notes) without Fin deciding to call a tool. As of this writing that still requires the webhook/session-linking/`BaseChatbotWriter` machinery below; it has not been ported to the MCP-pull model. If you're not building proactive outreach, skip to the full tutorial above.
+</Warning>
+
+## Scoping pattern for Intercom (proactive path only)
 
 Intercom has a persistent `conversation_id`. You **must** link it to the Autoplay `session_id` before context can be delivered.
 

@@ -1,7 +1,7 @@
 ---
 title: "Step 1 — Connect real-time events"
 sidebarTitle: "Step 1 — Connect real-time events"
-description: "Stream live user actions into an Inkeep-aware bridge using the Autoplay SDK, expose assembled context over HTTP, and wire InkeepEmbeddedChat with a pre-loaded intro message."
+description: "Pull a user's live activity from Autoplay on demand, expose it over a simple HTTP endpoint, and wire InkeepEmbeddedChat with a pre-loaded intro message."
 ---
 
 This tutorial gets you from zero to a working Inkeep AI chat with grounded context in about 45 minutes.
@@ -24,15 +24,19 @@ Inkeep's AI chat framework was built for in-product support — grounded in your
 **What you'll build:**
 
 1. Frontend autocapture with `posthog.identify()` + `posthog.register({email})`.
-2. Product onboarding with `onboard_product` for webhook + SSE credentials.
+2. Product onboarding with `onboard_product` for ingest + MCP credentials.
 3. PostHog destination forwarding events to your Autoplay connector.
-4. A small FastAPI bridge (`AsyncConnectorClient` → `AsyncContextStore` → `AsyncSessionSummarizer` → `AsyncAgentContextWriter`) with a `/context/{session_id}` endpoint.
+4. A small FastAPI bridge that pulls a user's live activity with a plain `httpx` call and exposes it over a `/context/{user_id}` endpoint.
 5. The Inkeep agents framework running locally (Docker + pnpm dev server).
 6. A project, agent, and sub-agent configured via the Inkeep management API.
-7. An `InkeepEmbeddedChat` widget that pre-loads the assembled Autoplay context as its `introMessage`.
+7. An `InkeepEmbeddedChat` widget that pre-loads the pulled Autoplay context as its `introMessage`.
 8. An end-to-end check where the chat opens knowing exactly what the user was doing.
 
-**Runtime loop:** click in app → event lands in bridge context → user opens chat → frontend fetches `/context/{session_id}` → bridge assembles prompt → `InkeepEmbeddedChat` opens with grounded `introMessage`.
+**Runtime loop:** click in app → event lands in the Autoplay connector via the PostHog webhook → user opens chat → frontend fetches `/context/{user_id}` → bridge pulls that user's live activity over REST, on demand → `InkeepEmbeddedChat` opens with grounded `introMessage`.
+
+<Note>
+  **The connector is pull-based, not push-based.** There's no persistent stream for the bridge to hold open and no local event store to keep in sync — the bridge asks "what has this user been doing?" once, synchronously, exactly when the frontend needs an `introMessage`. This is the same pattern used in the [Plain tutorial](/recipes/plain-tutorial/step-1-connect-real-time-events) and [Intercom Fin tutorial](/recipes/intercom-tutorial/step-1-connect-real-time-events) — no listener process required.
+</Note>
 
 ## 🪝 Step 1 — Capture clicks in your web app with PostHog
 
@@ -86,7 +90,7 @@ Mount this provider once at the top of your app (`app/layout.js` in Next.js). Au
 
 ## 📝 Step 2 — Register your product with Autoplay
 
-Run a one-time script to create your webhook + SSE credentials.
+Run a one-time script to create your ingest + MCP credentials.
 
 ```bash
 mkdir -p ~/nexus-cloud/bridge && cd ~/nexus-cloud/bridge
@@ -117,15 +121,17 @@ Run it once:
 uv run python register_product.py
 ```
 
-It prints four values — save them. We'll use all four:
+It prints six values — save them. We'll use all six:
 
-- `webhook_url` — PostHog will POST events here.
-- `webhook_secret` — `X-PostHog-Secret` header value for the destination.
-- `stream_url` — the SSE endpoint the bridge subscribes to.
-- `unkey_key` — Bearer token for SSE auth.
+- `product_id` — your product's id (echoes back the value you registered with).
+- `provider` — `posthog`.
+- `ingest_url` — PostHog will POST events here (e.g. `https://connector.autoplay.ai/ingest/YOUR_PRODUCT_ID`).
+- `ingest_secret` — `X-PostHog-Secret` header value for the destination.
+- `mcp_url` — always `https://mcp.autoplay.ai/mcp`.
+- `mcp_key` — Bearer token used both for the connector's REST read and for an MCP tool call, if you ever add one.
 
 <Note>
-  **`contact_email` is required.** It is stored on the connector product row so Autoplay can reach you. Re-registering the same `product_id` returns 409 unless you pass `force_reregister=True` (rotates the webhook secret).
+  **`contact_email` is required.** It is stored on the connector product row so Autoplay can reach you. Re-registering the same `product_id` returns 409 unless you pass `force=True`, in which case `ingest_secret` rotates — update the PostHog destination in Step 3 to match.
 </Note>
 
 ---
@@ -136,9 +142,9 @@ Configure a PostHog destination to forward each autocapture event to your Autopl
 
 1. PostHog UI → **Data pipeline → Destinations → + New destination → HTTP Webhook**.
 2. **Enable destination** = ON.
-3. **Webhook URL:** paste `webhook_url` from Step 2.
+3. **Webhook URL:** paste `ingest_url` from Step 2.
 4. **Method:** POST. **JSON Body:** clear it. **Headers:** remove the default `Content-Type` row (the Hog code below sets headers itself).
-5. Click **Edit source** and paste this script (replace `<WEBHOOK_SECRET>` and `<PRODUCT_ID>`).
+5. Click **Edit source** and paste this script (replace `<INGEST_SECRET>` and `<PRODUCT_ID>`).
 
 <AccordionGroup>
 <Accordion title="PostHog destination — HogQL forwarding script (expand to copy)">
@@ -199,7 +205,7 @@ if (res.status >= 400) {
 7. **Create & enable.**
 
 <Warning>
-  PostHog requires the **Webhook URL** field on the form even though the Hog source above overrides it. Paste the same `webhook_url` from Step 2 into both places.
+  PostHog requires the **Webhook URL** field on the form even though the Hog source above overrides it. Paste the same `ingest_url` from Step 2 into both places.
 </Warning>
 
 **Verify:** click around your app, then check destination **Logs** for successful POSTs.
@@ -214,273 +220,142 @@ You already created `~/nexus-cloud/bridge/` in Step 2. Add the remaining depende
 
 ```bash
 cd ~/nexus-cloud/bridge
-uv add python-dotenv fastapi 'uvicorn[standard]' openai httpx
+uv add python-dotenv fastapi 'uvicorn[standard]' httpx
 ```
 
 <Note>
-  **Why no `/reply` endpoint?** With Inkeep the LLM call happens inside the Inkeep agents framework — your bridge only needs to assemble and return the context string. This makes the bridge lighter and keeps your LLM credentials in one place (the agents framework `.env`).
+  **Why no `/reply` endpoint, and no LLM key in this bridge?** With Inkeep the LLM call happens inside the Inkeep agents framework — your bridge only needs to pull and return the context string, it never talks to an LLM itself. That's also why the old session-summarizer's `OPENAI_API_KEY` is gone: there's no rolling summary to generate anymore, just a bounded window of recent actions the connector already returns. Your LLM credentials live in exactly one place — the agents framework `.env` from Step 6.
 </Note>
 
-Create `bridge/.env` with two of the four credentials returned by `onboard_product` plus your OpenAI key for the session summarizer. Map them as follows:
+Create `bridge/.env` with three of the six credentials returned by `onboard_product`. Map them as follows:
 
 | `onboard_product` field | `.env` variable |
 |---|---|
-| `stream_url` | `STREAM_URL` |
-| `unkey_key` | `UNKEY_API_KEY` |
-| `webhook_url` | *(used in Step 3 — PostHog destination URL)* |
-| `webhook_secret` | *(used in Step 3 — PostHog destination header)* |
+| `mcp_url` (origin only, drop `/mcp`) | `CONNECTOR_URL` |
+| `mcp_key` | `MCP_KEY` |
+| `product_id` | `PRODUCT_ID` |
+| `ingest_url` | *(used in Step 3 — PostHog destination URL)* |
+| `ingest_secret` | *(used in Step 3 — PostHog destination header)* |
 
 ```ini
-STREAM_URL=https://event-connector-luda.onrender.com/stream/YOUR_PRODUCT_ID
-UNKEY_API_KEY=<unkey_key from onboard_product output>
-OPENAI_API_KEY=sk-...
+CONNECTOR_URL=https://mcp.autoplay.ai
+MCP_KEY=<mcp_key from onboard_product output>
+PRODUCT_ID=YOUR_AUTOPLAY_PRODUCT_ID
 # Optional tuning:
-LLM_MODEL=gpt-4o-mini
-SUMMARY_THRESHOLD=10
-LOOKBACK_SECONDS=300
-MAX_ACTIONS=30
+ACTIVITY_LIMIT=30
 ```
 
 ---
 
-## 🔌 Step 5 — Wire the SDK pipeline
+## 🔌 Step 5 — Wire the context endpoint
 
-Create `bridge/copilot_server.py`. The Autoplay SDK pipeline is identical to every other chatbot recipe — only the HTTP surface differs.
+Create `bridge/copilot_server.py`. There's no SDK pipeline to compose anymore — the bridge makes one `httpx` call to the Autoplay connector's REST live-activity endpoint, synchronously, the moment the frontend asks for context. No listener process, no local event store, no reconnect logic.
 
 ### 5a. Imports and config
 
 <AccordionGroup>
 <Accordion title="copilot_server.py imports and config (expand to copy)">
 ```python
-import asyncio, logging, os, time
-from contextlib import asynccontextmanager
-from typing import Any
+import logging, os
 
-import openai
-from autoplay_sdk import (
-    ActionsPayload,
-    AsyncConnectorClient,
-    AsyncContextStore,
-    AsyncSessionSummarizer,
-)
-from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
-from autoplay_sdk.agent_state.v2.states import SessionState
-from autoplay_sdk.context.context_store import actions_bucket_id
-from autoplay_sdk.rag.query.assembly import (
-    ChatContextAssembly,
-    build_user_prompt_block,
-)
+import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("copilot")
 
-STREAM_URL = os.environ["STREAM_URL"]
-UNKEY_TOKEN = os.environ["UNKEY_API_KEY"]
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-SUMMARY_THRESHOLD = int(os.environ.get("SUMMARY_THRESHOLD", "10"))
-LOOKBACK_SECONDS = int(os.environ.get("LOOKBACK_SECONDS", "300"))
-MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "30"))
-
-_openai = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+CONNECTOR_URL = os.environ.get("CONNECTOR_URL", "https://mcp.autoplay.ai")
+MCP_KEY = os.environ["MCP_KEY"]
+PRODUCT_ID = os.environ["PRODUCT_ID"]
+ACTIVITY_LIMIT = int(os.environ.get("ACTIVITY_LIMIT", "30"))
 ```
 </Accordion>
 </AccordionGroup>
 
-### 5b. The LLM callable
+### 5b. The FastAPI app
 
-The SDK's summariser takes any async `(str) -> str`. Bring your own provider — OpenAI, Anthropic, Gemini, Mistral, or a local model.
+No `lifespan` hook is needed — there's no client to start or stop when the server boots. The app object is just a plain `FastAPI()`.
 
 ```python
-async def llm_summarise(prompt: str) -> str:
-    """SDK contract: AsyncSessionSummarizer calls this with the summary prompt."""
-    resp = await _openai.chat.completions.create(
-        model=LLM_MODEL,
-        temperature=0.2,
-        max_tokens=300,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return (resp.choices[0].message.content or "").strip()
+app = FastAPI(title="Autoplay × Inkeep bridge")
 ```
 
-### 5c. Compose the SDK pipeline
+### 5c. A helper to pull and format live activity
 
-This is the core pipeline.
+This is the only piece of "pipeline" left: one function that calls the connector and turns the `actions` array into a readable block of text. There's no summarizer step — the connector already returns a bounded, recent window, so raw actions are passed straight through.
 
 <AccordionGroup>
-<Accordion title="copilot_server.py pipeline composition (expand to copy)">
+<Accordion title="copilot_server.py — pull_live_activity helper (expand to copy)">
 ```python
-summariser = AsyncSessionSummarizer(llm=llm_summarise, threshold=SUMMARY_THRESHOLD)
+async def pull_live_activity(user_id: str) -> str:
+    """Pull a user's recent activity from the Autoplay connector, synchronously.
 
-context_store = AsyncContextStore(
-    summarizer=summariser,
-    lookback_seconds=LOOKBACK_SECONDS,
-    max_actions=MAX_ACTIONS,
-)
+    Called on demand — once per /context/{user_id} request — not on a timer
+    and not from a background listener. A 5s timeout keeps a slow connector
+    response from blocking the widget from opening.
+    """
+    url = f"{CONNECTOR_URL}/users/{PRODUCT_ID}/{user_id}/live-activity"
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                url,
+                params={"limit": ACTIVITY_LIMIT},
+                headers={"Authorization": f"Bearer {MCP_KEY}"},
+            )
+    except httpx.HTTPError as exc:
+        # Covers timeouts as well as connect/DNS/TLS failures — any of these
+        # should degrade to no context, not a 500 on /context/{user_id}.
+        log.warning("live-activity request failed for user=%s: %s", user_id, exc)
+        return ""
 
-async def write_actions(session_id, text):
-    log.debug("actions written %s len=%d", session_id, len(text))
+    if resp.status_code == 401:
+        log.error("live-activity 401 — check MCP_KEY")
+        return ""
+    if resp.status_code != 200:
+        log.warning("live-activity returned %s for user=%s", resp.status_code, user_id)
+        return ""
 
-async def overwrite_with_summary(session_id, summary):
-    log.info("summary ready session=%s len=%d", session_id, len(summary))
-    _session_state(session_id).tick()
-
-agent_writer = AsyncAgentContextWriter(
-    summarizer=summariser,
-    overwrite_with_summary=overwrite_with_summary,
-    write_actions=write_actions,
-    debounce_ms=0,
-)
+    actions = resp.json().get("actions", [])
+    lines = [
+        f"{a['title']} — {a['description']} ({a['canonical_url']})"
+        for a in actions
+    ]
+    return "\n".join(lines)
 ```
 </Accordion>
 </AccordionGroup>
 
 <Note>
-  **`AsyncAgentContextWriter` enforces the SDK's ordering guarantee:** the rolling summary is delivered to your destination **before** the raw actions it replaces are removed. Your agent never sees a blank context window during a swap.
+  `actions` comes back **oldest → newest**, so the lines above read as a timeline of what the user just did, in order — the same ordering guarantee the old streamed pipeline gave you, just resolved fresh on every call instead of maintained incrementally.
 </Note>
 
-### 5d. Track which sessions belong to which user
+### 5d. The `/context/{user_id}` endpoint and health check
 
-`AsyncContextStore` keys actions by `session_id`. The bridge maintains an index between `user_id` and `session_id`, and separately tracks which `product_id` each session belongs to — required when reading from the store.
-
-<AccordionGroup>
-<Accordion title="copilot_server.py session indexing (expand to copy)">
-```python
-_user_sessions: dict[str, list[tuple[str, float]]] = {}  # user_id -> [(session_id, ts), ...]
-_user_emails: dict[str, str] = {}
-_session_product: dict[str, str] = {}                    # session_id -> product_id
-_session_states: dict[str, SessionState] = {}
-
-def _index_session(user_id, session_id, email):
-    if not user_id or not session_id:
-        return
-    now = time.time()
-    bucket = _user_sessions.setdefault(user_id, [])
-    bucket[:] = [(s, t) for (s, t) in bucket if s != session_id and now - t < LOOKBACK_SECONDS]
-    bucket.append((session_id, now))
-    if email:
-        _user_emails[user_id] = email
-
-def _session_state(session_id):
-    if session_id not in _session_states:
-        # Demo-friendly timeouts so you can iterate quickly while testing
-        # Step 2's proactive triggers. Production: use ~60.0 / ~120.0 so
-        # the FSM doesn't drift out of REACTIVE mid-conversation.
-        _session_states[session_id] = SessionState(
-            interaction_timeout_s=10.0, cooldown_period_s=20.0,
-        )
-    return _session_states[session_id]
-```
-</Accordion>
-</AccordionGroup>
-
-<Warning>
-  **Pass `product_id` when reading from `ContextStore`.** Since v0.6.7, `AsyncContextStore` keys buckets by `(product_id, session_id)` when payloads carry a `product_id` — which they always do in practice. Calling `context_store.get(session_id)` without `product_id=` silently returns an empty string. Track `payload.product_id` per session on ingest and pass it on read.
-</Warning>
-
-### 5e. The SSE callback
-
-Wire `on_actions` to feed both `context_store` and `agent_writer`. The writer handles the summariser; the store keeps raw actions available for short reads.
-
-```python
-async def on_actions(payload: ActionsPayload):
-    _index_session(payload.user_id, payload.session_id, payload.email)
-    if payload.session_id and payload.product_id:
-        _session_product[payload.session_id] = payload.product_id
-    if payload.session_id:
-        _session_state(payload.session_id).tick()
-    await context_store.add(payload)
-    await agent_writer.add(payload)
-```
-
-### 5f. FastAPI lifespan — start the client when the server boots
-
-<AccordionGroup>
-<Accordion title="copilot_server.py FastAPI lifespan (expand to copy)">
-```python
-_stream_task: asyncio.Task | None = None
-_client: AsyncConnectorClient | None = None
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    global _stream_task, _client
-    _client = AsyncConnectorClient(url=STREAM_URL, token=UNKEY_TOKEN)
-    _client.on_actions(on_actions)
-    _stream_task = _client.run_in_background()
-    log.info("autoplay stream listening on %s", STREAM_URL)
-    try:
-        yield
-    finally:
-        if _client:
-            _client.stop()
-        if _stream_task:
-            try:
-                await asyncio.wait_for(_stream_task, timeout=5)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pass
-
-app = FastAPI(title="Autoplay × Inkeep bridge", lifespan=lifespan)
-```
-</Accordion>
-</AccordionGroup>
-
-### 5g. Helpers — name from email, recent activity across sessions
-
-<AccordionGroup>
-<Accordion title="copilot_server.py helper functions (expand to copy)">
-```python
-def _name_from_email(email):
-    if not email or "@" not in email:
-        return None
-    local = email.split("@", 1)[0]
-    parts = [p for p in local.replace(".", " ").replace("_", " ").split() if p]
-    return " ".join(p.capitalize() for p in parts) if parts else None
-
-def _user_recent_activity(user_id):
-    sessions = _user_sessions.get(user_id) or []
-    chunks = []
-    for session_id, _ts in sorted(sessions, key=lambda x: -x[1])[:3]:
-        product_id = _session_product.get(session_id)
-        text = context_store.get(session_id, product_id=product_id)
-        if text:
-            chunks.append(text)
-    return "\n\n".join(chunks).strip()
-```
-</Accordion>
-</AccordionGroup>
-
-### 5h. The `/context/{session_id}` endpoint and health check
-
-This bridge does not call the LLM for chat replies — Inkeep handles that. It exposes a single read endpoint: the frontend fetches it before opening the chat widget to build the `introMessage`.
+This bridge does not call the LLM for chat replies — Inkeep handles that. It exposes a single read endpoint keyed by the stable `user_id` (the same id `posthog.identify()` set) — the frontend fetches it before opening the chat widget to build the `introMessage`. There's no `session_id` anywhere in this API.
 
 <AccordionGroup>
 <Accordion title="copilot_server.py endpoints (expand to copy)">
 ```python
 @app.get("/healthz")
 async def healthz():
-    return {
-        "status": "ok",
-        "users_tracked": len(_user_sessions),
-        "sessions_tracked": sum(len(v) for v in _user_sessions.values()),
-    }
+    return {"status": "ok"}
 
-@app.get("/context/{session_id}")
-async def get_context(session_id: str):
-    """Return the assembled Autoplay context for a session.
+@app.get("/context/{user_id}")
+async def get_context(user_id: str):
+    """Return the pulled Autoplay context for a user.
 
     The frontend calls this before mounting InkeepEmbeddedChat so it can
     pass the activity summary as introMessage. Returns has_activity=False
-    when no events have been seen yet — the widget falls back to its
+    when the user has no recent activity yet — the widget falls back to its
     default greeting in that case.
     """
-    product_id = _session_product.get(session_id)
-    text = context_store.get(session_id, product_id=product_id)
+    text = await pull_live_activity(user_id)
     return {
         "context": text,
         "has_activity": bool(text.strip()),
-        "session_id": session_id,
+        "user_id": user_id,
     }
 ```
 </Accordion>
@@ -493,28 +368,28 @@ cd ~/nexus-cloud/bridge
 uv run uvicorn copilot_server:app --host 0.0.0.0 --port 8787
 ```
 
-You should see:
+You should see plain uvicorn startup logs — there's no stream to connect, so no "listening" or "connected" line to wait for:
 
 ```
-INFO copilot: autoplay stream listening on https://event-connector-luda.onrender.com/stream/YOUR_PRODUCT_ID
-INFO autoplay_sdk.async_client: autoplay_sdk: connected
+INFO:     Uvicorn running on http://0.0.0.0:8787 (Press CTRL+C to quit)
+INFO:     Application startup complete.
 ```
 
 Smoke-test:
 
 ```bash
 curl http://localhost:8787/healthz
-# {"status":"ok","users_tracked":0,"sessions_tracked":0}
+# {"status":"ok"}
 ```
 
 Click around in your app for ~30 seconds, then check the context endpoint:
 
 ```bash
-curl "http://localhost:8787/context/YOUR_SESSION_ID"
-# {"context":"User visited /onboarding/connect-data-source, clicked 'Test Connection'...","has_activity":true,"session_id":"..."}
+curl "http://localhost:8787/context/YOUR_USER_ID"
+# {"context":"Page Load: Connect Data Source — User landed on the onboarding page (https://.../onboarding)\nClick Test Connection — User clicked the Test Connection button (...)","has_activity":true,"user_id":"..."}
 ```
 
-That confirms events are flowing and context assembly is working.
+`YOUR_USER_ID` is the same id you passed to `posthog.identify(...)` in Step 1. That confirms events are flowing through PostHog into the connector, and that the bridge's REST pull is working.
 
 ---
 
@@ -705,7 +580,7 @@ NEXT_PUBLIC_BRIDGE_URL=http://localhost:8787
 Create `frontend/components/InkeepWidget.tsx`.
 
 The key pattern here is:
-1. On mount (and whenever `contextKey` changes), fetch `/context/{session_id}` from the bridge.
+1. On mount (and whenever `contextKey` changes), fetch `/context/{user_id}` from the bridge.
 2. If `has_activity` is true, build a warm `introMessage` that leads with what the user was doing.
 3. Pass `introMessage` to `InkeepEmbeddedChat`.
 4. Use `key={contextKey}` to force a full component remount with the new `introMessage` when the proactive trigger fires (Step 2). Without this prop, React reuses the old component instance and the new intro message is silently ignored.
@@ -727,19 +602,18 @@ const APP_ID = process.env.NEXT_PUBLIC_INKEEP_APP_ID ?? "app_playground";
 const BRIDGE_URL = process.env.NEXT_PUBLIC_BRIDGE_URL ?? "http://localhost:8787";
 
 type Props = {
-  sessionId: string;
   userId: string;
   contextKey?: string;
 };
 
-export function InkeepWidget({ sessionId, userId, contextKey }: Props) {
+export function InkeepWidget({ userId, contextKey }: Props) {
   const [introMessage, setIntroMessage] = useState(
     "Hi! I'm your onboarding assistant. Ask me anything about setting up Nexus Cloud."
   );
 
   useEffect(() => {
-    if (!sessionId) return;
-    fetch(`${BRIDGE_URL}/context/${encodeURIComponent(sessionId)}`)
+    if (!userId) return;
+    fetch(`${BRIDGE_URL}/context/${encodeURIComponent(userId)}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.has_activity) {
@@ -749,7 +623,7 @@ export function InkeepWidget({ sessionId, userId, contextKey }: Props) {
         }
       })
       .catch(() => {});
-  }, [sessionId, contextKey]);
+  }, [userId, contextKey]);
 
   return (
     <InkeepEmbeddedChat
@@ -787,7 +661,7 @@ export function InkeepWidget({ sessionId, userId, contextKey }: Props) {
 
 ### 8d. Mount the widget in your page
 
-Add `InkeepWidget` to your onboarding page. Pass the PostHog `session_id` (available from `posthog.get_session_id()`) as `sessionId` so the bridge can look up the right activity bucket.
+Add `InkeepWidget` to your onboarding page. Pass the stable identify id (available from `posthog.get_distinct_id()`) as `userId` so the bridge can pull the right user's activity.
 
 <AccordionGroup>
 <Accordion title="app/onboarding/page.tsx — page with chat panel (expand to copy)">
@@ -799,11 +673,11 @@ import posthog from "posthog-js";
 import { InkeepWidget } from "@/components/InkeepWidget";
 
 export default function OnboardingPage() {
-  const [sessionId, setSessionId] = useState("");
+  const [userId, setUserId] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
-    setSessionId(posthog.get_session_id() ?? "");
+    setUserId(posthog.get_distinct_id() ?? "");
   }, []);
 
   return (
@@ -818,11 +692,8 @@ export default function OnboardingPage() {
       )}
 
       {/* Chat panel */}
-      {chatOpen && sessionId && (
-        <InkeepWidget
-          sessionId={sessionId}
-          userId={posthog.get_distinct_id() ?? "anonymous"}
-        />
+      {chatOpen && userId && (
+        <InkeepWidget userId={userId} />
       )}
     </>
   );
@@ -832,7 +703,7 @@ export default function OnboardingPage() {
 </AccordionGroup>
 
 <Note>
-  `posthog.get_session_id()` returns the same `$session_id` that flows through PostHog → Autoplay → `context_store`. This is the correct join key. If you use a custom session identifier, make sure it matches the `session_id` field in your PostHog autocapture events and in `posthog.identify()`.
+  `posthog.get_distinct_id()` returns the identity `posthog.identify(...)` set on login — the same stable `user_id` that flows through PostHog → Autoplay connector. This is the correct join key. There's no `session_id` in this API anymore; if you use a custom identity call, make sure the id you pass to `InkeepWidget` matches the id you pass to `posthog.identify()`.
 </Note>
 
 ---
@@ -841,7 +712,7 @@ export default function OnboardingPage() {
 
 1. Open your app, click through the onboarding wizard for ~30 seconds — e.g. navigate to **Step 1 (Connect Data Source)**, paste a URL into the API endpoint field, click **Test Connection**.
 2. Click **Need help?** to open the chat panel.
-3. The widget fetches `/context/{session_id}` — `has_activity` is `true` — and mounts with:
+3. The widget fetches `/context/{user_id}` — `has_activity` is `true` — and mounts with:
    > "I can see you've been working on the onboarding. What can I help with?"
 4. Ask **"my test connection keeps failing"** → the agent replies with specific guidance about the Connect Data Source step, grounded in the fact that you just tried it.
 
@@ -851,8 +722,8 @@ If context is missing, check bridge logs and the [troubleshooting matrix](#troub
 
 ```bash
 # Quick end-to-end check without opening the browser:
-curl "http://localhost:8787/context/YOUR_SESSION_ID"
-# {"context":"User navigated to /onboarding, clicked 'Test Connection'...","has_activity":true,"session_id":"..."}
+curl "http://localhost:8787/context/YOUR_USER_ID"
+# {"context":"Page Load: Connect Data Source — User landed on the onboarding page (...)\nClick Test Connection — ...","has_activity":true,"user_id":"..."}
 ```
 
 In [Step 2](./step-2-define-proactive-triggers) we'll go further: the bridge will notice when the user opens the Connect Data Source step three times without completing it, and surface a proactive offer — without the user typing anything.
@@ -863,15 +734,17 @@ In [Step 2](./step-2-define-proactive-triggers) we'll go further: the bridge wil
 
 | Symptom | Likely cause |
 |---|---|
-| `introMessage` is always the default greeting | `has_activity` is false. Check (1) bridge is running, (2) PostHog destination is enabled and POSTing, (3) `sessionId` passed to `InkeepWidget` matches the PostHog `$session_id`, **(4) `context_store.get()` was called without `product_id`** — pass `_session_product[session_id]` on read |
+| `introMessage` is always the default greeting | `has_activity` is false. Check (1) bridge is running, (2) PostHog destination is enabled and POSTing, (3) the `userId` passed to `InkeepWidget` matches the id you passed to `posthog.identify(...)` |
+| `/context/{user_id}` times out or takes >5s | The connector call in `pull_live_activity` hit its 5s `httpx` timeout. Check `CONNECTOR_URL` is reachable from the bridge host and that the connector isn't degraded. |
+| Bridge logs `live-activity 401 — check MCP_KEY` | `MCP_KEY` in `bridge/.env` doesn't match the `mcp_key` printed by `onboard_product`, or the product was re-registered with `force=True` (which rotates `ingest_secret` but **not** `mcp_key` — double-check you copied the current value). |
+| `/context/{user_id}` returns `{"context":"","has_activity":false}` for a real, active user | Events not reaching the connector, or wrong `user_id`. Check PostHog destination logs for failed POSTs; confirm `PRODUCT_ID` in `bridge/.env` matches the `product_id` you registered with; confirm you're querying the exact id `posthog.identify()` was called with — a device id or anonymous id will read an empty bucket. |
 | Widget shows "Failed to fetch anonymous session: 401" | `allowAnonymous` not set in the `apps` table. Re-run the `UPDATE apps SET config = ...` from Step 7. |
 | 400 — "Proof-of-work challenge required" | `INKEEP_POW_HMAC_SECRET` is set in `~/inkeep-agents/.env`. Comment it out and restart `agents-api`. |
 | "Agent does not have a default sub-agent configured" | `defaultSubAgentId` is null. Re-run the `PATCH` to set `defaultSubAgentId` to `onboarding-worker`. |
 | Chat widget renders but never connects | CORS — `allowedDomains` in app config must include `localhost`. Verify with `SELECT config FROM apps WHERE id = 'app_playground';`. |
-| `/context/{session_id}` returns `{"context":"","has_activity":false}` | Events not reaching the bridge. Check PostHog destination logs for failed POSTs; also confirm `STREAM_URL` and `UNKEY_API_KEY` in `bridge/.env` match the `onboard_product` output. |
 | `tsconfig` error on `@inkeep/agents-ui` import | Add `transpilePackages: ["@inkeep/agents-ui"]` to `next.config.ts`. |
 | `introMessage` doesn't update after proactive trigger fires | The `key` prop on `InkeepEmbeddedChat` is not changing. Pass a new `contextKey` (e.g. incrementing counter) to force remount. This is wired in Step 2. |
-| PostHog destination test returns `url: This field is required` | Paste the same `webhook_url` into the form-level URL field too — PostHog requires it even though the Hog source overrides it. |
+| PostHog destination test returns `url: This field is required` | Paste the same `ingest_url` into the form-level URL field too — PostHog requires it even though the Hog source overrides it. |
 | `API key is not valid: personal_api_key` | Use `phc_…` (Project) key in `posthog.init()`, not `phx_…` (Personal). |
 
 ---
@@ -916,9 +789,9 @@ cd ~/inkeep-agents && docker compose down -v && docker compose up -d
 
 You now have an Inkeep AI chat widget whose opening message is grounded in what the user was actually doing — no generic "How can I help?" when you can see they just failed to connect a data source.
 
-- **Reusable bridge:** the Autoplay SDK pipeline is identical to every other chatbot recipe — swap Inkeep for a different widget later without rewriting context logic.
+- **Reusable bridge:** the REST pull pattern is identical to every other support AI agent recipe — swap Inkeep for a different widget later without rewriting context logic.
 - **Bring-your-own model:** the Inkeep agents framework calls your LLM key directly; no per-seat or per-call fee to Inkeep for the chat itself.
-- **SDK-managed plumbing:** reconnects, backpressure, summary ordering, and context assembly are handled for you; the bridge only needs to read and return the assembled string.
+- **Nothing to keep alive:** there's no stream to reconnect, no local event store to keep consistent, no summarizer to tune — the bridge makes one bounded `httpx` call per context request and returns what comes back.
 - **Self-hosted:** your events, conversation history, and LLM keys never leave your infrastructure.
 
 If anything in this tutorial wasn't clear, or you hit a snag the troubleshooting matrix didn't cover — please reply on the thread or open an issue in the [Autoplay SDK repo](https://github.com/Autoplay-AI/Autoplay-AI-SDK). Feedback shapes the next version of these docs.

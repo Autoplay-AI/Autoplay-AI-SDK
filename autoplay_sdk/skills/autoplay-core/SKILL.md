@@ -1,12 +1,14 @@
 ---
 name: autoplay-core
 description: >-
-  Sets up the Autoplay SDK for real-time event streaming into any chatbot or AI agent.
-  Covers install, credentials, stream wiring, LLM guardrails, and the two most critical
-  concepts — session scoping and conversation scoping — that must be correct regardless
-  of which chatbot or activity source is used. Use when starting any Autoplay integration,
-  when the user mentions autoplay-sdk, AsyncConnectorClient, ActionsPayload, or asks how
-  to wire real-time user events into a chatbot.
+  Sets up the Autoplay SDK for real-time user context in any chatbot or AI agent.
+  Covers install, credentials from onboard_product (ingest_url/ingest_secret/mcp_url/mcp_key),
+  the on-demand REST/MCP pull pattern that powers Intercom/Crisp/Dify/Tidio/Maven/Ada/
+  Botpress/Landbot, the legacy Render push/session-linking pattern that still powers Zendesk,
+  LLM guardrails, and the two most critical concepts — session scoping and conversation
+  scoping — for the push track. Use when starting any Autoplay integration, when the user
+  mentions autoplay-sdk, mcp_key, AsyncConnectorClient, ActionsPayload, or asks how to wire
+  real-time user events into a chatbot.
 disable-model-invocation: true
 ---
 
@@ -16,7 +18,7 @@ disable-model-invocation: true
 
 ```bash
 pip install autoplay-sdk
-# Optional: one-line FastAPI bridge
+# Optional: one-line FastAPI bridge (legacy push path only — see below)
 # pip install "autoplay-sdk[serve]"
 # Plus your preferred LLM client, e.g.:
 #   pip install openai        # OpenAI / Azure OpenAI
@@ -30,17 +32,82 @@ Upgrading an existing integration? Install the migration helper skill and ask yo
 autoplay-install-skills --migrate
 ```
 
-Credentials come from the Autoplay dashboard after running `onboard_product`:
-- `CONNECTOR_URL` — stream URL: `https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID`
-- `API_TOKEN` — Bearer token (Unkey key)
+Credentials come from running `onboard_product` (see the Quickstart):
+
+```python
+from autoplay_sdk.admin import onboard_product
+from autoplay_sdk.providers import PostHogProvider  # or AmplitudeProvider
+
+result = await onboard_product(
+    "YOUR_PRODUCT_ID",
+    contact_email="you@yourcompany.com",
+    user_activity_provider=PostHogProvider(),
+    print_operator_summary=True,
+)
+```
+
+It prints six values:
+- `product_id`, `provider`
+- `ingest_url` — where your activity source (PostHog/Amplitude) POSTs events, e.g. `https://connector.autoplay.ai/ingest/YOUR_PRODUCT_ID`
+- `ingest_secret` — the inbound auth secret for that webhook
+- `mcp_url` — always `https://mcp.autoplay.ai/mcp`
+- `mcp_key` — Bearer token for both the MCP tool call and the REST live-activity read below
+
+There is no more `stream_url` / `unkey_key` — those were the legacy Render fields. If you're touching an existing Render-onboarded product (see **Push/session-linking path**, below), it keeps its old `stream_url` and `unkey_key`; new products only get `ingest_*` / `mcp_*`.
 
 ---
 
-## ⚠️ Critical: Session scoping & conversation scoping
+## Which path does this integration need?
 
-**This is the most important concept. Get this wrong and context will be empty, mixed between users, or silently dropped.**
+Two integration models exist. **Pick the pull-based path unless you know you need the push path** — it is simpler, requires no server process for the reactive case, and is what every currently-migrated chatbot skill in this repo (`chatbot-ada`, `chatbot-botpress`, `chatbot-intercom`, `chatbot-landbot`) uses.
 
-### Recommended path — `AutoplayChatbotManager`
+| | **Pull-based (current default)** | **Push / session-linking (legacy Render)** |
+|---|---|---|
+| Data flow | Chatbot (or your bridge) asks for a user's recent activity **on demand**, the moment it needs context to answer | Autoplay pushes every action over a live stream; your server buffers it and posts it as a note/message once a conversation links |
+| Transport | `GET https://mcp.autoplay.ai/users/{product_id}/{user_id}/live-activity` (REST) or the MCP tool `get_live_user_activity` | `AsyncConnectorClient` / `ConnectorClient` subscribed to a Render `stream_url` |
+| Keyed by | `user_id` only — no session concept | `session_id` (ground truth from PostHog) linked to `conversation_id` |
+| Use when | The chatbot platform can call an MCP tool or your backend can make an outbound HTTP call at question-time (Intercom Fin, Crisp Hugo, Dify Agent, Tidio Lyro, Maven, or any custom bridge — see that platform's own `chatbot-*` skill) | The integration must autonomously **post** admin notes or proactive messages without an LLM deciding to call a tool (this is how the current Zendesk integration works — see `chatbot-zendesk`) |
+| Needs a persistent process? | No — a single HTTP call per question | Yes — something has to hold the stream open (or, for a self-built proactive poller, run a periodic pull loop keyed by `user_id`; see the Rasa/Inkeep recipes for that pattern) |
+
+If you're not sure which one your customer's platform needs, check whether a `chatbot-<platform>` skill already exists — it tells you which model that platform uses today.
+
+---
+
+## Pull-based path (recommended default)
+
+No client object, no background task — just call the connector when you need the answer.
+
+```python
+import httpx
+
+CONNECTOR_URL = "https://mcp.autoplay.ai"  # origin of mcp_url, no /mcp path
+PRODUCT_ID = "YOUR_PRODUCT_ID"
+MCP_KEY = "YOUR_MCP_KEY"  # from onboard_product
+
+async def get_live_activity(user_id: str, limit: int = 20) -> list[dict]:
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.get(
+            f"{CONNECTOR_URL}/users/{PRODUCT_ID}/{user_id}/live-activity",
+            params={"limit": limit},
+            headers={"Authorization": f"Bearer {MCP_KEY}"},
+        )
+    if r.status_code != 200:
+        return []
+    return r.json().get("actions", [])  # oldest -> newest
+```
+
+- `user_id` **must** be the same stable id your activity source identifies the user with (`posthog.identify(user_id)` / `amplitude.setUserId(user_id)`) — never email or a session id.
+- If the chatbot platform supports MCP tools directly (Intercom, Crisp, Dify, Tidio, Maven), skip the HTTP call entirely and point the platform's MCP config at `mcp_url` with `mcp_key` — it calls `get_live_user_activity` itself. See that platform's `chatbot-*` skill.
+- If it doesn't (Landbot, Botpress, Rasa, a custom widget), your bridge makes the call above synchronously inside whatever handler needs the answer (a webhook, a `/reply` endpoint, a context-fetch before opening the widget). No `AsyncConnectorClient`, no session store, no summarizer required — the endpoint already returns a bounded, recent window of actions.
+- For **proactive** behaviour on this path (nudge the user before they ask), there's no push signal to react to — poll the same endpoint on a timer for each user you're tracking and evaluate your own trigger condition against the returned `actions`. See `autoplay_sdk.proactive_triggers` (`ProactiveTriggerContext`, `ProactiveTriggerRegistry`) for the predicate/FSM primitives; the Rasa and Inkeep recipes show the full poller pattern.
+
+---
+
+## Push / session-linking path (legacy Render)
+
+Everything below this line assumes a **Render-onboarded product with a `stream_url`** — i.e. the older `autoplay_sdk.admin.onboard` / `product_onboarding` registration flow, not the current `onboard_product`. This is the path `chatbot-zendesk` uses today because Zendesk's integration autonomously posts admin notes and public replies with no LLM tool call involved. Don't reach for this path for a new pull-capable integration.
+
+### Recommended entry point — `AutoplayChatbotManager`
 
 `AutoplayChatbotManager` handles all session lifecycle automatically. Use it unless you need custom Redis-backed stores or non-standard delivery logic.
 
@@ -142,84 +209,19 @@ Key pattern: `autoplay:session_state:{session_id}`. Default TTL: 24 h (configura
 
 ---
 
-## Fastest SDK-native path (recommended)
+### Raw stream client (advanced / analytics-only)
 
-```python
-import asyncio
-from autoplay_sdk import AsyncConnectorClient, compose_chat_pipeline
-from autoplay_sdk.context.user_index import UserSessionIndex
-
-CONNECTOR_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
-API_TOKEN = "your-api-token"
-
-async def llm(prompt: str) -> str:
-    """Wire your preferred LLM here.
-
-    The SDK only needs an async callable: (str) -> str.
-    Any provider works — OpenAI, Anthropic, Gemini, Mistral, a local model, etc.
-
-    OpenAI example:
-        from openai import AsyncOpenAI
-        _client = AsyncOpenAI()
-        r = await _client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":prompt}])
-        return r.choices[0].message.content
-    """
-    raise NotImplementedError("Replace with your LLM client")
-
-# Compose summarizer + context store + writer safely (no callback clobbering)
-pipeline = compose_chat_pipeline(
-    llm=llm,
-    threshold=20,
-    lookback_seconds=300,
-    max_actions=20,
-    write_actions=None,           # optional push callback for chatbot notes
-    overwrite_with_summary=None,  # optional summary overwrite callback
-)
-user_index = UserSessionIndex(pipeline.context_store, lookback_seconds=300)
-
-async def run():
-    async with AsyncConnectorClient(url=CONNECTOR_URL, token=API_TOKEN) as client:
-        async def on_actions(payload):
-            await pipeline.on_actions(payload)
-            user_index.add(payload)
-
-        client.on_actions(on_actions)
-        await client.run()
-
-asyncio.run(run())
-```
-
-> **If you skip `compose_chat_pipeline`, summaries are never produced.**
-> The `on_summary` / `overwrite_with_summary` callback requires the pipeline's
-> summarizer to be wired into the stream. There is no implicit fallback —
-> omitting this call means `overwrite_with_summary` never fires, regardless
-> of the `threshold` value.
-
-When your chatbot gets a `user_id`, call:
-
-```python
-activity = user_index.get_user_activity(user_id)
-```
-
-This avoids hand-rolled `user_id -> session_id` indexing and keeps `product_id`-aware lookups correct.
-
----
-
-## Analytics-only recipe (no chatbot)
-
-If you only need to receive enriched events and forward them to your own
-pipeline — no chatbot, no notes, no session linking — you need none of the
-chatbot-shaped machinery above. Just the client:
+If you only need to receive enriched events and forward them to your own pipeline — no chatbot, no notes, no session linking — you need none of the chatbot-shaped machinery above. Just the client, against a legacy Render `stream_url`:
 
 ```python
 import asyncio
 from autoplay_sdk import AsyncConnectorClient
 
-CONNECTOR_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"
-API_TOKEN = "your-api-token"
+STREAM_URL = "https://your-connector.onrender.com/stream/YOUR_PRODUCT_ID"  # legacy Render only
+API_TOKEN = "your-unkey-token"
 
 async def run():
-    async with AsyncConnectorClient(url=CONNECTOR_URL, token=API_TOKEN) as client:
+    async with AsyncConnectorClient(url=STREAM_URL, token=API_TOKEN) as client:
         async def on_actions(payload):
             if not payload.session_id:
                 return
@@ -234,19 +236,19 @@ async def run():
 asyncio.run(run())
 ```
 
-No `BaseChatbotWriter`, no `compose_chat_pipeline`, no session store required.
+No `BaseChatbotWriter`, no session store required. This only works against a product still registered on the legacy Render connector — new `onboard_product` registrations don't get a `stream_url`.
 
 ---
 
-## Optional one-line HTTP bridge
+### Optional one-line HTTP bridge (legacy Render only)
 
-If your chatbot runtime is in another process (Rasa/Botpress/Twilio/custom webhook), prefer the built-in FastAPI factory:
+`autoplay_sdk.api.build_copilot_app` is a FastAPI factory for the push path — its signature still takes `stream_url` / `token`, not `mcp_url` / `mcp_key`:
 
 ```python
 from autoplay_sdk.api import build_copilot_app
 
 app = build_copilot_app(
-    stream_url=CONNECTOR_URL,
+    stream_url=STREAM_URL,   # legacy Render stream — see above
     token=API_TOKEN,
     llm=llm,
     summary_threshold=20,
@@ -254,11 +256,9 @@ app = build_copilot_app(
 )
 ```
 
-Default endpoints:
-- `GET /healthz`
-- `GET /context/{user_id}?query=...`
-- `GET /reply/{user_id}?query=...`
-- `POST /admin/reset/{user_id}`
+Default endpoints: `GET /healthz`, `GET /context/{user_id}?query=...`, `GET /reply/{user_id}?query=...`, `POST /admin/reset/{user_id}`.
+
+**This factory has not been updated for the pull-based path.** For a new integration that needs its own HTTP bridge (Rasa, Botpress, Landbot, a custom widget), hand-roll a small FastAPI app with a `/context/{user_id}` and/or `/reply/{user_id}` route that calls the pull-based `get_live_activity(user_id)` helper above synchronously — see the Rasa or Inkeep recipes for the full pattern. It's a handful of lines and doesn't need this factory.
 
 ---
 
@@ -302,9 +302,11 @@ Log: prompt name + version, model, token usage, latency, errors. Never log full 
 
 ---
 
-## Integration Self-Reasoning Checklist
+## Integration Self-Reasoning Checklist (push / session-linking path only)
 
-**Run through this checklist before considering any chatbot integration complete. Reason through each question — do not skip.**
+**This checklist applies to the push/session-linking path above (`AutoplayChatbotManager`, `BaseChatbotWriter`, `SessionState`).** If you're on the pull-based path (the default — no session store, no stream client), skip this section entirely: there's no session to scope, no webhook race to reason about, and no FSM persistence to wire up. Just make sure the `user_id` you pass to the live-activity read matches the id your activity source identifies the user with.
+
+**Run through this checklist before considering any push-path chatbot integration complete. Reason through each question — do not skip.**
 
 ### 1. Session identity
 
@@ -358,12 +360,12 @@ Log: prompt name + version, model, token usage, latency, errors. Never log full 
 - Is `REDIS_URL` set in the production environment?
 - Is the TTL appropriate? Default is 24 h (`ttl_s=86400`). Sessions longer than the TTL will lose state.
 
-### Smoke test — verify the full hop before going to production
+### Smoke test — verify the full hop before going to production (push path)
 
 ```bash
-# Run from your project root after setting CONNECTOR_URL and API_TOKEN:
+# Run from your project root after setting STREAM_URL and API_TOKEN:
 python -m autoplay_sdk.smoke_test \
-    --url "$CONNECTOR_URL" \
+    --url "$STREAM_URL" \
     --token "$API_TOKEN"
 # Expected output:
 #   ✓ connection  — stream connected
@@ -373,6 +375,15 @@ python -m autoplay_sdk.smoke_test \
 
 If `session_id` is empty at this stage, PostHog `identify()` has not fired yet —
 see `activity-posthog` Step 2.
+
+For the pull-based path, there's no stream to smoke-test — just curl the live-activity endpoint directly:
+
+```bash
+curl "https://mcp.autoplay.ai/users/YOUR_PRODUCT_ID/YOUR_USER_ID/live-activity?limit=10" \
+  -H "Authorization: Bearer YOUR_MCP_KEY"
+```
+
+A `200` with a populated `actions` array means it's working.
 
 ---
 

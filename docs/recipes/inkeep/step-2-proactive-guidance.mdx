@@ -33,12 +33,16 @@ Plan to spend **~45 minutes** the first time through. Every file is included ver
 
 This step picks up exactly where Step 1 left off. You should already have:
 
-- **`bridge/main.py`** running on `:8787` with `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, and `SessionState` wired together
-- **`GET /context/{session_id}`** returning assembled activity context
+- **`bridge/copilot_server.py`** running on `:8787` with a `pull_live_activity()` helper that makes a plain `httpx` call to the Autoplay connector's REST live-activity endpoint
+- **`GET /context/{user_id}`** returning pulled activity context, keyed by the stable `user_id` — there's no `session_id` anywhere in this API
 - **Inkeep agents framework** running on `:3002` with a project, agent, and sub-agent configured
 - **`InkeepEmbeddedChat`** mounted in your frontend and connecting successfully (anonymous session token works)
 
 The code below **extends** the bridge and frontend — it does not replace them.
+
+<Note>
+  **This tutorial's bridge is pull-based, not stream-based.** There's no persistent connection to the Autoplay connector to keep alive and no local event store to reconcile — `pull_live_activity()` is called synchronously, on demand, exactly like the equivalent helper in [Step 1](./step-1-connect-real-time-events).
+</Note>
 
 ---
 
@@ -55,7 +59,7 @@ The code below **extends** the bridge and frontend — it does not replace them.
 **Runtime loop:**
 
 ```
-PostHog events ──► Bridge (Step 1 pipeline + trigger detection)
+Frontend pushes client_add actions ──► Bridge (explicit event tracking + trigger detection)
                      │
                      ▼
               ≥3 client_add in 90s → SSE → Proactive offer appears
@@ -70,11 +74,15 @@ PostHog events ──► Bridge (Step 1 pipeline + trigger detection)
   (chat closes automatically)
 ```
 
+<Note>
+  **Why "frontend pushes" and not "PostHog events."** The `client_add` trigger runs off explicit events the CRM UI posts the instant the Add Client modal opens or closes — the same clean, purpose-built signal used in the [onboarding proactive-triggers tutorial](./step-2-define-proactive-triggers). It's a separate, synchronous pipeline from the `pull_live_activity()` call that grounds the chat's `introMessage` in real PostHog activity — no polling loop needed for either.
+</Note>
+
 ---
 
 ## 🧰 Step 1 — Extend the bridge with trigger detection
 
-Add these new imports at the top of `bridge/main.py`:
+Add these new imports at the top of `bridge/copilot_server.py`:
 
 ```python
 import json
@@ -89,7 +97,7 @@ from pydantic import BaseModel
 Add constants and dataclasses after the existing ones:
 
 <AccordionGroup>
-<Accordion title="bridge/main.py — constants and dataclasses (expand to copy)">
+<Accordion title="bridge/copilot_server.py — constants and dataclasses (expand to copy)">
 ```python
 TRIGGER_WINDOW_SECONDS = 90
 EDIT_CLICK_THRESHOLD = 3
@@ -98,7 +106,7 @@ EDIT_CLICK_THRESHOLD = 3
 @dataclass
 class GuidanceEvent:
     type: str          # "guidance_offer" or "guidance_start"
-    session_id: str
+    user_id: str
     message: str
     target: str
     tour_id: str
@@ -109,8 +117,7 @@ class GuidanceEvent:
 @dataclass
 class ProactiveOffer:
     id: str
-    session_id: str
-    user_id: str | None
+    user_id: str
     email: str | None
     message: str
     target: str
@@ -120,7 +127,7 @@ class ProactiveOffer:
 
 
 class InkeepReply(BaseModel):
-    session_id: str
+    user_id: str
     offer_id: str | None = None
     text: str
 ```
@@ -130,7 +137,7 @@ class InkeepReply(BaseModel):
 Extend `InMemoryState.__init__` with two new fields:
 
 ```python
-self.pending_offer_by_session: dict[str, ProactiveOffer] = {}
+self.pending_offer_by_user: dict[str, ProactiveOffer] = {}
 self.guidance_subscribers: dict[str, set[asyncio.Queue[GuidanceEvent]]] = defaultdict(set)
 ```
 
@@ -138,29 +145,29 @@ Add `publish_guidance` as a method on `InMemoryState`:
 
 ```python
 async def publish_guidance(self, event: GuidanceEvent) -> None:
-    for queue in list(self.guidance_subscribers[event.session_id]):
+    for queue in list(self.guidance_subscribers[event.user_id]):
         await queue.put(event)
 ```
 
 Add the trigger logic after the state definition:
 
 <AccordionGroup>
-<Accordion title="bridge/main.py — trigger detection functions (expand to copy)">
+<Accordion title="bridge/copilot_server.py — trigger detection functions (expand to copy)">
 ```python
 def _is_client_add_action(action: dict[str, Any]) -> bool:
     return action.get("type", "") == "client_add"
 
 
 def _detect_repetitive_edits(
-    *, session_id: str, user_id: str | None, email: str | None
+    *, user_id: str, email: str | None
 ) -> ProactiveOffer | None:
-    # Fire at most once per session
-    if session_id in state.pending_offer_by_session:
+    # Fire at most once per user
+    if user_id in state.pending_offer_by_user:
         return None
 
     cutoff = time.time() - TRIGGER_WINDOW_SECONDS
     recent = [
-        a for a in state.recent_actions[session_id]
+        a for a in state.recent_actions[user_id]
         if float(a.get("timestamp_start") or 0) >= cutoff
     ]
     add_clicks = [a for a in recent if _is_client_add_action(a)]
@@ -170,7 +177,6 @@ def _detect_repetitive_edits(
 
     return ProactiveOffer(
         id=f"offer_{uuid4().hex}",
-        session_id=session_id,
         user_id=user_id,
         email=email,
         message="Adding clients one by one? You can import them all at once with a CSV file — want me to show you how?",
@@ -186,25 +192,24 @@ def _detect_repetitive_edits(
 Update `handle_actions_payload` to run the trigger on every incoming batch:
 
 <AccordionGroup>
-<Accordion title="bridge/main.py — updated handle_actions_payload (expand to copy)">
+<Accordion title="bridge/copilot_server.py — updated handle_actions_payload (expand to copy)">
 ```python
 async def handle_actions_payload(payload: Any) -> None:
-    session_id = getattr(payload, "session_id", None) or "unknown"
-    user_id    = getattr(payload, "user_id", None)
-    email      = getattr(payload, "email", None)
-    actions    = [_action_to_dict(a) for a in getattr(payload, "actions", [])]
-    state.store_actions(session_id, actions)
+    user_id = getattr(payload, "user_id", None) or "unknown"
+    email   = getattr(payload, "email", None)
+    actions = [_action_to_dict(a) for a in getattr(payload, "actions", [])]
+    state.store_actions(user_id, actions)
 
     offer = _detect_repetitive_edits(
-        session_id=session_id, user_id=user_id, email=email
+        user_id=user_id, email=email
     )
     if not offer:
         return
 
-    state.pending_offer_by_session[session_id] = offer
+    state.pending_offer_by_user[user_id] = offer
     await state.publish_guidance(GuidanceEvent(
         type="guidance_offer",
-        session_id=offer.session_id,
+        user_id=offer.user_id,
         message=offer.message,
         target=offer.target,
         tour_id=offer.tour_id,
@@ -221,21 +226,21 @@ You can extend `_detect_repetitive_edits` to catch any pattern — repeated page
 
 ## 📡 Step 2 — Add the SSE and reply routes
 
-Add these three routes to `bridge/main.py`. They deliver `guidance_offer` and `guidance_start` events to the frontend in real time.
+Add these three routes to `bridge/copilot_server.py`. They deliver `guidance_offer` and `guidance_start` events to the frontend in real time.
 
 | Route | Direction | Purpose |
 |---|---|---|
-| `GET /guidance/stream/{session_id}` | Bridge → Frontend | Real-time guidance events over SSE |
+| `GET /guidance/stream/{user_id}` | Bridge → Frontend | Real-time guidance events over SSE |
 | `POST /demo/actions` | Frontend → Bridge | Already exists from Step 1 — now also returns `pending_offer` |
 | `POST /inkeep/reply` | Frontend → Bridge | User accepted the offer; emits `guidance_start` |
 
 <AccordionGroup>
-<Accordion title="bridge/main.py — new SSE and reply routes (expand to copy)">
+<Accordion title="bridge/copilot_server.py — new SSE and reply routes (expand to copy)">
 ```python
-@app.get("/guidance/stream/{session_id}")
-async def guidance_stream(session_id: str, request: Request) -> StreamingResponse:
+@app.get("/guidance/stream/{user_id}")
+async def guidance_stream(user_id: str, request: Request) -> StreamingResponse:
     queue: asyncio.Queue[GuidanceEvent] = asyncio.Queue()
-    state.guidance_subscribers[session_id].add(queue)
+    state.guidance_subscribers[user_id].add(queue)
 
     async def events():
         try:
@@ -247,7 +252,7 @@ async def guidance_stream(session_id: str, request: Request) -> StreamingRespons
                 except asyncio.TimeoutError:
                     yield "event: heartbeat\ndata: {}\n\n"
         finally:
-            state.guidance_subscribers[session_id].discard(queue)
+            state.guidance_subscribers[user_id].discard(queue)
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
@@ -258,15 +263,15 @@ async def inkeep_reply(reply: InkeepReply) -> dict[str, Any]:
     if normalized not in {"yes", "y", "sure", "ok", "okay", "guide me"}:
         return {"accepted": False}
 
-    offer = state.pending_offer_by_session.pop(reply.session_id, None)
+    offer = state.pending_offer_by_user.pop(reply.user_id, None)
     if offer is None:
-        raise HTTPException(status_code=404, detail="No pending offer for this session")
+        raise HTTPException(status_code=404, detail="No pending offer for this user")
     if reply.offer_id and offer.id != reply.offer_id:
         raise HTTPException(status_code=409, detail="Offer ID does not match")
 
     accepted = GuidanceEvent(
         type="guidance_start",
-        session_id=offer.session_id,
+        user_id=offer.user_id,
         message="Start the CSV import feature guide.",
         target=offer.target,
         tour_id=offer.tour_id,
@@ -285,7 +290,7 @@ Also update `demo_actions` to return the pending offer so the frontend can store
 @app.post("/demo/actions")
 async def demo_actions(payload: DemoActionsPayload) -> dict[str, Any]:
     await handle_actions_payload(payload)
-    offer = state.pending_offer_by_session.get(payload.session_id)
+    offer = state.pending_offer_by_user.get(payload.user_id)
     return {
         "stored": len(payload.actions),
         "pending_offer": offer is not None,
@@ -304,17 +309,16 @@ Two SSE event types flow from bridge to frontend:
 
 ## 🔥 Step 3 — Smoke test the trigger chain
 
-Restart the bridge with `--reload`, then simulate three Add Client clicks for the same session:
+Restart the bridge with `--reload`, then simulate three Add Client clicks for the same user:
 
 ```bash
-SESSION="smoke-test-01"
+USER="demo-user"
 
 for i in 1 2 3; do
   curl -s -X POST http://localhost:8787/demo/actions \
     -H "Content-Type: application/json" \
     -d "{
-      \"session_id\": \"$SESSION\",
-      \"user_id\": \"demo-user\",
+      \"user_id\": \"$USER\",
       \"actions\": [{
         \"type\": \"client_add\",
         \"title\": \"Add client (attempt $i)\",
@@ -330,7 +334,7 @@ The third response should include `"pending_offer": true`. Now accept it:
 ```bash
 curl -s -X POST http://localhost:8787/inkeep/reply \
   -H "Content-Type: application/json" \
-  -d "{\"session_id\": \"$SESSION\", \"text\": \"yes\"}"
+  -d "{\"user_id\": \"$USER\", \"text\": \"yes\"}"
 # {"accepted":true,"guidance":{...}}
 ```
 
@@ -344,9 +348,13 @@ Replace the minimal `page.tsx` from Step 1 with the full proactive version. The 
 
 - `addClientCountRef` — a `useRef` counter that increments on every Add Client open. Using `useRef` instead of `useState` avoids stale closures in the modal close handler.
 - `closeAddClientModal()` — shared close handler that checks the count and fires the popup.
-- SSE `useEffect` — subscribes to `GET /guidance/stream/{sessionId}` and sets state on `guidance_offer` / `guidance_start` events.
+- SSE `useEffect` — subscribes to `GET /guidance/stream/{userId}` and sets state on `guidance_offer` / `guidance_start` events.
 - `proactiveOffer` state — holds the active offer; drives the popup render.
 - `guideStep` state machine — `"idle" | "step1" | "step2" | "step3" | "step4" | "done"`.
+
+<Note>
+  **No separate `sessionId` in this version.** The Autoplay connector has no session concept — everything below is keyed by `userId` alone (hardcoded to `"demo-user"` for this walkthrough; in a real app, use the same stable id you pass to `posthog.identify(...)`).
+</Note>
 
 <AccordionGroup>
 <Accordion title="frontend/app/page.tsx — full listing with proactive layer (expand to copy)">
@@ -419,7 +427,8 @@ function GuideTooltip({ text, onClose }: { text: string; onClose: () => void }) 
 }
 
 export default function Home() {
-  const [sessionId, setSessionId] = useState("");
+  // No session concept — the connector reads activity by user_id alone.
+  // In a real app, use the same stable id you pass to posthog.identify(...).
   const userId = "demo-user";
   const email  = "customer@example.com";
 
@@ -437,11 +446,6 @@ export default function Home() {
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const IDLE_MS   = 20_000;
 
-  // Generate session ID client-side only (avoids SSR hydration mismatch)
-  useEffect(() => {
-    setSessionId(`crm-demo-${Math.random().toString(36).slice(2, 9)}`);
-  }, []);
-
   // Idle timer — fires proactive popup after 20 s of no interaction
   useEffect(() => {
     function resetIdle() {
@@ -449,7 +453,7 @@ export default function Home() {
       idleTimer.current = setTimeout(() => {
         setProactiveOffer((cur) => cur ?? {
           type: "guidance_offer",
-          session_id: "",
+          user_id: userId,
           message: "Adding clients one by one? You can import multiple clients at once via CSV — want me to show you how?",
           target: "[data-guide='clients-table']",
           tour_id: "csv-import-feature",
@@ -469,8 +473,8 @@ export default function Home() {
 
   // SSE subscription — receives guidance_offer and guidance_start from the bridge
   useEffect(() => {
-    if (!sessionId) return;
-    const source = new EventSource(guidanceStreamUrl(sessionId));
+    if (!userId) return;
+    const source = new EventSource(guidanceStreamUrl(userId));
     source.addEventListener("guidance", (event) => {
       const payload = JSON.parse((event as MessageEvent).data) as GuidanceEvent;
       if (payload.type === "guidance_offer") {
@@ -481,7 +485,7 @@ export default function Home() {
       }
     });
     return () => source.close();
-  }, [sessionId]);
+  }, [userId]);
 
   // Shared close handler — checks count and fires popup on the 3rd close
   function closeAddClientModal() {
@@ -489,7 +493,7 @@ export default function Home() {
     if (addClientCountRef.current >= 3 && !proactiveOffer && guideStep === "idle") {
       setProactiveOffer({
         type: "guidance_offer",
-        session_id: sessionId,
+        user_id: userId,
         message: "Adding clients one by one? You can import them all at once with a CSV file — want me to show you how?",
         target: "[data-guide='clients-table']",
         tour_id: "csv-import-feature",
@@ -504,7 +508,7 @@ export default function Home() {
     addClientCountRef.current += 1;
     setAddClientOpen(true);
     try {
-      const result = await sendAddClientClick(sessionId, addClientCountRef.current);
+      const result = await sendAddClientClick(userId, addClientCountRef.current);
       if (result.pending_offer && result.offer) setOffer(result.offer);
     } catch {}
   }
@@ -535,7 +539,7 @@ export default function Home() {
     if (idleTimer.current) clearTimeout(idleTimer.current);
     setProactiveOffer(null);
     if (offer) {
-      await acceptInkeepOffer(sessionId, offer.id);
+      await acceptInkeepOffer(userId, offer.id);
     } else {
       setGuideStep("step1");
     }
@@ -758,7 +762,7 @@ export default function Home() {
           <button className="proactivePopup__x" onClick={() => setProactiveOffer(null)} aria-label="Dismiss">×</button>
           <div className="proactivePopup__header">
             <div className="proactivePopup__icon"><Bot size={13} /></div>
-            <strong>COPILOT</strong>
+            <strong>AGENT</strong>
           </div>
           <p className="proactivePopup__msg">{proactiveOffer.message}</p>
           <div className="proactivePopup__actions">
@@ -789,7 +793,6 @@ export default function Home() {
           </div>
           <div className="chatOverlay__body">
             <InkeepWidget
-              sessionId={sessionId}
               userId={userId}
               email={email}
               onStatusChange={() => {}}
@@ -823,7 +826,7 @@ async function handleAddClientOpen() {
   addClientCountRef.current += 1;       // always the latest value
   setAddClientOpen(true);
   try {
-    const result = await sendAddClientClick(sessionId, addClientCountRef.current);
+    const result = await sendAddClientClick(userId, addClientCountRef.current);
     if (result.pending_offer && result.offer) setOffer(result.offer);
   } catch {}                            // demo works even if bridge is down
 }
@@ -993,7 +996,6 @@ The `InkeepWidget` receives `chatOpen` and `contextMessage` as props:
 
 ```tsx
 <InkeepWidget
-  sessionId={sessionId}
   userId={userId}
   email={email}
   onStatusChange={() => {}}
@@ -1087,7 +1089,7 @@ useEffect(() => {
     idleTimer.current = setTimeout(() => {
       setProactiveOffer((cur) => cur ?? {
         type: "guidance_offer",
-        session_id: "",
+        user_id: userId,
         message: "Adding clients one by one? You can import multiple clients at once via CSV — want me to show you how?",
         target: "[data-guide='clients-table']",
         tour_id: "csv-import-feature",
@@ -1126,7 +1128,7 @@ pnpm --filter agents-api dev
 
 # Terminal 2 — Bridge
 cd nexus-crm/bridge
-uv run uvicorn main:app --reload --port 8787
+uv run uvicorn copilot_server:app --reload --port 8787
 
 # Terminal 3 — Frontend
 cd nexus-crm/frontend
@@ -1156,7 +1158,7 @@ Exercise the full flow:
 |---|---|
 | Popup never appears after 3 clicks | `closeAddClientModal` is not called on cancel — check that the overlay click handler and the Cancel button both call `closeAddClientModal` (not `setAddClientOpen(false)` directly). |
 | Popup appears but Show me does nothing | `handleShowMe` calls `acceptInkeepOffer` which hits `/inkeep/reply` — check bridge logs for 404 (no pending offer). Make sure the bridge received all three `client_add` actions. |
-| `guidance_start` SSE arrives but guide doesn't start | The SSE listener sets `guideStep = "step1"`. Check that the listener is mounted (i.e., `sessionId` is non-empty before subscribing). |
+| `guidance_start` SSE arrives but guide doesn't start | The SSE listener sets `guideStep = "step1"`. Check that the listener is mounted (i.e., `userId` is non-empty before subscribing). |
 | Chat opens but shows generic intro, not proactive message | `proactiveOffer` was cleared before `handleOpenChat` passed `contextMessage` to the widget. Move `setProactiveOffer(null)` to after the overlay is rendered, or capture the message in a ref before clearing. |
 | Idle popup fires too quickly | `IDLE_MS` is too low, or `resetIdle` is not being called by the right DOM events. Add `"touchstart"` if on mobile. |
 | Popup appears instantly on page load | `resetIdle()` is called in the `useEffect` body — the initial call starts the countdown immediately. This is correct. If you want to delay the first fire, only start the timer after the first user interaction. |
@@ -1176,7 +1178,7 @@ docker compose -f ~/inkeep-agents/docker-compose.yml up -d
 cd ~/inkeep-agents && pnpm --filter agents-api dev
 
 # Bridge
-cd nexus-crm/bridge && uv run uvicorn main:app --reload --port 8787
+cd nexus-crm/bridge && uv run uvicorn copilot_server:app --reload --port 8787
 
 # Frontend
 cd nexus-crm/frontend && npm run dev
@@ -1197,7 +1199,7 @@ Prompts are loaded per-conversation from the manage DB — no service restart ne
 To adjust the trigger threshold:
 
 ```python
-# bridge/main.py
+# bridge/copilot_server.py
 TRIGGER_WINDOW_SECONDS = 90   # look-back window
 EDIT_CLICK_THRESHOLD   = 3    # number of client_add actions before firing
 ```

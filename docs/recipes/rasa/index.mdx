@@ -1,7 +1,7 @@
 ---
 title: "Rasa tutorial"
 sidebarTitle: "Rasa tutorial"
-description: "Give your Rasa chatbot live awareness of what users are doing in your web app — using Autoplay's open SDK, fully self-hosted."
+description: "Give your Rasa support AI agent live awareness of what users are doing in your web app — using Autoplay's open SDK, fully self-hosted."
 icon: "/images/recipes/rasa/logo.png"
 ---
 
@@ -10,13 +10,13 @@ icon: "/images/recipes/rasa/logo.png"
 This tutorial shows you exactly how to wire it together using **Rasa 3.6** (open-source, self-hosted) and the **Autoplay SDK**. Everything stays on your infrastructure — your activity data, prompts, and LLM keys never leave it.
 
 **Who this is for:**
-- You already have (or are building) a Rasa-based chatbot for your product.
+- You already have (or are building) a Rasa-based support AI agent for your product.
 - You want it to give answers that adapt to where the user is in the UI, instead of canned responses.
 - You're comfortable with Python, Docker, and a small FastAPI service.
 
 **Tech you'll use:** Rasa 3.6 (Docker), Python 3.10+ (host), PostHog (free tier), the Autoplay event connector (hosted), and any LLM with an async Python client (OpenAI, Anthropic, Gemini, local — your choice).
 
-**SDK primitives you'll touch:** `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, `agent_state.v2.SessionState`, `ChatContextAssembly`, plus (in Step 2) `PredicateProactiveTrigger`, `ProactiveTriggerRegistry`, and `TourRegistry`. Each one is a single import; the SDK handles the heavy lifting (reconnects, backpressure, summarisation, prompt assembly, FSM transitions).
+**SDK primitives you'll touch:** a plain `httpx` GET against the Autoplay live-activity REST endpoint (no client class to import — it's just a URL, a Bearer token, and `product_id`/`user_id`), `agent_state.v2.SessionState`, `ChatContextAssembly`, plus (in Step 2) `PredicateProactiveTrigger`, `ProactiveTriggerRegistry`, and `TourRegistry`. The connector is pull-based, so there's no connection to manage — the bridge fetches a user's recent activity the moment it needs it, and the SDK still handles prompt assembly and FSM transitions.
 
 ## ✨ Final result
 
@@ -71,12 +71,12 @@ Before you start, you need:
 - **An Autoplay product ID.** If you already use PostHog, you can re-use your PostHog project id (the number after `/project/` in the URL) as your `product_id`. The tutorial covers running `onboard_product` to mint the rest of the credentials.
 - **Docker Desktop** — Rasa runs in a container; this also sidesteps TensorFlow ABI issues on Apple Silicon.
 - **Python 3.10+** on the host — for the small FastAPI bridge service.
-- **An OpenAI API key** (or any LLM provider with an async Python client) — the SDK's `AsyncSessionSummarizer` just takes an async `(str) -> str` callable, so swap in Anthropic, Gemini, Mistral, or a local model if you prefer.
+- **An OpenAI API key** (or any LLM provider with an async Python client) — the bridge calls it directly with a plain `(str) -> str` async function, so swap in Anthropic, Gemini, Mistral, or a local model if you prefer.
 
 That's all the setup. The rest of this tutorial walks through every code file step by step — copy-paste runnable.
 
 <Note>
-  **Why a separate "bridge" service?** Rasa runs in Docker and can't import Python objects from your host. The bridge is a small FastAPI service that owns the Autoplay SDK pipeline and exposes a tiny HTTP surface (`/reply/{user_id}`) that Rasa's action server calls when a user chats. This same pattern works for any cross-process chatbot — Botpress on-prem, LangChain services, Twilio webhooks — not just Rasa.
+  **Why a separate "bridge" service?** Rasa runs in Docker and can't import Python objects from your host. The bridge is a small FastAPI service that owns the Autoplay SDK pipeline and exposes a tiny HTTP surface (`/reply/{user_id}`) that Rasa's action server calls when a user chats. This same pattern works for any cross-process support AI agent — Botpress on-prem, LangChain services, Twilio webhooks — not just Rasa.
 </Note>
 
 ---
@@ -87,27 +87,22 @@ That's all the setup. The rest of this tutorial walks through every code file st
 ┌──────────────────┐   ┌──────────┐   ┌──────────┐
 │  Your web app    │──▶│ PostHog  │──▶│ Autoplay │
 │  + posthog-js    │   │ autoclick│   │ connector│
-│  + chat widget   │   │ + HogQL  │   │  (SSE)   │
-└────────▲─────────┘   └──────────┘   └─────┬────┘
-         │                                  │ SSE stream
-         │                                  ▼
-         │             ┌─────────────────────────────────────┐
+│  + chat widget   │   │ + HogQL  │   │ (pull API)│
+└────────▲─────────┘   └──────────┘   └─────▲────┘
+         │                                  │ GET .../live-activity
+         │                                  │ (on demand, no open connection)
+         │             ┌────────────────────┴────────────────┐
          │             │  bridge/  (autoplay-native, FastAPI)│
          │             │                                     │
-         │             │  AsyncConnectorClient               │
-         │             │       ↓ on_actions                  │
-         │             │  AsyncAgentContextWriter            │
-         │             │       ↓ summarises every N actions  │
-         │             │  AsyncSessionSummarizer (your LLM)  │
-         │             │       ↓                             │
-         │             │  AsyncContextStore                  │
-         │             │       ↓                             │
-         │             │  agent_state.v2.SessionState (FSM)  │
-         │             │                                     │
          │             │  GET /reply/{user_id}?query=…       │
-         │             │    → build_user_prompt_block        │
+         │             │    → httpx GET live-activity        │
+         │             │    → format actions as text         │
+         │             │    → ChatContextAssembly /          │
+         │             │      build_user_prompt_block         │
          │             │    → call your LLM                  │
          │             │    → return reply                   │
+         │             │                                     │
+         │             │  agent_state.v2.SessionState (FSM)  │
          │             └────────────────┬────────────────────┘
          │                              │ HTTP
          │                              │
@@ -117,13 +112,13 @@ That's all the setup. The rest of this tutorial walks through every code file st
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Four processes: your web app, a small Python bridge, Rasa, Rasa's action server. The bridge owns every SDK primitive; Rasa stays a thin chat surface that calls the bridge over HTTP.
+Four processes: your web app, a small Python bridge, Rasa, Rasa's action server. There is no persistent stream to manage — the bridge fetches a user's recent activity synchronously, at request time, over a stateless REST call. Rasa stays a thin chat surface that calls the bridge over HTTP.
 
 ---
 
 ## The tutorial
 
-1. **[Step 1 — Connect real-time events](./step-1-connect-real-time-events)** — Stream live user actions into a Rasa-aware bridge using the Autoplay SDK, expose them to Rasa over HTTP, and wire the chat widget. Reactive answers grounded in real activity. ~45 minutes.
+1. **[Step 1 — Connect real-time events](./step-1-connect-real-time-events)** — Pull a user's live activity on demand into a Rasa-aware bridge using the Autoplay SDK's REST read, expose it to Rasa over HTTP, and wire the chat widget. Reactive answers grounded in real activity. ~45 minutes.
 
 2. **[Step 2 — Define proactive triggers](./step-2-define-proactive-triggers)** — Make the bot proactive: notice when a user is on the slow path of a workflow and surface a toast with two CTAs — *Show me* (visual tour via Usertour) or *Open chat* (proactive bot message with an LLM-grounded auto-followup). Uses `PredicateProactiveTrigger`, `agent_state.v2.SessionState`, and `TourRegistry`. ~45 minutes.
 
