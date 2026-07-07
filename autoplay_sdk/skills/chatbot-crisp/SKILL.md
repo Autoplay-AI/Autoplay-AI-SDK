@@ -9,13 +9,13 @@ disable-model-invocation: true
 
 # Chatbot — Crisp AI
 
-> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+> Read `autoplay-core` first for install and credentials (`product_id`, `mcp_url`, `mcp_key`).
 
-## ⚠️ Session scoping — critical
+## Scoping pattern for Crisp
 
-Crisp conversations have a `session_id`. You must link the browser Autoplay `session_id` to the Crisp `conversation_id` before context can be delivered — see `autoplay-core` for the `conv_map` + `on_session_linked` pattern.
+Hugo (Crisp's AI agent) pulls a user's live activity on demand via an **Autoplay MCP server** connected in the Crisp dashboard — no webhook, no session-linking, no `conv_map`. The read is keyed by `product_id` + `user_id` only.
 
-Full tutorial coming soon. See the docs for current status.
+Push the user's stable id into the Crisp session via `$crisp.push(["set", "session:data", [[["user_id", currentUser.id]]]])` after login — it must exactly equal the id your activity source identifies the user with. See the full tutorial for the MCP server setup, tool description, and identity wiring.
 
 ## Reference
 
