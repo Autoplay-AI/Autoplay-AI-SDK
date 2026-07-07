@@ -1,7 +1,7 @@
 ---
 title: "Step 2 — Define proactive triggers"
 sidebarTitle: "Step 2 — Define proactive triggers"
-description: "Make your Rasa copilot proactive — detect when a user is using the slow path of a workflow and surface a toast with two CTAs: 'Show me' (visual tour via Usertour) and 'Open chat' (proactive bot message with an LLM-grounded follow-up)."
+description: "Make your Rasa support AI agent proactive — detect when a user is using the slow path of a workflow and surface a toast with two CTAs: 'Show me' (visual tour via Usertour) and 'Open chat' (proactive bot message with an LLM-grounded follow-up)."
 ---
 
 ### End-to-end walkthrough
@@ -28,15 +28,16 @@ Plan to spend ~45 minutes the first time through.
 **What you'll add to the Step 1 build:**
 
 1. **A custom proactive trigger** — `bulk_edit_opportunity`: 3+ "Save changes" clicks on the same list page within 120 seconds, where the user hasn't already discovered bulk-edit.
-2. **A periodic driver** — a small `ProactiveDriver` class that ticks every 10 seconds and gates each potential offer through `agent_state.v2.SessionState`.
-3. **A host-app toast surface** — an SSE endpoint on the bridge + a `<ProactiveToast />` component in your Next.js app.
-4. **Two CTAs on every toast** — *Show me* (Usertour flow) or *Open chat* (Rasa bubble + LLM auto-followup grounded by per-trigger ground-truth text).
-5. **FSM-driven tour state** — `SessionState.set_visual_guidance` and `record_tour_step` keep the bridge in sync during a tour.
+2. **A tiny "who's active" signal** — a `POST /track/{user_id}` the frontend fires on mount/pageview, so the driver knows which users to poll.
+3. **A periodic driver** — a small `ProactiveDriver` class that ticks every 10 seconds, pulls each active user's recent activity over REST, and gates each potential offer through `agent_state.v2.SessionState` (now keyed by `user_id`).
+4. **A host-app toast surface** — an SSE endpoint on the bridge + a `<ProactiveToast />` component in your Next.js app.
+5. **Two CTAs on every toast** — *Show me* (Usertour flow) or *Open chat* (Rasa bubble + LLM auto-followup grounded by per-trigger ground-truth text).
+6. **FSM-driven tour state** — `SessionState.set_visual_guidance` and `record_tour_step` keep the bridge in sync during a tour.
 
 **The runtime loop:**
 
 ```
-PostHog events ──► Bridge (Step 1 pipeline + new ProactiveDriver)
+PostHog events ──► Autoplay connector ──► Bridge polls via REST (new ProactiveDriver)
                      │
                      ▼
                 Trigger fires → SSE → Toast appears (chat still closed)
@@ -64,13 +65,17 @@ PostHog events ──► Bridge (Step 1 pipeline + new ProactiveDriver)
 
 This page picks up exactly where Step 1 left off. From Step 1 you should already have:
 
-- **`bridge/copilot_server.py`** running on `:8090` with `AsyncConnectorClient`, `AsyncContextStore`, `AsyncSessionSummarizer`, `AsyncAgentContextWriter`, and `SessionState` wired together
-- **`_user_sessions`, `_session_product`, `_session_states`** dicts populated by `on_actions`
-- **`_session_state(session_id)`** factory returning a `SessionState(interaction_timeout_s=10.0, cooldown_period_s=20.0)` *(short demo values; production should use ~60s / ~120s)*
+- **`bridge/copilot_server.py`** running on `:8090` with `fetch_recent_activity_raw` / `fetch_recent_activity_text` (the REST live-activity pull) and `SessionState` wired together
+- **`_user_states`, `_user_emails`** dicts — note there's no session index anymore; everything the bridge tracks is already keyed by `user_id`
+- **`_user_state(user_id)`** factory returning a `SessionState(session_id=user_id, interaction_timeout_s=10.0, cooldown_period_s=20.0)` *(short demo values; production should use ~60s / ~120s)*
 - **`rasa-bot/`** with the Step 1 `domain.yml`, `data/*.yml`, and `actions/actions.py`
 - **`app/posthog-provider.js`, `app/rasa-widget.js`** mounted in `app/layout.js`
 
 The code blocks below extend those files — they don't replace them.
+
+<Note>
+  **What's different from the old build.** Step 1 no longer accumulates actions locally — there's no `on_actions` callback and no `context_store` to reach into. This step's driver instead needs to know *which users are currently active* (Step 2 below adds a tiny `/track/{user_id}` endpoint for that) and pulls each one's raw actions from the REST endpoint on every tick, instead of reading them out of a local buffer. Everything else — the trigger predicate, the FSM, the toast, the tour — is unchanged; only where the raw actions come from is different.
+</Note>
 
 ### Frontend prerequisites (the UI the toast and tour will target)
 
@@ -113,8 +118,10 @@ across pages and time (3+ Save-changes clicks within a short window) that
 no single page or `setTimeout` could catch.
 
 Delivery contract: the caller passes an async
-`deliver(session_id, user_id, ProactiveTriggerResult)` coroutine that the
-driver invokes when the trigger fires AND the FSM allows it.
+`deliver(user_id, ProactiveTriggerResult)` coroutine that the
+driver invokes when the trigger fires AND the FSM allows it. There is no
+`session_id` in this contract — the REST live-activity read has no session
+concept, so everything here is scoped by `user_id` alone.
 """
 
 from __future__ import annotations
@@ -283,27 +290,27 @@ Add this to the bottom of `proactive.py`:
 # Tick driver
 # ---------------------------------------------------------------------------
 
-DeliverFn = Callable[[str, str, ProactiveTriggerResult], Awaitable[None]]
-SessionContextFn = Callable[[str, str], ProactiveTriggerContext | None]
-SessionStateFn = Callable[[str], SessionState]
-UserSessionsFn = Callable[[], Iterable[tuple[str, str]]]
+DeliverFn = Callable[[str, ProactiveTriggerResult], Awaitable[None]]
+UserContextFn = Callable[[str], Awaitable[ProactiveTriggerContext | None]]
+UserStateFn = Callable[[str], SessionState]
+ActiveUsersFn = Callable[[], Iterable[str]]
 
 
 class ProactiveDriver:
-    """Periodic tick loop that walks tracked sessions and fires triggers."""
+    """Periodic tick loop that walks currently-active users and fires triggers."""
 
     def __init__(
         self,
         *,
         registry: ProactiveTriggerRegistry,
-        get_sessions: UserSessionsFn,
-        get_context: SessionContextFn,
-        get_state: SessionStateFn,
+        get_active_users: ActiveUsersFn,
+        get_context: UserContextFn,
+        get_state: UserStateFn,
         deliver: DeliverFn,
         poll_seconds: float = 10.0,
     ) -> None:
         self._registry = registry
-        self._get_sessions = get_sessions
+        self._get_active_users = get_active_users
         self._get_context = get_context
         self._get_state = get_state
         self._deliver = deliver
@@ -312,12 +319,14 @@ class ProactiveDriver:
         self._running = False
 
     async def _tick_once(self) -> None:
-        for user_id, session_id in self._get_sessions():
+        for user_id in list(self._get_active_users()):
             try:
-                state = self._get_state(session_id)
+                state = self._get_state(user_id)
                 state.tick()  # auto-exit PROACTIVE/REACTIVE on timeout
 
-                ctx = self._get_context(user_id, session_id)
+                # This is the one line that changed from a local-buffer read
+                # to a network call — everything below it is untouched.
+                ctx = await self._get_context(user_id)
                 if ctx is None:
                     continue
 
@@ -333,15 +342,12 @@ class ProactiveDriver:
                     continue  # cooldown blocked it
 
                 log.info(
-                    "proactive: firing session=%s user=%s trigger=%s",
-                    session_id, user_id, result.trigger_id,
+                    "proactive: firing user=%s trigger=%s",
+                    user_id, result.trigger_id,
                 )
-                await self._deliver(session_id, user_id, result)
+                await self._deliver(user_id, result)
             except Exception:
-                log.exception(
-                    "proactive: tick failed session=%s user=%s",
-                    session_id, user_id,
-                )
+                log.exception("proactive: tick failed user=%s", user_id)
 
     async def _loop(self) -> None:
         log.info("proactive: driver started (poll=%.1fs)", self._poll_seconds)
@@ -385,7 +391,11 @@ Extend `bridge/copilot_server.py` from Step 1. Six additions.
 
 ```python
 # Add to the imports at the top:
-from autoplay_sdk.context.context_store import actions_bucket_id
+import time
+from contextlib import asynccontextmanager
+
+from autoplay_sdk import SlimAction
+from autoplay_sdk.agent_state.v2.states import AgentStateV2
 from autoplay_sdk.proactive.triggers import (
     ProactiveTriggerContext,
     ProactiveTriggerResult,
@@ -400,40 +410,63 @@ from proactive import ProactiveDriver, build_registry
 
 PROACTIVE_POLL_S = float(os.environ.get("PROACTIVE_POLL_S", "10"))
 RASA_URL = os.environ.get("RASA_URL", "http://localhost:5005")
+ACTIVE_USER_TTL_S = float(os.environ.get("ACTIVE_USER_TTL_S", "180"))
 ```
 
-### 3b. Build a `ProactiveTriggerContext` from `AsyncContextStore`
+### 3b. Track active users, then build a `ProactiveTriggerContext` from the REST pull
 
-Add these helpers near the bottom of the file, before the FastAPI route handlers.
+The old build only had to look at sessions it already knew about — `AsyncContextStore` filled itself in from the SSE push. The pull model flips this: nothing arrives unless the bridge asks, so it first needs to know **which users are worth asking about**. A tiny endpoint the frontend pings on mount/pageview covers that; the driver then polls each one over the REST endpoint from Step 1.
+
+Add these near the bottom of the file, before the FastAPI route handlers.
 
 <AccordionGroup>
-<Accordion title="copilot_server.py — proactive context helpers (expand to copy)">
+<Accordion title="copilot_server.py — active-user tracking + proactive context (expand to copy)">
 ```python
-def _get_proactive_sessions():
-    """Yield (user_id, latest_session_id) for every tracked user."""
-    for user_id, sessions in _user_sessions.items():
-        if not sessions:
-            continue
-        latest_session_id, _ts = sorted(sessions, key=lambda x: -x[1])[0]
-        yield user_id, latest_session_id
+_active_users: dict[str, float] = {}  # user_id -> last-seen unix timestamp
 
 
-def _get_proactive_context(
-    user_id: str, session_id: str,
-) -> ProactiveTriggerContext | None:
-    """Build a ProactiveTriggerContext from the SDK's AsyncContextStore."""
-    product_id = _session_product.get(session_id, "")
-    key = actions_bucket_id(product_id, session_id)
-    payloads = context_store._actions.get(key)  # noqa: SLF001
-    if not payloads:
+def _touch_active_user(user_id: str) -> None:
+    if user_id:
+        _active_users[user_id] = time.time()
+
+
+def _get_active_users() -> list[str]:
+    """Users seen recently enough to be worth polling. Called once per tick."""
+    cutoff = time.time() - ACTIVE_USER_TTL_S
+    stale = [uid for uid, ts in _active_users.items() if ts < cutoff]
+    for uid in stale:
+        _active_users.pop(uid, None)
+    return list(_active_users)
+
+
+@app.post("/track/{user_id}")
+async def track_user(user_id: str) -> dict[str, str]:
+    """Fire-and-forget signal from the frontend: "this user is on the page
+    right now." The proactive driver only evaluates users who've pinged
+    this recently — without it there's nothing to iterate over. Call it
+    once on mount/pageview, alongside `posthog.identify()` (Step 4)."""
+    _touch_active_user(user_id)
+    return {"status": "ok"}
+
+
+async def _get_proactive_context(user_id: str) -> ProactiveTriggerContext | None:
+    """Build a ProactiveTriggerContext from the REST live-activity pull —
+    the on-demand equivalent of reaching into the old AsyncContextStore
+    buffer. `SlimAction.from_dict` accepts the endpoint's JSON shape
+    directly (title/description/canonical_url/index/type/timestamp_start/
+    timestamp_end all match the wire format)."""
+    raw_actions = await fetch_recent_activity_raw(user_id)
+    if not raw_actions:
         return None
-    slim_actions = tuple(a for p in payloads for a in p.actions)
-    if not slim_actions:
-        return None
+    slim_actions = tuple(SlimAction.from_dict(a) for a in raw_actions)
     return ProactiveTriggerContext.from_slim_actions(
         slim_actions,
-        session_id=session_id,
-        product_id=product_id or "demo",
+        # No session concept in the REST read — ProactiveTriggerContext
+        # still wants a non-empty `session_id` for its scope check, so we
+        # reuse user_id there. It's just a scope string now, not a real
+        # session identifier.
+        session_id=user_id,
+        product_id=PRODUCT_ID,
         action_count=len(slim_actions),
     )
 ```
@@ -441,7 +474,7 @@ def _get_proactive_context(
 </AccordionGroup>
 
 <Note>
-  Reaching into `context_store._actions` is the only way to get raw `SlimAction` instances back out for trigger evaluation — the public `get()` method returns formatted prompt text. A public `AsyncContextStore.get_actions(session_id, product_id)` helper has been raised with the SDK team as upstream feedback.
+  **Why `session_id=user_id`.** `ProactiveTriggerContext.from_slim_actions` validates scope with `ScopePolicy.STRICT` by default, which requires a non-empty `product_id` *and* `session_id`. Since the REST read has no session concept, reusing `user_id` there satisfies the check without inventing a fake session. `SlimAction.from_dict` also accepts (and ignores) fields it doesn't recognise, and defaults `session_id`/`user_id`/`email` on the action itself to `None` — none of which the predicate in Step 1 reads.
 </Note>
 
 ### 3c. Per-user SSE fan-out (the delivery channel)
@@ -554,30 +587,29 @@ _TRIGGER_HOW_TO: dict[str, str] = {
 <Accordion title="copilot_server.py — _deliver_to_app (expand to copy)">
 ```python
 async def _deliver_to_app(
-    session_id: str, user_id: str, result: ProactiveTriggerResult,
+    user_id: str, result: ProactiveTriggerResult,
 ) -> None:
     """Push a proactive message straight to the host app via SSE.
     Rasa is intentionally NOT in this path — proactive UX is owned by the
     app shell, not the chat vendor."""
-    current_page = _current_page_hint(user_id)  # defined in Step 8
+    current_page = await _current_page_hint(user_id)  # defined in Step 8
     event = {
         "trigger_id": result.trigger_id,
         "body": _PROACTIVE_MESSAGES.get(result.trigger_id, result.body),
-        "session_id": session_id,
         "tours": _tour_payload_for_trigger(result.trigger_id, current_page),  # Step 7
     }
     delivered = _publish_proactive(user_id, event)
     log.info(
-        "proactive: published session=%s user=%s trigger=%s subscribers=%d",
-        session_id, user_id, result.trigger_id, delivered,
+        "proactive: published user=%s trigger=%s subscribers=%d",
+        user_id, result.trigger_id, delivered,
     )
 ```
 </Accordion>
 </AccordionGroup>
 
-### 3f. Start the driver in the lifespan
+### 3f. Start the driver in a `lifespan`
 
-Extend your `lifespan` from Step 1 to start the driver alongside the connector client.
+Step 1's bridge has no `lifespan` — there was nothing to open or close. The proactive driver needs one, purely to start/stop its background polling task. Add it, then point `app = FastAPI(...)` at it.
 
 <AccordionGroup>
 <Accordion title="copilot_server.py — lifespan with driver (expand to copy)">
@@ -586,18 +618,13 @@ _proactive: ProactiveDriver | None = None
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global _stream_task, _client, _proactive
-
-    _client = AsyncConnectorClient(url=STREAM_URL, token=UNKEY_TOKEN)
-    _client.on_actions(on_actions)
-    _stream_task = _client.run_in_background()
-    log.info("autoplay stream listening on %s", STREAM_URL)
+    global _proactive
 
     _proactive = ProactiveDriver(
         registry=build_registry(),
-        get_sessions=_get_proactive_sessions,
+        get_active_users=_get_active_users,
         get_context=_get_proactive_context,
-        get_state=_session_state,
+        get_state=_user_state,
         deliver=_deliver_to_app,
         poll_seconds=PROACTIVE_POLL_S,
     )
@@ -608,16 +635,15 @@ async def lifespan(_: FastAPI):
     finally:
         if _proactive is not None:
             await _proactive.stop()
-        if _client is not None:
-            _client.stop()
-        if _stream_task is not None:
-            try:
-                await asyncio.wait_for(_stream_task, timeout=5)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pass
 ```
 </Accordion>
 </AccordionGroup>
+
+Go back to the `app = FastAPI(title="Autoplay × Rasa bridge")` line from Step 1 and wire it up:
+
+```python
+app = FastAPI(title="Autoplay × Rasa bridge", lifespan=lifespan)
+```
 
 Restart the bridge. The startup log should show:
 
@@ -631,7 +657,7 @@ INFO copilot.proactive: proactive: driver started (poll=10.0s)
 
 `<Link>` navigations in Next.js use `pushState` and **don't** fire automatic `$pageview` events. Without manual capture, the bridge never learns the user is on `/projects` — your predicate looks for `/projects` in `canonical_url` and finds nothing.
 
-Two more tweaks: disable PostHog client-side batching (so events ship immediately, not on a 30s window), and capture pageleave too.
+Two more tweaks: disable PostHog client-side batching (so events ship immediately, not on a 30s window), and capture pageleave too. We also add the `/track/{user_id}` ping from Step 3b here — it's the signal that tells the bridge's `ProactiveDriver` this user exists to poll.
 
 Update `app/posthog-provider.js`:
 
@@ -643,6 +669,19 @@ Update `app/posthog-provider.js`:
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
+
+const BRIDGE_URL =
+  process.env.NEXT_PUBLIC_BRIDGE_URL || "http://localhost:8090";
+const USER_ID = "demo-user-1"; // same id passed to posthog.identify() below
+
+function trackActive() {
+  // Fire-and-forget — tells the bridge's ProactiveDriver this user is
+  // currently active, so it's included in the next poll tick (Step 3b).
+  fetch(`${BRIDGE_URL}/track/${encodeURIComponent(USER_ID)}`, {
+    method: "POST",
+    keepalive: true,
+  }).catch(() => {});
+}
 
 export default function PostHogProvider({ children }) {
   const pathname = usePathname();
@@ -663,17 +702,20 @@ export default function PostHogProvider({ children }) {
       // batching on.
       request_batching: false,
       loaded: (ph) => {
-        ph.identify("USER_ID_FROM_YOUR_AUTH", {
+        ph.identify(USER_ID, {
           product_id: "YOUR_AUTOPLAY_PRODUCT_ID",
           email: "user@theirdomain.com",
         });
         ph.register({ email: "user@theirdomain.com" });
+        trackActive();
       },
     });
   }, []);
 
   // Fire $pageview on every route change so canonical_url reflects where
-  // the user actually is — not where they last clicked.
+  // the user actually is — not where they last clicked. Also re-touch the
+  // active-user signal so a long-lived tab doesn't age out of
+  // ACTIVE_USER_TTL_S between polls.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const qs = searchParams?.toString();
@@ -681,6 +723,7 @@ export default function PostHogProvider({ children }) {
     posthog.capture("$pageview", {
       $current_url: window.location.origin + url,
     });
+    trackActive();
   }, [pathname, searchParams]);
 
   return children;
@@ -691,6 +734,10 @@ export default function PostHogProvider({ children }) {
 
 <Warning>
   Without the SPA pageview hook your trigger predicate looks for `/projects` in `canonical_url` and finds nothing. PostHog only auto-fires the initial pageview on first load, never on subsequent client-side navigations.
+</Warning>
+
+<Warning>
+  **Without the `/track/{user_id}` calls, the toast never fires — even with activity flowing.** The driver only polls users returned by `_get_active_users()`; a user who's never pinged `/track` is invisible to it, no matter how much activity the connector has recorded for them.
 </Warning>
 
 <Warning>
@@ -943,7 +990,7 @@ async def _llm_reply(user_id: str, query: str) -> str:
     """Same prompt-assembly + OpenAI call /reply uses, reusable so the
     proactive follow-up can synthesise a contextual answer without a
     second HTTP hop."""
-    assembly = _build_assembly(user_id, query)
+    assembly = await _build_assembly(user_id, query)
     user_prompt = build_user_prompt_block(assembly)
     name = _name_from_email(_user_emails.get(user_id))
     sys_prompt = SYSTEM_PROMPT + (
@@ -1121,21 +1168,11 @@ export default function RasaWidget() {
 
 ### 6d. Bridge — also call `_mark_reactive` on `/reply`
 
-In Step 1's `/reply` endpoint, add a single call that flips the FSM into `REACTIVE` for the user's session whenever they send a chat message. This prevents new proactive triggers from interrupting mid-conversation.
+In Step 1's `/reply` endpoint, add a single call that flips the FSM into `REACTIVE` for the user whenever they send a chat message. This prevents new proactive triggers from interrupting mid-conversation. Since the FSM is keyed by `user_id` directly (Step 1, section 2c), this no longer needs a session lookup first.
 
 <AccordionGroup>
-<Accordion title="copilot_server.py — _latest_session_for_user + _mark_reactive (expand to copy)">
+<Accordion title="copilot_server.py — _mark_reactive (expand to copy)">
 ```python
-def _latest_session_for_user(user_id: str) -> str | None:
-    """Most-recent session for this user — used by _mark_reactive (below)
-    and by the tour-lifecycle endpoints in Step 7."""
-    sessions = _user_sessions.get(user_id) or []
-    if not sessions:
-        return None
-    session_id, _ts = sorted(sessions, key=lambda x: -x[1])[0]
-    return session_id
-
-
 def _mark_reactive(user_id: str) -> None:
     """Tell the FSM the user just sent a chat message.
 
@@ -1145,10 +1182,7 @@ def _mark_reactive(user_id: str) -> None:
       - `record_user_interaction()` resets `interaction_timeout_s` so
         the FSM doesn't drift back to THINKING mid-conversation.
     """
-    session_id = _latest_session_for_user(user_id)
-    if not session_id:
-        return
-    state = _session_state(session_id)
+    state = _user_state(user_id)
     try:
         if state.current_state == AgentStateV2.THINKING:
             state.transition_to_reactive()
@@ -1161,7 +1195,7 @@ def _mark_reactive(user_id: str) -> None:
 
 
 @app.get("/reply/{user_id}")
-async def get_reply(user_id: str, query: str) -> dict[str, Any]:
+async def get_reply(user_id: str, query: str, email: str | None = None) -> dict[str, Any]:
     if not query:
         raise HTTPException(status_code=400, detail="query required")
     _mark_reactive(user_id)   # ← new
@@ -1169,6 +1203,10 @@ async def get_reply(user_id: str, query: str) -> dict[str, Any]:
 ```
 </Accordion>
 </AccordionGroup>
+
+<Note>
+  **Simpler than the old build.** There's no `_latest_session_for_user` step anymore — the old version had to look up "which session is this user's most recent one" before it could find the right `SessionState`, because the FSM was keyed by `session_id`. Now the FSM is keyed by `user_id` directly, so `_mark_reactive` (and the tour endpoints in Step 7) go straight to `_user_state(user_id)`.
+</Note>
 
 <Warning>
   **The Rasa session ID lives in sessionStorage**, keyed by `chat_session` → `session_id`. That's the value Rasa's SocketIO channel uses as `sender_id` — different from your auth user ID. If you pass your auth user ID to `trigger_intent`, the call returns 200 OK but the message never reaches the widget.
@@ -1358,17 +1396,13 @@ async def tour_start(payload: dict) -> dict[str, Any]:
     if tour_def is None or not tour_def.user_tour_id:
         raise HTTPException(404, f"unknown tour {tour_id}")
 
-    session_id = _latest_session_for_user(user_id)
-    if session_id:
-        state = _session_state(session_id)
-        try:
-            state.set_visual_guidance(active=True, tour_id=tour_id)
-            log.info("tour: started user=%s tour=%s flow=%s session=%s",
-                     user_id, tour_id, tour_def.user_tour_id, session_id)
-        except Exception as exc:
-            log.warning("tour: set_visual_guidance failed: %s", exc)
-    else:
-        log.warning("tour: no session for user=%s", user_id)
+    state = _user_state(user_id)
+    try:
+        state.set_visual_guidance(active=True, tour_id=tour_id)
+        log.info("tour: started user=%s tour=%s flow=%s",
+                 user_id, tour_id, tour_def.user_tour_id)
+    except Exception as exc:
+        log.warning("tour: set_visual_guidance failed: %s", exc)
 
     return {"status": "ok", "flow_id": tour_def.user_tour_id, "tour_id": tour_id}
 
@@ -1378,10 +1412,9 @@ async def tour_step(payload: dict) -> dict[str, str]:
     """Frontend pings here on each tour step so the FSM's interaction timer
     keeps resetting and proactive triggers stay gated."""
     user_id = str(payload.get("user_id") or "")
-    session_id = _latest_session_for_user(user_id)
-    if session_id is None:
-        return {"status": "no_session"}
-    state = _session_state(session_id)
+    if not user_id:
+        return {"status": "no_user"}
+    state = _user_state(user_id)
     try:
         state.record_tour_step()
     except Exception as exc:
@@ -1393,19 +1426,22 @@ async def tour_step(payload: dict) -> dict[str, str]:
 async def tour_end(payload: dict) -> dict[str, str]:
     """Tour completed or dismissed — clear the visual-guidance flag."""
     user_id = str(payload.get("user_id") or "")
-    session_id = _latest_session_for_user(user_id)
-    if session_id is None:
-        return {"status": "no_session"}
-    state = _session_state(session_id)
+    if not user_id:
+        return {"status": "no_user"}
+    state = _user_state(user_id)
     try:
         state.set_visual_guidance(active=False)
-        log.info("tour: ended user=%s session=%s", user_id, session_id)
+        log.info("tour: ended user=%s", user_id)
     except Exception as exc:
         log.warning("tour: set_visual_guidance(end) failed: %s", exc)
     return {"status": "ok"}
 ```
 </Accordion>
 </AccordionGroup>
+
+<Note>
+  **No more "no_session" case.** `_user_state(user_id)` lazily creates a `SessionState` the first time it's asked for a given user (Step 1, section 2c), so there's no longer a way to have a `user_id` with no matching state to look up.
+</Note>
 
 ### 7d. Frontend — `startTour` helper
 
@@ -1469,46 +1505,33 @@ Add this helper to `copilot_server.py`:
 <AccordionGroup>
 <Accordion title="copilot_server.py — _current_page_hint (expand to copy)">
 ```python
-def _current_page_hint(user_id: str) -> str | None:
-    """Latest URL the user is on — picked by `timestamp_start`, not array order.
-
-    PostHog batches don't always arrive in chronological order, so the last
-    element in a payload is not necessarily the most recent action. We scan
-    all actions across all payloads and pick the one with the largest
-    `timestamp_start`.
+async def _current_page_hint(user_id: str) -> str | None:
+    """Latest URL the user is on — picked by `timestamp_start`, not array
+    order. Reuses the same REST pull `_get_proactive_context` uses; if
+    you're calling both for the same tick, consider fetching once and
+    passing the raw actions to both instead of two REST round-trips.
     """
-    sessions = _user_sessions.get(user_id) or []
-    latest_action = None
+    actions = await fetch_recent_activity_raw(user_id)
+    latest_url = None
     latest_ts = float("-inf")
-    for session_id, _ts in sorted(sessions, key=lambda x: -x[1]):
-        product_id = _session_product.get(session_id)
-        key = actions_bucket_id(product_id, session_id)
-        bucket = context_store._actions.get(key)  # noqa: SLF001
-        if not bucket:
+    for action in actions:
+        url = action.get("canonical_url")
+        if not url:
             continue
-        for payload in bucket:
-            for action in payload.actions:
-                if not action.canonical_url:
-                    continue
-                try:
-                    ts = (
-                        float(action.timestamp_start)
-                        if action.timestamp_start else 0.0
-                    )
-                except (TypeError, ValueError):
-                    ts = 0.0
-                if ts > latest_ts:
-                    latest_ts = ts
-                    latest_action = action
-        if latest_action is not None:
-            break  # most-recent session has actions; don't fall through
-    return latest_action.canonical_url if latest_action else None
+        try:
+            ts = float(action.get("timestamp_start") or 0.0)
+        except (TypeError, ValueError):
+            ts = 0.0
+        if ts > latest_ts:
+            latest_ts = ts
+            latest_url = url
+    return latest_url
 ```
 </Accordion>
 </AccordionGroup>
 
 <Warning>
-  **`reversed(actions)` is not the same as "most recent."** PostHog batches don't always arrive in chronological order — the last element in a payload can be older than items earlier in the same batch. Always pick by `timestamp_start` if you need the actual latest action.
+  **Array order is not the same as "most recent."** The live-activity endpoint documents oldest → newest ordering, but don't hard-code an assumption on top of an assumption — pick explicitly by `timestamp_start` so a future ordering change (or a client that doesn't guarantee it) can't silently point the tour at a stale page.
 </Warning>
 
 ---
@@ -1529,8 +1552,8 @@ def _current_page_hint(user_id: str) -> str | None:
 In the bridge log you should see, in order:
 
 ```
-INFO copilot.proactive: proactive: firing   session=… user=demo-user-1 trigger=bulk_edit_opportunity
-INFO copilot:           proactive: published session=… user=demo-user-1 trigger=bulk_edit_opportunity subscribers=1
+INFO copilot.proactive: proactive: firing   user=demo-user-1 trigger=bulk_edit_opportunity
+INFO copilot:           proactive: published user=demo-user-1 trigger=bulk_edit_opportunity subscribers=1
 INFO copilot:           tour: started user=demo-user-1 tour=projects-bulk-edit flow=…       ← if user clicked "Show me"
 INFO copilot:           proactive: injected question sender=…                              ← if user clicked "Open chat"
 INFO copilot:           proactive: injected followup sender=…                              ← LLM auto-followup landed
@@ -1542,12 +1565,14 @@ INFO copilot:           proactive: injected followup sender=…                 
 
 | Symptom | Likely cause |
 |---|---|
+| Toast never fires, and the bridge never even logs a tick for this user | The user never pinged `/track/{user_id}` — check Step 4's `trackActive()` is wired into both `loaded` and the pageview effect, and that it's reaching the bridge (Network tab). |
 | Toast never fires, FSM stays in `THINKING` | Predicate is returning `False`. Add a debug log in the predicate and check `recent_actions` — likely no `/projects` URL (missing SPA pageview hook from Step 4), or fewer than 3 "Save changes" titles within 120s, or the user already clicked Bulk edit / Apply earlier in the session. |
+| Bridge logs `live-activity fetch 401/timeout` during proactive ticks | Same `MCP_KEY` / `CONNECTOR_URL` misconfiguration as Step 1 — the driver uses the same `fetch_recent_activity_raw` the `/reply` endpoint does. |
 | Trigger fires on every page after the user visits `/projects` once | Predicate doesn't gate on *current* page. The recipe's predicate has the "latest action by timestamp must be a `/projects` page-view" guard — make sure it's still there. |
 | `InvalidTransitionError` from `transition_to_proactive` in the log | Missing `if state.current_state != AgentStateV2.THINKING: continue` before the transition call. |
 | Toast UI doesn't appear but `published subscribers=N>0` is logged | Frontend SSE connection dropped — check Network tab for the `/proactive/stream/{user_id}` request. |
 | Toast UI doesn't appear and `subscribers=0` | No tab is open with the demo app. Open one. |
-| `Open chat` works but no bot bubble appears | Wrong `sender_id` — read `sessionStorage.chat_session.session_id`, not the auth user ID. |
+| `Open chat` works but no bot bubble appears | Wrong `sender_id` — read `sessionStorage.chat_session.session_id` (the Rasa/SocketIO chat session, unrelated to Autoplay activity), not the auth user ID. |
 | `Open chat` works but the auto-followup is generic / hallucinated | Missing or empty `_TRIGGER_HOW_TO` entry for the trigger. Add the authoritative steps; restart the bridge. |
 | `Show me` button doesn't appear on the toast | Tour-gating filtered it out — `_current_page_hint` returned something that didn't contain `/projects`. |
 | Usertour spotlight ignores clicks on the kebab | The Lucide / Heroicon SVG inside the button has `pointer-events` enabled. Add `className="pointer-events-none"` to the icon. |
@@ -1577,10 +1602,11 @@ Same restart rules as Step 1: `docker compose restart action-server` after `acti
 
 ## What you've built
 
-You now have a Rasa chatbot that goes proactive *and* visual — driven by the SDK's trigger registry, gated by `agent_state.v2.SessionState`, surfaced through a host-app toast that gives the user a real choice between *show me* and *tell me*.
+You now have a Rasa support AI agent that goes proactive *and* visual — driven by the SDK's trigger registry, gated by `agent_state.v2.SessionState`, surfaced through a host-app toast that gives the user a real choice between *show me* and *tell me*.
 
 A few things worth noting:
 
+- **The driver polls instead of listening.** With a pull-based connector there's no push to react to, so the `ProactiveDriver` asks each active user's activity on a timer instead. Everything downstream — the predicate, the FSM, the toast, the tour — is exactly the same shape it would be with a push source.
 - **The toast is owned by your app, not the chat vendor.** That's the only architecture that lets proactive nudges appear when the chat widget is closed — which is the only state most users spend their time in.
 - **Triggers are just predicates.** `bulk_edit_opportunity` is one rule; you can compose dozens. The SDK ships built-ins for common signals (`canonical_url_ping_pong`, `user_page_dwell`, `section_playbook_match`) — combine them in your registry.
 - **The visual layer is yours.** Usertour is one option among many ([Userpilot](/recipes/userpilot/how-to-setup), [Chameleon](/recipes/chameleon/how-to-setup), [Userflow](/recipes/userflow/how-to-setup), [Pendo](/recipes/pendo/how-to-setup), [UserGuiding](/recipes/userguiding/how-to-setup), [Told](/recipes/told/how-to-setup)). The SDK gives you the state and the trigger; the renderer is plug-in.

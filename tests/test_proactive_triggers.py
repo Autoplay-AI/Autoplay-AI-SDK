@@ -54,8 +54,129 @@ def test_canonical_ping_pong_trigger_returns_result_when_firing() -> None:
 
 def test_canonical_ping_pong_trigger_returns_none_when_no_fire() -> None:
     t = CanonicalPingPongTrigger()
+    # /a, /b, /c is monotonic forward — no return to a prior URL, no
+    # cycle. Stays False even with the broader hesitation predicate
+    # added (3 distinct, 0 repeats → hesitation predicate False too).
     ctx = ProactiveTriggerContext(canonical_urls=["/a", "/b", "/c"])
     assert t.evaluate(ctx) is None
+
+
+def test_canonical_ping_pong_trigger_fires_on_broad_hesitation_pattern() -> None:
+    """/a/b/c/a — user tried 3 pages then returned to /a.
+
+    Strict ping-pong misses this (no overlapping (a, b, a) triple), but the
+    broader hesitation predicate (≥3 distinct + ≥1 revisit) catches it.
+    """
+    t = CanonicalPingPongTrigger()
+    ctx = ProactiveTriggerContext(canonical_urls=["/a", "/b", "/c", "/a"])
+    r = t.evaluate(ctx)
+    assert r is not None
+    # Metadata must label which heuristic matched so downstream tooling
+    # can tell apart "user bounced between two pages" vs "user searched
+    # then returned" without re-running the predicates.
+    assert "hesitation_distinct_with_revisit" in r.metadata["matched"]
+    assert "strict_ping_pong" not in r.metadata["matched"]
+
+
+def test_canonical_ping_pong_trigger_both_heuristics_match_label_both() -> None:
+    """A→B→A is strict; A→B→A also satisfies broaden only with extras.
+
+    For a single A→B→A sequence (2 distinct, 1 revisit) the broader
+    predicate's default min_distinct=3 prevents a double-match — only
+    strict fires. The dual-label case requires a sequence that satisfies
+    BOTH predicates, e.g. /a /b /a /c /a (strict A→B→A holds; broad has
+    3 distinct + 1 revisit).
+    """
+    t = CanonicalPingPongTrigger()
+    ctx = ProactiveTriggerContext(canonical_urls=["/a", "/b", "/a", "/c", "/a"])
+    r = t.evaluate(ctx)
+    assert r is not None
+    assert "strict_ping_pong" in r.metadata["matched"]
+    assert "hesitation_distinct_with_revisit" in r.metadata["matched"]
+
+
+def test_canonical_ping_pong_trigger_does_not_fire_on_pure_exploration() -> None:
+    """5 distinct URLs forward, zero revisits — that's exploration, not hesitation."""
+    t = CanonicalPingPongTrigger()
+    ctx = ProactiveTriggerContext(canonical_urls=["/a", "/b", "/c", "/d", "/e"])
+    assert t.evaluate(ctx) is None
+
+
+def test_canonical_ping_pong_trigger_broaden_disabled_restores_legacy_behaviour() -> (
+    None
+):
+    """Opt-out: caller sets broaden_with_hesitation=False → only strict fires."""
+    t = CanonicalPingPongTrigger(broaden_with_hesitation=False)
+    # Hesitation pattern: 3 distinct + 1 revisit. Without the broader
+    # predicate this should now NOT fire.
+    ctx = ProactiveTriggerContext(canonical_urls=["/a", "/b", "/c", "/a"])
+    assert t.evaluate(ctx) is None
+
+
+# ---------------------------------------------------------------------------
+# ScopedCanonicalPingPongTrigger — hesitation must respect URL scope (cubic fix)
+# ---------------------------------------------------------------------------
+
+
+def test_scoped_ping_pong_hesitation_ignores_out_of_scope_urls() -> None:
+    """Regression for cubic P2: the broader hesitation predicate must
+    NOT fire from out-of-scope navigation.
+
+    Sequence has ONE in-scope URL (/projects/123) that lets the
+    ``url_must_contain`` gate through, but the hesitation pattern
+    itself plays out entirely in ``/settings`` — the trigger must
+    not fire (no in-scope hesitation actually happened).
+    """
+    from autoplay_sdk.proactive.triggers.triggers.scoped_canonical_ping_pong import (
+        ScopedCanonicalPingPongTrigger,
+    )
+
+    t = ScopedCanonicalPingPongTrigger(url_must_contain="/projects")
+    ctx = ProactiveTriggerContext(
+        canonical_urls=[
+            "/settings/a",
+            "/settings/b",
+            "/settings/c",
+            "/settings/a",
+            "/projects/123",
+        ]
+    )
+    assert t.evaluate(ctx) is None
+
+
+def test_scoped_ping_pong_hesitation_fires_for_in_scope_pattern() -> None:
+    """Sanity: in-scope hesitation (3 distinct /projects/* + revisit) still fires."""
+    from autoplay_sdk.proactive.triggers.triggers.scoped_canonical_ping_pong import (
+        ScopedCanonicalPingPongTrigger,
+    )
+
+    t = ScopedCanonicalPingPongTrigger(url_must_contain="/projects")
+    ctx = ProactiveTriggerContext(
+        canonical_urls=[
+            "/projects/a",
+            "/projects/b",
+            "/projects/c",
+            "/projects/a",
+        ]
+    )
+    r = t.evaluate(ctx)
+    assert r is not None
+    assert "hesitation_distinct_with_revisit" in r.metadata["matched"]
+
+
+def test_scoped_ping_pong_strict_still_fires_for_in_scope_a_b_a() -> None:
+    """Strict A→B→A inside scope keeps working (self-scoping)."""
+    from autoplay_sdk.proactive.triggers.triggers.scoped_canonical_ping_pong import (
+        ScopedCanonicalPingPongTrigger,
+    )
+
+    t = ScopedCanonicalPingPongTrigger(url_must_contain="/projects")
+    ctx = ProactiveTriggerContext(
+        canonical_urls=["/projects/a", "/projects/b", "/projects/a"]
+    )
+    r = t.evaluate(ctx)
+    assert r is not None
+    assert "strict_ping_pong" in r.metadata["matched"]
 
 
 def test_registry_evaluate_first_order() -> None:

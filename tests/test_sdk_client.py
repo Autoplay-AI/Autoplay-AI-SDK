@@ -398,9 +398,13 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
-            t.join(timeout=2.0)  # ensure thread exits while patch is still active
+            # Join inside the patch so the daemon thread exits here (via the
+            # KeyboardInterrupt mock) instead of leaking into later tests and
+            # calling whatever connect_sse is patched to next.
+            t.join(timeout=2.0)
 
         assert isinstance(t, threading.Thread)
+        assert not t.is_alive()
 
     def test_returned_thread_is_daemon(self):
         client = ConnectorClient(url="http://x", token="t")
@@ -415,9 +419,12 @@ class TestRunInBackground:
             mock_sse.return_value = mock_ctx
 
             t = client.run_in_background()
-            t.join(timeout=2.0)  # ensure thread exits while patch is still active
+            # Join inside the patch so the daemon thread exits here instead of
+            # leaking into later tests (it would keep calling connect_sse).
+            t.join(timeout=2.0)
 
         assert t.daemon is True
+        assert not t.is_alive()
 
     def test_run_in_background_does_not_block_caller(self):
         """run_in_background() must return before the SSE loop connects."""
@@ -436,10 +443,12 @@ class TestRunInBackground:
             patch("autoplay_sdk.client.httpx.Client"),
         ):
             start = time.monotonic()
-            t = client.run_in_background()
+            client.run_in_background()
             elapsed = time.monotonic() - start
-            connected.wait(timeout=2.0)  # wait for connect attempt while patch is active
-            t.join(timeout=2.0)          # ensure thread exits before patch is removed
+            # Wait for the thread to reach connect_sse and receive KeyboardInterrupt
+            # so it exits cleanly before the patch is removed.  Without this, the
+            # thread stays alive into the next test and interferes with its patch.
+            connected.wait(timeout=2.0)
 
         assert elapsed < 1.0  # returned immediately, did not wait for connection
 
