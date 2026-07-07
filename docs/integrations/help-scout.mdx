@@ -1,14 +1,21 @@
 ---
 title: Help Scout
-description: Dedicated Help Scout integration helpers are coming soon. Stream events to your connector and chatbot today.
+description: Dedicated Help Scout integration helpers are coming soon. Stream events to your connector and support AI agent today.
 icon: "/images/integrations/help-scout/logo.png"
 tag: Coming soon
 ---
 
 <Info>
-  **Dedicated helpers for Help Scout are coming soon.** That is **not a blocker**: you can **still stream events to your connector and chatbot (or delivery) endpoints today** using the core SDK and event pipeline. When they ship, these helpers will be **optional extras** — not required for implementation.
+  **Dedicated helpers for Help Scout are coming soon.** That is **not a blocker**: you can **still give your Help Scout integration real-time context today** by pulling a user's live activity on demand from the Autoplay connector. When dedicated helpers ship, they will be **optional extras** — not required for implementation.
 </Info>
 
 ---
 
-We plan first-party helpers so Help Scout conversations can show the same structured session context as other channels. Until then, use [`ConnectorClient`](/sdk/sync-client) / [`AsyncConnectorClient`](/sdk/async-client) and your own delivery path.
+We plan first-party helpers so Help Scout conversations can show the same structured context as other channels. Until then, pull a user's recent activity synchronously — from a webhook handler, or right before you post a note/reply — the same way the [Plain tutorial](/recipes/plain-tutorial/step-1-connect-real-time-events) does:
+
+```bash
+curl "https://mcp.autoplay.ai/users/YOUR_PRODUCT_ID/YOUR_USER_ID/live-activity?limit=10" \
+  -H "Authorization: Bearer YOUR_MCP_KEY"
+```
+
+`YOUR_USER_ID` must be the same stable id your activity source identifies the user with (e.g. `posthog.identify(...)` / `amplitude.setUserId(...)`). No stream client or background process is required — see the [Quickstart](/quickstart) for how to get `product_id` and `mcp_key`.

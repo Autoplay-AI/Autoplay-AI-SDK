@@ -1,11 +1,11 @@
 ---
 title: "Botpress tutorial"
 sidebarTitle: "Botpress tutorial"
-description: "Capture live website interactions with the Autoplay SDK and stream them into a Botpress agent for real-time context."
+description: "Capture live website interactions with the Autoplay SDK and pull them into a Botpress agent on demand for real-time context."
 icon: "/images/recipes/botpress/logo.png"
 ---
 
-Capture live website interactions with the Autoplay SDK and stream them into a Botpress agent for real-time context.
+Capture live website interactions with the Autoplay SDK and pull them into a Botpress agent on demand for real-time context.
 
 ## ✨ Final result
 
@@ -48,9 +48,8 @@ Capture live website interactions with the Autoplay SDK and stream them into a B
 
 Complete the [Quickstart](/quickstart). You should have:
 
-- **PostHog in the browser** — snippet, API key, `product_id` on `identify` (and email after login if you use it)
-- **Connector credentials** — URL, API token, stream URL (e.g. `https://your-connector.onrender.com/stream/` plus your product id from the dashboard)
-- **`autoplay-sdk` installed** — and a successful test stream from the Quickstart
+- **Your activity source set up** — PostHog (or Amplitude) capturing events in your app, with `identify` (or `setUserId`) setting a stable `user_id` you can also reference inside Botpress
+- **A registered product** — your `product_id`, `mcp_url`, and `mcp_key` from the [Quickstart](/quickstart)
 - **A Botpress account** — with a bot created in [Botpress Studio](https://studio.botpress.cloud)
 
 ---
@@ -59,5 +58,5 @@ Complete the [Quickstart](/quickstart). You should have:
 
 Follow the steps in order — each page stands alone so you can ship incrementally.
 
-1. **[Connect real-time events](./step-1-connect-real-time-events)** — Stream live user actions into Botpress tables and wire an Autonomous Agent to answer with that context.
+1. **[Connect real-time events](./step-1-connect-real-time-events)** — Pull a user's live activity on demand from the Autoplay connector and wire an Autonomous Agent to answer with that context.
 2. **[Define proactive triggers](./step-2-define-proactive-triggers)** — Proactively message users in Botpress based on what they're doing in your product. *(Coming soon)*

@@ -5,7 +5,7 @@ description: "Pipe live user data from the Autoplay SDK directly into Tidio's Ly
 icon: "/images/recipes/tidio/logo.png"
 ---
 
-Discover how to pipe live user data from the **Autoplay SDK** directly into your **Tidio Lyro AI Agent**. This guide covers building an async listener to capture real-time events, process the incoming data stream, and persist everything locally.
+Discover how to pipe live user data from the **Autoplay SDK** directly into your **Tidio Lyro AI Agent**. This guide covers wiring a Lyro Action that pulls a user's live activity on demand from the Autoplay MCP server — no server to host, no events to store.
 
 ## ✨ Final result
 
@@ -25,9 +25,8 @@ Discover how to pipe live user data from the **Autoplay SDK** directly into your
 
 Complete the [Quickstart](/quickstart). You should have:
 
-- **PostHog in the browser** — snippet, API key, `product_id` on `identify` (and email after login if you use it)
-- **Connector credentials** — URL, API token, stream URL (e.g. `https://your-connector.onrender.com/stream/` plus your product id from the dashboard) — used in Step 2 only for the Autoplay stream
-- **`autoplay-sdk` installed** — and a successful test stream from the Quickstart
+- **Your activity source set up** — PostHog (or Amplitude) capturing events, with `identify` setting a stable `user_id` (and email after login if you use it)
+- **A registered product** — your `product_id`, `mcp_url`, and `mcp_key` from the Quickstart
 - **A [Tidio](https://tidio.com) account**
 
 ---
@@ -36,5 +35,5 @@ Complete the [Quickstart](/quickstart). You should have:
 
 Follow the steps in order — each page stands alone so you can ship incrementally.
 
-1. **[Connect real-time events](./step-1-connect-real-time-events)** — Set up the Tidio Lyro AI Agent, wire the backend server and listener, and embed the chat widget in your frontend app.
+1. **[Connect real-time events](./step-1-connect-real-time-events)** — Wire a Lyro Action that calls the Autoplay MCP server for a user's live activity.
 2. **[Define proactive triggers](./step-2-define-proactive-triggers)** — Proactively message users in Tidio based on what they're doing in your product. *(Coming soon)*
