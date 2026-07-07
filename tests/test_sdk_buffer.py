@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 
+from autoplay_sdk import observability
 from autoplay_sdk.buffer import EventBuffer
 from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
 
@@ -57,6 +58,24 @@ class TestAddDrain:
             buf.add(_actions(session_id=f"s{i}"))
         events = buf.drain()
         assert [e.session_id for e in events] == [f"s{i}" for i in range(5)]
+
+    def test_overflow_drop_reports_error_for_traceability(self):
+        """A full-buffer drop is real data loss — it must reach the reporter."""
+        reported: list[tuple] = []
+        observability.set_error_reporter(
+            lambda event, exc=None, **ctx: reported.append((event, ctx))
+        )
+        try:
+            buf = EventBuffer(max_size=1)
+            buf.add(_actions(session_id="s1"))
+            buf.add(_actions(session_id="s2"))  # overflow -> drops s1
+        finally:
+            observability.set_error_reporter(None)
+        assert len(reported) == 1
+        event, ctx = reported[0]
+        assert "buffer full" in event.lower()
+        assert ctx["product_id"] == "p1"
+        assert ctx["session_id"] == "s1"
 
     def test_drain_empty_buffer_returns_empty_list(self):
         assert EventBuffer().drain() == []
