@@ -71,6 +71,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from autoplay_sdk.core.metrics import SdkMetricsHook, _safe_call
 from autoplay_sdk.core.models import ActionsPayload, AnyPayload, SummaryPayload
+from autoplay_sdk.observability import report_error
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,13 @@ class EventBuffer:
                         "session_id": getattr(dropped, "session_id", None),
                         "product_id": getattr(dropped, "product_id", None),
                     },
+                )
+                report_error(
+                    "Event buffer full — payload dropped",
+                    product_id=getattr(dropped, "product_id", None),
+                    session_id=getattr(dropped, "session_id", None),
+                    payload_type=type(dropped).__name__,
+                    max_size=self._max_size,
                 )
                 if self._on_drop is not None:
                     try:
