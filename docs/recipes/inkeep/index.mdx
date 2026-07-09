@@ -90,7 +90,7 @@ That's it. The tutorial covers every code file step by step — copy-paste runna
 │       ▼                                             │
 │  ┌───────────────────────────────────────────────┐  │
 │  │  Context fetch                                 │  │
-│  │  GET /context/{session_id}                     │  │
+│  │  GET /context/{user_id}                        │  │
 │  └───────────────────────────────────────────────┘  │
 │       │                                             │
 │       ▼                                             │
@@ -101,19 +101,20 @@ That's it. The tutorial covers every code file step by step — copy-paste runna
 │  └───────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
                │ POST /demo/actions
-               │ GET  /context/{session_id}
+               │ GET  /context/{user_id}
                ▼
 ┌─────────────────────────────────────────────────────┐
 │  Bridge  (FastAPI, :8787)                           │
 │                                                     │
-│  AsyncConnectorClient → AsyncContextStore           │
-│    + AsyncSessionSummarizer (rolling 30-event window│
-│      per session)                                   │
+│  httpx GET → Autoplay connector REST endpoint       │
+│    (stateless pull by product_id + user_id;         │
+│     no stream, no session store)                    │
 │                                                     │
 │  Context: vendor_unblock_attempt + blocked status   │
 │    + missing compliance documents                   │
 │                                                     │
-│  GET  /context/{session_id}  → assembled context   │
+│  GET  /context/{user_id}  → pulled + assembled      │
+│                              context, on demand      │
 └─────────────────────────────────────────────────────┘
                │
                ▼
@@ -126,13 +127,13 @@ That's it. The tutorial covers every code file step by step — copy-paste runna
 │  sub-agent: compliance-support-worker               │
 │                                                     │
 │  InkeepEmbeddedChat ↔ AI sub-agent                  │
-│  introMessage ← context from /context/{session_id} │
+│  introMessage ← context from /context/{user_id}    │
 └─────────────────────────────────────────────────────┘
 ```
 
-Two inputs feed the context layer: the vendor profile reports the admin's action directly to the bridge (`POST /demo/actions`), and the bridge keeps the vendor's blocked status plus missing compliance-document state available for chat grounding. The bridge owns all context logic; Inkeep stays a clean conversational surface.
+Two inputs feed the context layer: the vendor profile reports the admin's action directly to the bridge (`POST /demo/actions`), and the bridge pulls the vendor's blocked status plus missing compliance-document state from the Autoplay connector the moment it's needed. The bridge owns all context logic; Inkeep stays a clean conversational surface.
 
-The `GET /context/{session_id}` endpoint assembles a human-readable summary of the admin's recent activity and the vendor's compliance state. When the admin opens chat, this summary becomes the `introMessage` passed to `InkeepEmbeddedChat` — so the AI's first message references the blocked vendor and missing documents, not a generic greeting.
+The `GET /context/{user_id}` endpoint calls the Autoplay connector's REST live-activity endpoint synchronously — a stateless, on-demand pull keyed by the admin's stable `user_id`, not a session — and assembles a human-readable summary of their recent activity and the vendor's compliance state. When the admin opens chat, this summary becomes the `introMessage` passed to `InkeepEmbeddedChat` — so the AI's first message references the blocked vendor and missing documents, not a generic greeting. There's no persistent connection to manage: the bridge asks the connector for "what has this user been doing" exactly once, right when the frontend needs it.
 
 ---
 

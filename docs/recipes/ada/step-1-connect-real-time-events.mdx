@@ -1,10 +1,10 @@
 ---
 title: "Step 1 — Connect real-time events"
 sidebarTitle: "Step 1 — Connect real-time events"
-description: "Consume Autoplay's real-time event stream on your server and inject live user activity into Ada's AI Agent via metaFields."
+description: "Pull a user's live activity from Autoplay on demand and inject it into Ada's AI Agent via metaFields."
 ---
 
-Consume Autoplay's real-time event stream on your server and inject live user activity into Ada's AI Agent via `metaFields` — so every conversation is grounded in what the user is actually doing in your product.
+Pull a user's live activity from Autoplay on demand and inject it into Ada's AI Agent via `metaFields` — so every conversation is grounded in what the user is actually doing in your product.
 
 ## ✨ Final result
 
@@ -36,7 +36,7 @@ Consume Autoplay's real-time event stream on your server and inject live user ac
 </Tabs>
 
 <Tip>
-  **How this works** — FullStory Streams sends click events to Autoplay in real time via webhook. Autoplay batches those events (~3 s bins) on your backend, builds a live activity summary per session, and serves it to the Ada SDK as `metaFields` before — or during — a chat session. Ada's AI Agent reads these variables inside your bot's Processes to personalise responses.
+  **How this works** — PostHog or Amplitude sends events to Autoplay's ingest endpoint as users act in your product. There's no stream to subscribe to: your backend pulls a user's recent activity **on demand** — a single REST call to Autoplay's live-activity endpoint, keyed by `product_id` + `user_id` — the moment a user opens Ada. That response is formatted into `metaFields` and passed to the Ada embed before — or during — a chat session. Ada's AI Agent reads these variables inside your bot's Processes to personalise responses.
 </Tip>
 
 ---
@@ -46,27 +46,43 @@ Consume Autoplay's real-time event stream on your server and inject live user ac
 Before starting, confirm the following:
 
 - **Ada already integrated on your web app** — the Ada embed script is installed, your bot handle is configured, and Ada is opening chat sessions successfully.
-- **FullStory already set up** — complete the [FullStory setup tutorial](/recipes/fullstory/how-to-setup) first. FullStory Streams must be configured and sending click events to Autoplay before this tutorial will work.
-- **Autoplay connector credentials** — stream URL and API token from the Autoplay dashboard (output of the FullStory setup).
+- **PostHog or Amplitude already set up** — complete the [Quickstart](/quickstart) first, with `posthog.identify(user.id)` (or `amplitude.setUserId(user.id)`) setting a stable `user_id` on login.
+- **Your `product_id` and `mcp_key`** — printed by `onboard_product` in the Quickstart.
 - **`autoplay-sdk` installed** — `pip install autoplay-sdk`
-- **An LLM client** — any provider (OpenAI, Anthropic, Gemini, Mistral, etc.). The SDK accepts any async callable that takes a prompt string and returns a string.
+- **A backend you can add one route to** — FastAPI is shown below, but any framework that can make an outbound HTTP call works.
 
 <Info>
-  **How session identity works** — Autoplay keys sessions by the FullStory session ID. In the browser this is available via `await FS('getSessionAsync', { format: 'id' })`. This is the same value stored as the key in the backend context store. When the user opens Ada, the frontend fetches this ID, calls your context endpoint, and passes the result to Ada as `metaFields`.
+  **How identity works** — Autoplay keys a user's live activity by the stable `user_id` your activity source identifies them with — the same id you pass to `posthog.identify(user.id)` or `amplitude.setUserId(user.id)`. There's no session id in the read API: every lookup is `GET /users/{product_id}/{user_id}/live-activity`, scoped only by product and user.
 
-  `FS('getSessionAsync')` waits for FullStory capture to be fully initialised before resolving — always use the async version, not `FS('getSession')`, which returns `null` before FullStory bootstraps.
+  When the user opens Ada, your frontend passes that same `user_id` to your `/context/{user_id}` endpoint (Step 2 below), which fetches their live activity and returns it as `metaFields`.
 
-  If a user is anonymous (not yet identified), FullStory still assigns a session ID — Autoplay will have context for that session, but it won't be linked to a user account until `FS('setIdentity', { uid: '...' })` is called.
+  If a user is anonymous (not yet identified), your activity source still records events under an anonymous id — Autoplay will have context for that id, but it won't be linked to a real user account until you call `identify` / `setUserId`.
 </Info>
+
+<Tabs>
+  <Tab title="PostHog">
+    ```javascript
+    posthog.identify(user.id); // same id you must pass to /context/{user_id}
+    ```
+  </Tab>
+  <Tab title="Amplitude">
+    ```javascript
+    amplitude.setUserId(user.id); // same id you must pass to /context/{user_id}
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  **How the pieces fit:** your app identifies the user in PostHog/Amplitude → Autoplay stores activity under that `user_id` → your frontend passes the same `user_id` to `/context/{user_id}` before opening Ada → the returned `metaFields` are populated with that user's real activity.
+</Note>
 
 ---
 
 ## The building blocks
 
-1. **Define Variables in Ada** — Create the four Variables your bot Processes will read. Done once in the Ada dashboard.
-2. **Consume the Autoplay stream & build a context store** — Open Autoplay's SSE stream on your backend. Use `AsyncAgentContextWriter` to accumulate and summarise events per session into a Redis-backed store.
-3. **Serve context to the Ada SDK** — Expose a lightweight authenticated endpoint your frontend calls before opening Ada. Pass the result as `metaFields`.
-4. **Use Variables in your Ada Processes** *(Step 2 — coming soon)* — Reference the injected variables in your bot's Process conditions and responses.
+1. **Define Variables in Ada** — Create the Variables your bot Processes will read. Done once in the Ada dashboard.
+2. **Serve context to the Ada SDK** — Expose a lightweight endpoint that pulls a user's live activity from Autoplay on demand (a single REST call — no listener process, no local cache) and passes it as `metaFields`.
+3. **Use Variables in your Ada Processes** *(Step 2 — coming soon)* — Reference the injected variables in your bot's Process conditions and responses.
 
 ---
 
@@ -74,163 +90,81 @@ Before starting, confirm the following:
 
 When you pass `metaFields` to the Ada embed, those keys become Variables your bot Processes can read. Create these in your Ada dashboard under **Build → Variables → + New Variable**.
 
-| Variable name (= `metaFields` key) | Type   | Description                                           |
-|------------------------------------|--------|-------------------------------------------------------|
-| `session_id`                       | String | FullStory session ID — keys the backend context store |
-| `current_page`                     | String | URL path the user is on when they open chat           |
-| `recent_actions`                   | String | Last ~3 s of user actions as a bullet list            |
-| `session_summary`                  | String | LLM-generated summary after 20+ actions               |
+| Variable name (= `metaFields` key) | Type   | Description                                                    |
+|-------------------------------------|--------|------------------------------------------------------------------|
+| `user_id`                           | String | Stable id from your activity source — keys the backend lookup   |
+| `current_page`                      | String | URL the user is on, taken from their most recent action         |
+| `recent_actions`                    | String | User's recent in-app actions as a numbered list                 |
 
 <Warning>
-  Ada `metaFields` keys must **not** include whitespace, emojis, special characters, or periods. Use underscores as shown above. Keys are case-sensitive and must match exactly between the backend store and the frontend `metaFields` object.
+  Ada `metaFields` keys must **not** include whitespace, emojis, special characters, or periods. Use underscores as shown above. Keys are case-sensitive and must match exactly between the backend response and the frontend `metaFields` object.
 </Warning>
+
+<Note>
+  We dropped `session_summary` from this table. The live-activity endpoint already returns a bounded, recent window (the `limit` query param), so there's no separate summarisation step to run or store. If you want a narrative summary for longer histories, generate it inside your own `/context/{user_id}` handler and add it back as a metaField — it's optional, not required for this integration to work.
+</Note>
 
 ---
 
-## 📡 Step 2 — Consume the stream & build a context store
+## 🌐 Step 2 — Serve context to the Ada SDK
 
-Your backend opens Autoplay's SSE stream and uses `AsyncAgentContextWriter` to process events. Context is written to a **Redis store** keyed by `session_id` with a 2-hour TTL; your API endpoint (Step 3) reads from it.
-
-<Warning>
-  A module-level `dict` loses all context on every deploy and breaks across multiple backend instances. Use Redis so context survives restarts and works at scale. See the [Redis asyncio docs](https://redis-py.readthedocs.io/en/stable/connections.html#async-client).
-</Warning>
+Your backend exposes one route: `GET /context/{user_id}`. It calls Autoplay's live-activity endpoint synchronously, formats the result, and returns it. No stream to consume, no worker process, no Redis — the call happens the moment your frontend needs it.
 
 ### Install dependencies
 
 ```bash
-pip install autoplay-sdk openai fastapi uvicorn redis[asyncio]
+pip install autoplay-sdk fastapi uvicorn httpx
 ```
-
-### Context store + callbacks
-
-```python
-# ada_context.py
-import json
-from dataclasses import dataclass, asdict
-import redis.asyncio as redis
-
-# Replace with your Redis URL (e.g. from env var)
-redis_client = redis.from_url("redis://localhost:6379", decode_responses=True)
-SESSION_TTL = 60 * 60 * 2  # 2 hours
-
-@dataclass
-class AdaContext:
-    session_id: str
-    current_page: str = ""
-    recent_actions: str = ""
-    session_summary: str = ""
-
-async def save_context(ctx: AdaContext) -> None:
-    await redis_client.setex(
-        f"ada_ctx:{ctx.session_id}",
-        SESSION_TTL,
-        json.dumps(asdict(ctx)),
-    )
-
-async def get_context(session_id: str) -> AdaContext:
-    raw = await redis_client.get(f"ada_ctx:{session_id}")
-    if raw:
-        return AdaContext(**json.loads(raw))
-    return AdaContext(session_id=session_id)
-
-# ── Callbacks wired into AsyncAgentContextWriter ──────────────
-
-async def write_actions_cb(session_id: str, text: str) -> None:
-    """Called ~every 3 s with a formatted action list."""
-    ctx = await get_context(session_id)
-    ctx.recent_actions = text
-
-    # Extract current page from most recent navigation action
-    for line in reversed(text.splitlines()):
-        if "navigated to" in line.lower() or "visited" in line.lower():
-            ctx.current_page = line.strip()
-            break
-
-    await save_context(ctx)
-
-async def overwrite_cb(session_id: str, summary: str) -> None:
-    """Called after 20 actions with an LLM summary."""
-    ctx = await get_context(session_id)
-    ctx.session_summary = summary
-    ctx.recent_actions = ""  # clear raw actions once summarised
-    await save_context(ctx)
-```
-
-### Stream worker
-
-```python
-# stream_worker.py
-import asyncio
-import openai
-from autoplay_sdk import AsyncConnectorClient, AsyncSessionSummarizer
-from autoplay_sdk.agent_context import AsyncAgentContextWriter
-from ada_context import write_actions_cb, overwrite_cb
-
-CONNECTOR_URL = "https://your-connector.onrender.com/stream/your-product-id"
-API_TOKEN     = "your-api-token"
-
-# Wire your preferred LLM — any async callable that takes a prompt and returns a string.
-# OpenAI example shown; swap the body for Anthropic, Gemini, Mistral, etc.
-async_openai = openai.AsyncOpenAI()
-
-async def llm(prompt: str) -> str:
-    r = await async_openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=256,
-    )
-    return r.choices[0].message.content
-
-agent_writer = AsyncAgentContextWriter(
-    summarizer=AsyncSessionSummarizer(llm=llm, threshold=20),
-    write_actions=write_actions_cb,
-    overwrite_with_summary=overwrite_cb,
-    debounce_ms=0,
-)
-
-async def run_stream():
-    async with AsyncConnectorClient(url=CONNECTOR_URL, token=API_TOKEN) as client:
-        client.on_actions(agent_writer.add)
-        await client.run()
-
-if __name__ == "__main__":
-    asyncio.run(run_stream())
-```
-
----
-
-## 🌐 Step 3 — Serve context to the Ada SDK
 
 ### FastAPI context endpoint
 
 ```python
 # api.py
+import httpx
 from fastapi import FastAPI
-from ada_context import get_context
 
 app = FastAPI()
 
-@app.get("/context/{session_id}")
-async def context_for_session(session_id: str):
-    ctx = await get_context(session_id)
+CONNECTOR_URL = "https://mcp.autoplay.ai"   # origin of your mcp_url, without /mcp
+PRODUCT_ID    = "your-product-id"           # from onboard_product (Quickstart)
+MCP_KEY       = "your-mcp-key"              # from onboard_product (Quickstart)
+
+@app.get("/context/{user_id}")
+async def context_for_user(user_id: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"{CONNECTOR_URL}/users/{PRODUCT_ID}/{user_id}/live-activity",
+            params={"limit": 10},
+            headers={"Authorization": f"Bearer {MCP_KEY}"},
+        )
+
+    if res.status_code != 200:
+        return {"user_id": user_id, "current_page": "", "recent_actions": ""}
+
+    actions = res.json().get("actions", [])
+
+    current_page = actions[-1]["canonical_url"] if actions else ""
+    recent_actions = "\n".join(
+        f"[{i + 1}] {a['title']} — {a['description']}"
+        for i, a in enumerate(actions)
+    )
+
     return {
-        "session_id":      ctx.session_id,
-        "current_page":    ctx.current_page,
-        "recent_actions":  ctx.recent_actions,
-        "session_summary": ctx.session_summary,
+        "user_id":        user_id,
+        "current_page":   current_page,
+        "recent_actions": recent_actions,
     }
 ```
 
 <Note>
-  Protect this endpoint in production. Validate with a session cookie or short-lived signed token tied to the logged-in user — not the raw `session_id` alone, which would let any caller read any user's context.
+  Protect this endpoint in production. Validate with a session cookie or short-lived signed token tied to the logged-in user — not the raw `user_id` alone, which would let any caller read any user's context.
 </Note>
 
 ---
 
 ### Add the Ada embed script
 
-Add `data-lazy` to your Ada embed script. This prevents Ada from initialising until you call `adaEmbed.start()`, so you can fetch FullStory context first and pass it in on the first open.
+Add `data-lazy` to your Ada embed script. This prevents Ada from initialising until you call `adaEmbed.start()`, so you can fetch the user's live activity context first and pass it in on the first open.
 
 ```html
 <!-- In <head>. Replace YOUR-BOT-HANDLE. -->
@@ -249,15 +183,12 @@ Add `data-lazy` to your Ada embed script. This prevents Ada from initialising un
 ```javascript
 // support.js
 
-// ── Session identity ──────────────────────────────────────────────────────
-// Use FS('getSessionAsync') — NOT FS('getSession'). The sync version returns
-// null before FullStory finishes bootstrapping; the async version waits.
-async function getFullStorySessionId() {
-  try {
-    return await FS('getSessionAsync', { format: 'id' });
-  } catch {
-    return 'anonymous';
-  }
+// ── User identity ───────────────────────────────────────────────────────
+// This MUST be the same stable id you pass to posthog.identify(user.id) or
+// amplitude.setUserId(user.id) — not a session id, not an email. Resolve it
+// from your own auth/session state.
+function getCurrentUserId() {
+  return window.currentUser?.id ?? null;
 }
 
 // ── Ada initialisation state ──────────────────────────────────────────────
@@ -270,23 +201,24 @@ let adaReady = false;
 
 // ── Main: wire to your "Contact Support" button ───────────────────────────
 async function openAdaWithContext() {
-  const sessionId = await getFullStorySessionId();
+  const userId = getCurrentUserId();
 
   let meta = {
-    session_id:      sessionId,
-    current_page:    window.location.pathname,
-    recent_actions:  '',
-    session_summary: '',
+    user_id:        userId ?? 'anonymous',
+    current_page:   window.location.pathname,
+    recent_actions: '',
   };
 
-  try {
-    const res = await fetch(`/context/${sessionId}`);
-    if (!res.ok) throw new Error(`Context endpoint ${res.status}`);
-    const ctx = await res.json();
-    meta = { ...meta, ...ctx };
-  } catch (e) {
-    // Fail open — Ada opens without extra context rather than not opening at all
-    console.warn('Autoplay context unavailable:', e);
+  if (userId) {
+    try {
+      const res = await fetch(`/context/${userId}`);
+      if (!res.ok) throw new Error(`Context endpoint ${res.status}`);
+      const ctx = await res.json();
+      meta = { ...meta, ...ctx };
+    } catch (e) {
+      // Fail open — Ada opens without extra context rather than not opening at all
+      console.warn('Autoplay context unavailable:', e);
+    }
   }
 
   if (adaReady) {
@@ -345,29 +277,19 @@ window.adaSettings = {
 
 ## 📋 What the context looks like
 
-The `recent_actions` string Autoplay builds from FullStory events (Ada reads this as a Variable):
+The `recent_actions` string your `/context/{user_id}` endpoint builds from the live-activity response (Ada reads this as a Variable):
 
 ```
-session_id: fs_8226444501427639735
-timestamp: 2025-03-11 09:14:22 UTC
+user_id: user_48213
+current_page: https://app.example.com/boards/8821034/views/timeline
 
-[1] User navigated to /boards/8821034/views/table
-[2] User clicked "Add view" button on the board toolbar
-[3] User clicked "Timeline" in the Add view panel
-[4] User navigated to /boards/8821034/views/timeline
-[5] User clicked "Set dates" button on item "Q2 Feature Launch"
-[6] User clicked "Timeline column" on item "Q2 Feature Launch"
-[7] User clicked "⚡ Automate" button on the board toolbar
-```
-And a `session_summary` (produced after 20 actions):
-
-```
-The user opened their Sprint Planning board in Table view, switched to Timeline
-view for the first time, and attempted to set dates on the "Q2 Feature Launch"
-item. They clicked the Timeline column twice without successfully setting a date
-range, suggesting they are unfamiliar with the date-picker interaction. They then
-opened the Automations centre, browsed for approximately 90 seconds without
-creating a rule, and opened the chat widget.
+[1] Page Load: Boards Table View — User landed on the boards table view page
+[2] Click Add View — User clicked the "Add view" button on the board toolbar
+[3] Click Timeline — User clicked "Timeline" in the Add view panel
+[4] Page Load: Boards Timeline View — User landed on the boards timeline view page
+[5] Click Set Dates — User clicked "Set dates" button on item "Q2 Feature Launch"
+[6] Click Timeline Column — User clicked "Timeline column" on item "Q2 Feature Launch"
+[7] Click Automate — User clicked the "⚡ Automate" button on the board toolbar
 ```
 
 ---

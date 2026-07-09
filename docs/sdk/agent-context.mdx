@@ -8,7 +8,7 @@ Once events are flowing in, the next question is: **where do they go?**
 
 There are two models:
 
-- **Pull** (`ContextStore`) — your chatbot calls `enrich()` at query time to fetch relevant context on demand.
+- **Pull** (`ContextStore`) — your support AI agent calls `enrich()` at query time to fetch relevant context on demand.
 - **Push** (`AsyncAgentContextWriter`) — actions are streamed to the agent destination as they arrive, and compressed with an LLM before the context window overflows.
 
 This page covers the push model.
@@ -204,9 +204,9 @@ This contract mirrors what `session_summary_worker.py` enforces internally: `wri
 
 ---
 
-## Generic chatbot example
+## Generic support AI agent example
 
-For a chatbot where you control the context directly, the pattern is simpler — `set_context` just overwrites the previous value:
+For a support AI agent where you control the context directly, the pattern is simpler — `set_context` just overwrites the previous value:
 
 ```python
 from autoplay_sdk import AsyncConnectorClient, AsyncSessionSummarizer

@@ -9,13 +9,13 @@ disable-model-invocation: true
 
 # Chatbot — Tidio
 
-> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+> Read `autoplay-core` first for install and credentials (`product_id`, `mcp_url`, `mcp_key`).
 
-## ⚠️ Session scoping — critical
+## Scoping pattern for Tidio
 
-Tidio conversations have a conversation ID. You must link the browser Autoplay `session_id` to the Tidio conversation before context can be delivered — see `autoplay-core` for the `conv_map` + `on_session_linked` pattern.
+Lyro (Tidio's AI agent) pulls a user's live activity on demand via a **Lyro Action** that calls the Autoplay MCP server — no webhook, no session-linking, no `conv_map`. The read is keyed by `product_id` + `user_id` only.
 
-Full tutorial coming soon. See the docs for current status.
+Set the user's stable id via `window.tidioChatApi.setVisitorData({ custom: { user_id: currentUser.id } })` after login so `{{contact.user_id}}` is available to the Action — it must exactly equal the id your activity source identifies the user with. See the full tutorial for the Action/API-call setup and identity wiring.
 
 ## Reference
 
