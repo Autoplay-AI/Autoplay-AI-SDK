@@ -3,6 +3,46 @@ title: Migration 0.7.4
 description: Update deprecated autoplay_sdk import paths before 1.0.0.
 ---
 
+{/* skill-card:start */}
+
+## ⚡ Install this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Install Autoplay Migrate Imports into your project in one step.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --migrate
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/quickstart">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill and start building with Autoplay Migrate Imports.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/autoplay-migrate-imports/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/autoplay-migrate-imports/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
+
+{/* skill-card:end */}
+
 `0.7.4` is a transition release. Old import paths still work, but emit `DeprecationWarning` and will be removed in `1.0.0`.
 
 ## What stays stable

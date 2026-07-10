@@ -1,0 +1,45 @@
+---
+title: "Activity Amplitude"
+sidebarTitle: "Activity Amplitude"
+description: "Configures Amplitude as the event source for Autoplay using the @amplitude/unified SDK (Analytics + Session Replay). Installs the SDK, initializes it with autocapture, calls amplitude.setUserId() on login, runs onboard_product to get ingest_url/ ingest_secret/mcp_url/mcp_key, and creates an Amplitude HTTP Event Streaming destination pointed at ingest_url with the required Freemarker event-normalisation template. Use when the user mentions Amplitude, @amplitude/unified, amplitude.init, amplitude.identify, or asks how to capture user events for Autoplay using Amplitude."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Install this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Install Activity Amplitude into your project in one step.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/quickstart">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill and start building with Activity Amplitude.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-amplitude/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-amplitude/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

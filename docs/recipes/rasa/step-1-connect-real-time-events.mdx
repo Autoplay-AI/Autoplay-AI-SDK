@@ -1,7 +1,7 @@
 ---
 title: "Step 1 — Connect real-time events"
 sidebarTitle: "Step 1 — Connect real-time events"
-description: "Stream live user actions into a Rasa-aware bridge using the Autoplay SDK, expose them to Rasa over HTTP, and wire the chat widget."
+description: "Pull a user's live actions on demand into a Rasa-aware bridge using the Autoplay SDK, expose them to Rasa over HTTP, and wire the chat widget."
 ---
 
 This tutorial gets you from zero to a working Rasa bot with grounded replies in about 45 minutes.
@@ -24,13 +24,13 @@ This tutorial gets you from zero to a working Rasa bot with grounded replies in 
 **What you'll build:**
 
 1. Frontend autocapture with `posthog.identify()` + `posthog.register({email})`.
-2. Product onboarding with `onboard_product` for webhook + SSE credentials.
+2. Product onboarding with `onboard_product` for ingest + MCP read credentials.
 3. PostHog destination forwarding events to your Autoplay connector.
-4. A small FastAPI bridge (`AsyncConnectorClient` -> `AsyncAgentContextWriter` -> `AsyncSessionSummarizer` -> `AsyncContextStore` -> `SessionState`).
+4. A small FastAPI bridge that pulls a user's recent activity on demand over REST (`httpx` GET -> `ChatContextAssembly` -> `SessionState`) — no stream to subscribe to.
 5. Rasa + action server in Docker, plus a widget connected over WebSocket.
 6. An end-to-end check where responses are grounded in recent user behavior.
 
-**Runtime loop:** click in app -> event lands in bridge context -> user sends message -> Rasa action calls bridge -> bridge assembles prompt -> LLM returns grounded answer.
+**Runtime loop:** click in app -> event ingested by the Autoplay connector -> user sends message -> Rasa action calls bridge -> bridge pulls the user's recent activity over REST -> bridge assembles prompt -> LLM returns grounded answer.
 
 ## 🪝 Step 1 — Capture clicks in your web app with PostHog
 
@@ -58,8 +58,10 @@ export default function PostHogProvider({ children }) {
           product_id: "YOUR_AUTOPLAY_PRODUCT_ID",
           email: "user@theirdomain.com",
         });
-        // Critical: makes email flow on every autocapture event.
-        // Without this, ActionsPayload.email arrives as None.
+        // Makes email flow on every autocapture event, so the HogQL
+        // destination in Step 3 can forward it. Not required for the bridge
+        // to work — see Step 5, section 2d, for how (and whether) to wire
+        // up name personalization without a push channel.
         ph.register({ email: "user@theirdomain.com" });
       },
     });
@@ -80,7 +82,7 @@ Mount this provider once at the top of your app (`app/layout.js` in Next.js). Au
 
 ## 📝 Step 2 — Register your product with Autoplay
 
-Run a one-time script to create your webhook + SSE credentials.
+Run a one-time script to create your ingest + MCP read credentials.
 
 ```bash
 mkdir -p ~/your-copilot/bridge && cd ~/your-copilot/bridge
@@ -93,11 +95,13 @@ Create `bridge/register_product.py`:
 ```python
 import asyncio
 from autoplay_sdk.admin import onboard_product
+from autoplay_sdk.providers import PostHogProvider
 
 async def main() -> None:
     result = await onboard_product(
         "YOUR_AUTOPLAY_PRODUCT_ID",
         contact_email="you@yourcompany.com",
+        user_activity_provider=PostHogProvider(),
         print_operator_summary=True,
     )
     print(result)
@@ -111,15 +115,17 @@ Run it once:
 uv run python register_product.py
 ```
 
-It prints four values — save them. We'll use all four:
+It prints six values — save them. We'll use all six:
 
-- `webhook_url` — PostHog will POST events here.
-- `webhook_secret` — `X-PostHog-Secret` header value for the destination.
-- `stream_url` — the SSE endpoint the bridge subscribes to.
-- `unkey_key` — Bearer token for SSE auth.
+- `product_id` — the id you registered.
+- `provider` — `posthog`.
+- `ingest_url` — PostHog will POST events here (e.g. `https://connector.autoplay.ai/ingest/YOUR_AUTOPLAY_PRODUCT_ID`).
+- `ingest_secret` — `X-PostHog-Secret` header value for the destination.
+- `mcp_url` — always `https://mcp.autoplay.ai/mcp` (informational — Rasa doesn't speak MCP, we read the equivalent REST endpoint directly).
+- `mcp_key` — Bearer token for the REST live-activity read the bridge does in Step 5.
 
 <Note>
-  **`contact_email` is required.** It is stored on the connector product row so Autoplay can reach you. Re-registering the same `product_id` returns 409 unless you pass `force_reregister=True` (rotates the webhook secret).
+  **`contact_email` is required.** It is stored on the connector product row so Autoplay can reach you. Re-registering the same `product_id` returns **409** until you pass **`force=True`** — after a successful overwrite, **`ingest_secret` rotates**, so update the PostHog destination (Step 3) to match.
 </Note>
 
 ---
@@ -130,9 +136,9 @@ Configure a PostHog destination to forward each autocapture event to your Autopl
 
 1. PostHog UI → **Data pipeline → Destinations → + New destination → HTTP Webhook**.
 2. **Enable destination** = ON.
-3. **Webhook URL:** paste `webhook_url` from Step 2.
-4. **Method:** POST. **JSON Body:** clear it. **Headers:** remove the default `Content-Type` row (the Hog code below sets headers itself).
-5. Click **Edit source** and paste this script (replace `<WEBHOOK_SECRET>` and `<PRODUCT_ID>`).
+3. **Webhook URL:** paste `ingest_url` from Step 2.
+4. **Method:** POST. **JSON Body:** clear it. **`X-PostHog-Secret` header:** paste `ingest_secret` from Step 2 — do **not** create a new secret. **Other headers:** remove the default `Content-Type` row (the Hog code below sets headers itself).
+5. Click **Edit source** and paste this script.
 
 <AccordionGroup>
 <Accordion title="HogQL destination source (expand to copy)">
@@ -193,7 +199,7 @@ if (res.status >= 400) {
 7. **Create & enable.**
 
 <Warning>
-  PostHog requires the **Webhook URL** field on the form even though the Hog source above overrides it. Paste the same `webhook_url` from Step 2 into both places.
+  PostHog requires the **Webhook URL** field on the form even though the Hog source above overrides it. Paste the same `ingest_url` from Step 2 into both places.
 </Warning>
 
 **Verify:** click around your app, then check destination **Logs** for successful POSTs.
@@ -216,51 +222,48 @@ uv add python-dotenv fastapi 'uvicorn[standard]' openai httpx
   **Why two folders?** `bridge/` runs on your host with `autoplay-sdk` (pydantic v2). `rasa-bot/` runs in Docker because Rasa 3.x pins pydantic v1 — the two cannot share a venv. The HTTP boundary keeps them cleanly separated.
 </Note>
 
-Create `bridge/.env` with two of the four credentials returned by `onboard_product` plus your OpenAI key. Map them as follows:
+Create `bridge/.env` with three of the six credentials returned by `onboard_product` plus your OpenAI key. Map them as follows:
 
 | `onboard_product` field | `.env` variable |
 |---|---|
-| `stream_url` | `STREAM_URL` |
-| `unkey_key` | `UNKEY_API_KEY` |
-| `webhook_url` | *(used in Step 3 — PostHog destination URL)* |
-| `webhook_secret` | *(used in Step 3 — PostHog destination header)* |
+| `mcp_url` (origin only, no `/mcp` path) | `CONNECTOR_URL` |
+| `mcp_key` | `MCP_KEY` |
+| `product_id` | `PRODUCT_ID` |
+| `ingest_url` | *(used in Step 3 — PostHog destination URL)* |
+| `ingest_secret` | *(used in Step 3 — PostHog destination header)* |
 
 ```ini
-STREAM_URL=https://event-connector-luda.onrender.com/stream/YOUR_PRODUCT_ID
-UNKEY_API_KEY=<unkey_key from onboard_product output>
+CONNECTOR_URL=https://mcp.autoplay.ai
+MCP_KEY=<mcp_key from onboard_product output>
+PRODUCT_ID=YOUR_AUTOPLAY_PRODUCT_ID
 OPENAI_API_KEY=sk-...
 # Optional tuning:
 LLM_MODEL=gpt-4o-mini
-SUMMARY_THRESHOLD=10
-LOOKBACK_SECONDS=300
 MAX_ACTIONS=30
 ```
 
+<Note>
+  **No `STREAM_URL` or `UNKEY_API_KEY` anymore.** The connector is pull-based — the bridge asks for activity when it needs it instead of holding a connection open, so there's no stream endpoint or stream-auth token to configure. `MAX_ACTIONS` now maps straight onto the REST `limit` query param. There is no `SUMMARY_THRESHOLD` or `LOOKBACK_SECONDS` to set — the live-activity endpoint already returns a bounded, recent window of actions, so the bridge passes them straight to the LLM instead of running a local rolling summary.
+</Note>
+
 ---
 
-## 🔌 Step 5 — Wire the SDK pipeline
+## 🔌 Step 5 — Wire the REST-pull pipeline
 
-Create `bridge/copilot_server.py`. Most of the code is configuration plus one `/reply/{user_id}` endpoint.
+Create `bridge/copilot_server.py`. Most of the code is configuration plus one `/reply/{user_id}` endpoint. There's no connection to open, no callback to register, and no background task to manage — the bridge just calls the connector's REST endpoint the moment it needs a user's activity.
 
 ### 2a. Imports and config
 
 <AccordionGroup>
 <Accordion title="copilot_server.py imports and config (expand to copy)">
 ```python
-import asyncio, logging, os, time
-from contextlib import asynccontextmanager
+import logging
+import os
 from typing import Any
 
+import httpx
 import openai
-from autoplay_sdk import (
-    ActionsPayload,
-    AsyncConnectorClient,
-    AsyncContextStore,
-    AsyncSessionSummarizer,
-)
-from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
 from autoplay_sdk.agent_state.v2.states import SessionState
-from autoplay_sdk.context.context_store import actions_bucket_id
 from autoplay_sdk.rag.query.assembly import (
     ChatContextAssembly,
     build_user_prompt_block,
@@ -272,11 +275,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("copilot")
 
-STREAM_URL = os.environ["STREAM_URL"]
-UNKEY_TOKEN = os.environ["UNKEY_API_KEY"]
+CONNECTOR_URL = os.environ.get("CONNECTOR_URL", "https://mcp.autoplay.ai")
+MCP_KEY = os.environ["MCP_KEY"]
+PRODUCT_ID = os.environ["PRODUCT_ID"]
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-SUMMARY_THRESHOLD = int(os.environ.get("SUMMARY_THRESHOLD", "10"))
-LOOKBACK_SECONDS = int(os.environ.get("LOOKBACK_SECONDS", "300"))
 MAX_ACTIONS = int(os.environ.get("MAX_ACTIONS", "30"))
 
 _openai = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
@@ -284,147 +286,89 @@ _openai = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
 </Accordion>
 </AccordionGroup>
 
-### 2b. The LLM callable
+### 2b. Fetch a user's recent activity
 
-The SDK's summariser takes any async `(str) -> str`. Bring your own provider — OpenAI, Anthropic, Gemini, Mistral, or a local model.
-
-```python
-async def llm_summarise(prompt: str) -> str:
-    """SDK contract: AsyncSessionSummarizer calls this with the summary prompt."""
-    resp = await _openai.chat.completions.create(
-        model=LLM_MODEL,
-        temperature=0.2,
-        max_tokens=300,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return (resp.choices[0].message.content or "").strip()
-```
-
-### 2c. Compose the SDK pipeline
-
-This is the core pipeline.
+This is the entire "ingestion" surface now — one `httpx` GET, keyed by `product_id` + `user_id`. No `session_id`, no local buffering, no summarisation: the endpoint already returns a bounded, recent window of actions, so we hand them to the LLM as-is.
 
 <AccordionGroup>
-<Accordion title="copilot_server.py pipeline composition (expand to copy)">
+<Accordion title="copilot_server.py — fetch_recent_activity_raw / fetch_recent_activity_text (expand to copy)">
 ```python
-summariser = AsyncSessionSummarizer(llm=llm_summarise, threshold=SUMMARY_THRESHOLD)
+async def fetch_recent_activity_raw(user_id: str) -> list[dict[str, Any]]:
+    """GET the user's recent actions from the Autoplay connector.
 
-context_store = AsyncContextStore(
-    summarizer=summariser,
-    lookback_seconds=LOOKBACK_SECONDS,
-    max_actions=MAX_ACTIONS,
-)
+    Returns the raw `actions` array (oldest -> newest) on success, or `[]`
+    on any non-200 response or network error — from the caller's point of
+    view, "no activity yet" and "couldn't reach the connector" degrade the
+    same way: the LLM just answers without activity context.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{CONNECTOR_URL}/users/{PRODUCT_ID}/{user_id}/live-activity",
+                params={"limit": MAX_ACTIONS},
+                headers={"Authorization": f"Bearer {MCP_KEY}"},
+            )
+    except httpx.HTTPError as exc:
+        log.warning("live-activity fetch failed user=%s: %s", user_id, exc)
+        return []
+    if r.status_code != 200:
+        log.warning("live-activity fetch %s user=%s", r.status_code, user_id)
+        return []
+    return r.json().get("actions", [])
 
-async def write_actions(session_id, text):
-    log.debug("actions written %s len=%d", session_id, len(text))
 
-async def overwrite_with_summary(session_id, summary):
-    log.info("summary ready session=%s len=%d", session_id, len(summary))
-    _session_state(session_id).tick()
+def _format_activity(actions: list[dict[str, Any]]) -> str:
+    """Raw actions -> the short text block the LLM prompt expects. This is
+    the on-the-fly equivalent of what `AsyncContextStore.get()` used to
+    return from a local buffer — now computed straight from whatever the
+    connector just handed back."""
+    return "\n".join(
+        f"[{a.get('index')}] {a.get('title')} — {a.get('description')} ({a.get('canonical_url')})"
+        for a in actions
+    )
 
-agent_writer = AsyncAgentContextWriter(
-    summarizer=summariser,
-    overwrite_with_summary=overwrite_with_summary,
-    write_actions=write_actions,
-    debounce_ms=0,
-)
+
+async def fetch_recent_activity_text(user_id: str) -> str:
+    return _format_activity(await fetch_recent_activity_raw(user_id))
 ```
 </Accordion>
 </AccordionGroup>
 
 <Note>
-  **`AsyncAgentContextWriter` enforces the SDK's ordering guarantee:** the rolling summary is delivered to your destination **before** the raw actions it replaces are removed. Your agent never sees a blank context window during a swap.
+  **Why raw *and* formatted variants.** `/reply` only needs the formatted text block for the prompt. Step 2's proactive driver needs the *raw* `actions` list — it evaluates a predicate over fields like `timestamp_start` that the formatted text throws away. Keep both.
 </Note>
 
-### 2d. Track which sessions belong to which user
+### 2c. Track per-user FSM state
 
-`AsyncContextStore` keys actions by `session_id`. Chat copilots start from `user_id` (your auth ID, surfaced via the widget's `customData.userId`). The bridge maintains an index between them.
+The old build kept a `session_id -> user_id` index because `AsyncContextStore` only knew sessions. The REST read is already scoped to `user_id` directly, so that index — and the `_session_product` / `_user_sessions` bookkeeping it required — is gone. All that's left to track locally is the proactive FSM state (used starting in Step 2) and, optionally, a cached email for name personalization.
 
 <AccordionGroup>
-<Accordion title="copilot_server.py session indexing (expand to copy)">
+<Accordion title="copilot_server.py — per-user state (expand to copy)">
 ```python
-_user_sessions: dict[str, list[tuple[str, float]]] = {}  # user_id -> [(session_id, ts), ...]
 _user_emails: dict[str, str] = {}
-_session_product: dict[str, str] = {}                    # session_id -> product_id
-_session_states: dict[str, SessionState] = {}
+_user_states: dict[str, SessionState] = {}
 
-def _index_session(user_id, session_id, email):
-    if not user_id or not session_id:
-        return
-    now = time.time()
-    bucket = _user_sessions.setdefault(user_id, [])
-    bucket[:] = [(s, t) for (s, t) in bucket if s != session_id and now - t < LOOKBACK_SECONDS]
-    bucket.append((session_id, now))
-    if email:
-        _user_emails[user_id] = email
-
-def _session_state(session_id):
-    if session_id not in _session_states:
+def _user_state(user_id: str) -> SessionState:
+    if user_id not in _user_states:
         # Demo-friendly timeouts so you can iterate quickly while testing
         # Step 2's proactive triggers. Production: use ~60.0 / ~120.0 so
         # the FSM doesn't drift out of REACTIVE mid-conversation.
-        _session_states[session_id] = SessionState(
-            interaction_timeout_s=10.0, cooldown_period_s=20.0,
+        _user_states[user_id] = SessionState(
+            session_id=user_id, interaction_timeout_s=10.0, cooldown_period_s=20.0,
         )
-    return _session_states[session_id]
+    return _user_states[user_id]
 ```
 </Accordion>
 </AccordionGroup>
 
-<Warning>
-  **Pass `product_id` when reading from `ContextStore`.** Since v0.6.7, `AsyncContextStore` keys buckets by `(product_id, session_id)` when payloads carry a `product_id` — which they always do in practice. Calling `context_store.get(session_id)` without `product_id=` silently returns an empty string. Track `payload.product_id` per session on ingest and pass it on read.
-</Warning>
+<Note>
+  **`SessionState` is unused until Step 2.** It's introduced here because Step 2 keys it by the same `user_id` this file already has in scope — nothing in Step 1 calls `_user_state()` yet. `session_id` is `SessionState`'s one required field with no default; since this build has no session concept, we pass the `user_id` straight through as the FSM's scope key.
+</Note>
 
-### 2e. The SSE callback
-
-Wire `on_actions` to feed both `context_store` and `agent_writer`. The writer handles the summariser; the store keeps raw actions available for short reads.
-
-```python
-async def on_actions(payload: ActionsPayload):
-    _index_session(payload.user_id, payload.session_id, payload.email)
-    if payload.session_id and payload.product_id:
-        _session_product[payload.session_id] = payload.product_id
-    if payload.session_id:
-        _session_state(payload.session_id).tick()
-    await context_store.add(payload)
-    await agent_writer.add(payload)
-```
-
-### 2f. FastAPI lifespan — start the client when the server boots
+### 2d. Helper — name from email
 
 <AccordionGroup>
-<Accordion title="copilot_server.py FastAPI lifespan (expand to copy)">
-```python
-_stream_task: asyncio.Task | None = None
-_client: AsyncConnectorClient | None = None
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    global _stream_task, _client
-    _client = AsyncConnectorClient(url=STREAM_URL, token=UNKEY_TOKEN)
-    _client.on_actions(on_actions)
-    _stream_task = _client.run_in_background()
-    log.info("autoplay stream listening on %s", STREAM_URL)
-    try:
-        yield
-    finally:
-        if _client:
-            _client.stop()
-        if _stream_task:
-            try:
-                await asyncio.wait_for(_stream_task, timeout=5)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pass
-
-app = FastAPI(title="Autoplay × Rasa bridge", lifespan=lifespan)
-```
-</Accordion>
-</AccordionGroup>
-
-### 2g. Helpers — name from email, current page hint
-
-<AccordionGroup>
-<Accordion title="copilot_server.py helper functions (expand to copy)">
+<Accordion title="copilot_server.py — _name_from_email (expand to copy)">
 ```python
 def _name_from_email(email):
     if not email or "@" not in email:
@@ -432,21 +376,15 @@ def _name_from_email(email):
     local = email.split("@", 1)[0]
     parts = [p for p in local.replace(".", " ").replace("_", " ").split() if p]
     return " ".join(p.capitalize() for p in parts) if parts else None
-
-def _user_recent_activity(user_id):
-    sessions = _user_sessions.get(user_id) or []
-    chunks = []
-    for session_id, _ts in sorted(sessions, key=lambda x: -x[1])[:3]:
-        product_id = _session_product.get(session_id)
-        text = context_store.get(session_id, product_id=product_id)
-        if text:
-            chunks.append(text)
-    return "\n\n".join(chunks).strip()
 ```
 </Accordion>
 </AccordionGroup>
 
-### 2h. The `/reply` endpoint — SDK-assembled prompt + LLM call
+<Note>
+  **Simplification vs. the old build.** Previously `email` rode along on every SSE push (`payload.email`), so the bridge learned it for free. The pull API has no equivalent push, so there's nothing to key `_user_emails` from automatically anymore. This tutorial has `/reply` accept an optional `email` query param that the action server forwards when the widget's `customData` has one (Step 7) — first call after login populates `_user_emails`, later calls keep it fresh. If sourcing email this way doesn't fit your stack, it's safe to drop `_user_emails` / `_name_from_email` / the first-name greeting entirely — it's cosmetic, not part of the ingestion path.
+</Note>
+
+### 2e. The `/reply` endpoint — SDK-assembled prompt + LLM call
 
 This system prompt is the part you’ll most likely customize later for your product.
 
@@ -534,27 +472,27 @@ they already clicked it.)
 
 Address the user by their first name once per conversation if known. Never invent actions the user did not actually take."""
 
-def _build_assembly(user_id, query):
+async def _build_assembly(user_id: str, query: str) -> ChatContextAssembly:
     return ChatContextAssembly(
-        recent_activity=_user_recent_activity(user_id),
+        recent_activity=await fetch_recent_activity_text(user_id),
         kb_records_text="",
         conversation_history_text="",
         user_message=query,
     )
 
+app = FastAPI(title="Autoplay × Rasa bridge")
+
 @app.get("/healthz")
 async def healthz():
-    return {
-        "status": "ok",
-        "users_tracked": len(_user_sessions),
-        "sessions_tracked": sum(len(v) for v in _user_sessions.values()),
-    }
+    return {"status": "ok"}
 
 @app.get("/reply/{user_id}")
-async def get_reply(user_id: str, query: str) -> dict[str, Any]:
+async def get_reply(user_id: str, query: str, email: str | None = None) -> dict[str, Any]:
     if not query:
         raise HTTPException(status_code=400, detail="query required")
-    assembly = _build_assembly(user_id, query)
+    if email:
+        _user_emails[user_id] = email  # optional — see the Note in 2d
+    assembly = await _build_assembly(user_id, query)
     user_prompt = build_user_prompt_block(assembly)
     name = _name_from_email(_user_emails.get(user_id))
     sys_prompt = SYSTEM_PROMPT + (f"\n\nUser's first name: {name}." if name else "")
@@ -583,6 +521,10 @@ async def get_reply(user_id: str, query: str) -> dict[str, Any]:
 </Accordion>
 </AccordionGroup>
 
+<Note>
+  **No FastAPI `lifespan` in this build.** The old version opened the SSE connection in a `lifespan` context manager so it could clean it up on shutdown. There's nothing to open or close now — the app starts instantly and every `/reply` call makes its own short-lived REST request. Step 2 reintroduces a `lifespan` purely to start/stop the proactive polling loop, which is a different concern (a periodic background tick, not a connection).
+</Note>
+
 ### Start the bridge
 
 ```bash
@@ -590,28 +532,28 @@ cd ~/your-copilot/bridge
 uv run uvicorn copilot_server:app --host 0.0.0.0 --port 8090
 ```
 
-You should see:
+You should see uvicorn's normal startup log — no "connected" line to wait for, since there's no connection to establish:
 
 ```
-INFO copilot: autoplay stream listening on https://event-connector-luda.onrender.com/stream/YOUR_PRODUCT_ID
-INFO autoplay_sdk.async_client: autoplay_sdk: connected
+INFO:     Started server process [12345]
+INFO:     Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
 ```
 
 Smoke-test:
 
 ```bash
 curl http://localhost:8090/healthz
-# {"status":"ok","users_tracked":0,"sessions_tracked":0}
+# {"status":"ok"}
 ```
 
 Click around in your app for ~30 seconds, then re-check:
 
 ```bash
 curl "http://localhost:8090/reply/YOUR_USER_ID?query=what+did+i+just+do"
-# {"reply":"You're already on the upgrade page — just pick Pro and hit Confirm.", "name":"Casey", "has_activity":true}
+# {"reply":"You're already on the upgrade page — just pick Pro and hit Confirm.", "name":null, "has_activity":true}
 ```
 
-That confirms events are flowing and your reply path is grounded.
+That confirms events are flowing into the connector and your reply path is grounded. (`name` is `null` here because no `email` query param was sent yet — see the Note in 2d.)
 
 ---
 
@@ -934,22 +876,34 @@ def _user_id(tracker):
     )
 
 
+def _user_email(tracker):
+    """Optional — only used for the bridge's first-name personalization
+    (Step 5, section 2d). Returns None if the widget never set it, which
+    is fine: the bridge just skips the "User's first name" hint."""
+    metadata = (tracker.latest_message or {}).get("metadata") or {}
+    custom = metadata.get("customData") or {}
+    return metadata.get("email") or custom.get("email")
+
+
 def _user_text(tracker):
     return (tracker.latest_message or {}).get("text") or ""
 
 
-async def _ask_bridge(user_id, query):
+async def _ask_bridge(user_id, query, email=None):
+    params = {"query": query}
+    if email:
+        params["email"] = email
     async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-        r = await client.get(
-            f"{BRIDGE_URL}/reply/{user_id}", params={"query": query},
-        )
+        r = await client.get(f"{BRIDGE_URL}/reply/{user_id}", params=params)
         r.raise_for_status()
         return r.json()
 
 
 async def _reply_via_bridge(dispatcher, tracker, fallback):
     try:
-        data = await _ask_bridge(_user_id(tracker), _user_text(tracker))
+        data = await _ask_bridge(
+            _user_id(tracker), _user_text(tracker), _user_email(tracker),
+        )
         text = data.get("reply") or fallback
     except Exception as exc:
         print(f"[action] bridge call failed: {exc}", flush=True)
@@ -990,7 +944,7 @@ class ActionHelpCurrentPage(Action):
 </AccordionGroup>
 
 What it does per chat turn:
-1. Read `customData.userId` from the widget.
+1. Read `customData.userId` (and, optionally, `customData.email`) from the widget.
 2. HTTP GET the bridge `/reply/{user_id}?query=…`.
 3. Return whatever the bridge gave us.
 
@@ -1090,13 +1044,16 @@ If answers feel generic, check bridge logs and the [troubleshooting matrix](#tro
 
 | Symptom | Likely cause |
 |---|---|
-| Bot says "no recent activity" | (1) Bridge not running, (2) PostHog destination disabled, (3) `customData.userId` doesn't match the `posthog.identify()` ID, **or (4) `context_store.get()` was called without `product_id`** — pass `_session_product[session_id]` on read |
-| Bot ignores user's name | `payload.email = None`. Check `posthog.register({email})` is in your init, and the HogQL script forwards `email` |
+| Bot says "no recent activity" | (1) Bridge not running, (2) PostHog destination disabled/misconfigured, (3) `customData.userId` doesn't match the `posthog.identify()` ID, **or (4)** the live-activity fetch is failing silently — check the bridge logs for `live-activity fetch …` warnings from `fetch_recent_activity_raw` |
+| Bridge logs `live-activity fetch 401 user=…` | `MCP_KEY` is wrong, stale, or copied from a different product's `onboard_product` output |
+| Bridge logs `live-activity fetch failed user=… : ConnectTimeout` / similar | `CONNECTOR_URL` is wrong, or the bridge host can't reach `mcp.autoplay.ai` (firewall/proxy) |
+| `curl .../live-activity` returns actions but `/reply` doesn't use them | `PRODUCT_ID` in `bridge/.env` doesn't match the `product_id` you curled, or `user_id` in the path doesn't match `customData.userId` |
+| Bot ignores user's name | No `email` query param reached `/reply` — this is optional personalization (see the Note in Step 5, section 2d); confirm the widget sets `customData.email` and the action server's `_user_email` picks it up, or skip it |
 | `metadata={}` in action server logs | `metadata_key: customData` missing from `credentials.yml` |
 | Widget shows "Cannot reach server" | CORS — confirm `rasa run` has `--cors '*'` (the supplied compose file does) |
 | `localhost:5055/webhook connection refused` from inside Rasa | Using `endpoints.yml` (localhost) not `endpoints.docker.yml` (action-server hostname) |
 | Bridge `/reply` returns activity but the bot doesn't | Action-server hasn't picked up new `actions.py` — `docker compose restart action-server` |
-| PostHog destination test returns `url: This field is required` | Paste the same `webhook_url` into the form-level URL field too |
+| PostHog destination test returns `url: This field is required` | Paste the same `ingest_url` into the form-level URL field too |
 | `API key is not valid: personal_api_key` | Use `phc_…` (Project) key, not `phx_…` (Personal) |
 
 ---
@@ -1131,10 +1088,10 @@ After editing the bridge: re-run `uvicorn` (or use `--reload` during development
 
 ## What you've built
 
-You now have a Rasa chatbot with replies grounded in real user activity.
+You now have a Rasa support AI agent with replies grounded in real user activity.
 
-- **Reusable bridge:** switch chat frameworks later without rewriting SDK logic.
+- **Reusable bridge:** switch chat frameworks later without rewriting the fetch/assembly logic.
 - **Bring-your-own model:** swap LLM providers with the same async callable contract.
-- **SDK-managed plumbing:** reconnects, backpressure, summary ordering, and prompt assembly are handled for you.
+- **No connection to manage:** the connector is pull-based, so the bridge starts instantly and fetches exactly what it needs, when it needs it — no reconnect logic, no backpressure, no local buffering.
 
 If anything in this tutorial wasn't clear, or you hit a snag the troubleshooting matrix didn't cover — please reply on the thread or open an issue in the [Autoplay SDK repo](https://github.com/Autoplay-AI/Autoplay-AI-SDK). Feedback shapes the next version of these docs.
