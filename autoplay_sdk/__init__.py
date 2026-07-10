@@ -2,11 +2,6 @@
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
-# Explicit submodule imports required for Python 3.10 mock.patch() compatibility.
-# On 3.10, patch() uses getattr() to walk dotted paths; without these the
-# submodules are not attributes of the package and patch() raises AttributeError.
-from . import agent_state, async_client, client  # noqa: F401
-
 from autoplay_sdk.agent_state import v2 as agent_state_v2
 from autoplay_sdk.async_client import AsyncConnectorClient
 from autoplay_sdk.buffer import BufferBackend, EventBuffer, RedisEventBuffer
@@ -67,6 +62,31 @@ from autoplay_sdk.context.summarizer import (
 from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
 from autoplay_sdk.webhook_receiver import WebhookReceiver
 from autoplay_sdk.context.user_index import SessionRef, UserSessionIndex
+from autoplay_sdk import user_adoption_state
+from autoplay_sdk.user_adoption_state import (
+    JourneyState,
+    MasteryLevel,
+    UserAdoptionState,
+    WorkflowStatus,
+)
+from autoplay_sdk.providers import (
+    ActivityProvider,
+    AmplitudeProvider,
+    PostHogProvider,
+    ProviderRegistrationBody,
+)
+from autoplay_sdk.storage import (
+    AutoplayStorageAdapter,
+    InMemoryStorageAdapter,
+    RedisStorageAdapter,
+    StorageManager,
+    build_agent_context,
+    init_user_state,
+    on_session_end,
+    on_session_start,
+    session_key,
+    user_state_key,
+)
 
 __all__ = [
     "ConnectorClient",
@@ -120,12 +140,31 @@ __all__ = [
     "compose_chat_pipeline",
     "UserSessionIndex",
     "SessionRef",
+    "user_adoption_state",
+    "UserAdoptionState",
+    "JourneyState",
+    "MasteryLevel",
+    "WorkflowStatus",
     "WebhookReceiver",
     "SdkMetricsHook",
     "SdkError",
     "SdkConfigError",
     "SdkUpstreamError",
     "SdkBufferFullError",
+    "ActivityProvider",
+    "AmplitudeProvider",
+    "PostHogProvider",
+    "ProviderRegistrationBody",
+    "AutoplayStorageAdapter",
+    "StorageManager",
+    "RedisStorageAdapter",
+    "InMemoryStorageAdapter",
+    "user_state_key",
+    "session_key",
+    "init_user_state",
+    "on_session_start",
+    "on_session_end",
+    "build_agent_context",
     "__version__",
 ]
 

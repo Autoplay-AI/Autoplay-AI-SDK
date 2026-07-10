@@ -65,6 +65,7 @@ from typing import Any
 
 from autoplay_sdk.core.exceptions import SdkConfigError
 from autoplay_sdk.core.models import ActionsPayload, SummaryPayload
+from autoplay_sdk.observability import report_error
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,13 @@ class RagPipeline:
                     "product_id": getattr(payload, "product_id", None),
                 },
             )
+            report_error(
+                "RAG embed failed — actions not indexed",
+                exc,
+                product_id=getattr(payload, "product_id", None),
+                session_id=session_id,
+                vector_id=vector_id,
+            )
             return
         try:
             self._upsert(
@@ -210,6 +218,13 @@ class RagPipeline:
                     "event_type": payload_type,
                     "product_id": getattr(payload, "product_id", None),
                 },
+            )
+            report_error(
+                "RAG upsert failed — actions not indexed",
+                exc,
+                product_id=getattr(payload, "product_id", None),
+                session_id=session_id,
+                vector_id=vector_id,
             )
 
     def _upsert_summary(self, session_id: str, summary_text: str) -> None:
@@ -349,6 +364,13 @@ class AsyncRagPipeline:
                     "product_id": getattr(payload, "product_id", None),
                 },
             )
+            report_error(
+                "RAG embed failed — actions not indexed",
+                exc,
+                product_id=getattr(payload, "product_id", None),
+                session_id=session_id,
+                vector_id=vector_id,
+            )
             return
         try:
             await self._upsert(
@@ -382,6 +404,13 @@ class AsyncRagPipeline:
                     "event_type": payload_type,
                     "product_id": getattr(payload, "product_id", None),
                 },
+            )
+            report_error(
+                "RAG upsert failed — actions not indexed",
+                exc,
+                product_id=getattr(payload, "product_id", None),
+                session_id=session_id,
+                vector_id=vector_id,
             )
 
     async def _upsert_summary(self, session_id: str, summary_text: str) -> None:

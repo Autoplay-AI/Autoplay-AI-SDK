@@ -1,9 +1,49 @@
 ---
 title: "PostHog — How to setup"
 sidebarTitle: "How to setup"
-description: "Learn how to set up live user activity from PostHog to feed as context to your chatbot using the Autoplay SDK."
+description: "Learn how to set up live user activity from PostHog to feed as context to your support AI agent using the Autoplay SDK."
 icon: "/images/recipes/posthog/logo.png"
 ---
+
+{/* skill-card:start */}
+
+## ⚡ Install this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Install Activity Posthog into your project in one step.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --user-activity posthog
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/quickstart">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill and start building with Activity Posthog.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-posthog/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-posthog/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
+
+{/* skill-card:end */}
 
 PostHog is the analytics source used throughout the Autoplay SDK. The [Quickstart](/quickstart) walks you through the full setup end-to-end.
 

@@ -1,0 +1,760 @@
+---
+title: "🤖 Autoplay Agentic Setup"
+sidebarTitle: "🤖 Autoplay Agentic Setup"
+description: "One script an AI coding agent (Claude Code, Cursor, etc.) can follow end-to-end to wire up the full Autoplay stack — Live User Activity, an AI Support Agent, and Visual User Tours — into any codebase."
+name: "autoplay-agentic-setup"
+---
+
+<Tip>
+  **This page is written for an AI agent, not a human reader.** Steps marked **🤖 AGENT** are things you (the agent) do autonomously by reading and editing the codebase. Steps marked **🧑 HUMAN** require the customer to do something outside the repo (click around a dashboard, copy a key) — ask them for the specific value named, don't guess it. Each 🧑 HUMAN step under "Live User Activity" and "AI Support Agents" links to an Arcade walkthrough where one exists.
+
+  If you'd rather read the human-facing, click-through version of the same three pillars, see the [Quickstart](/quickstart).
+</Tip>
+
+<Warning>
+  **Stop-and-wait rule, applies in all three pillars:** when you hit a 🧑 HUMAN step, stop and ask the customer for that exact value — then **wait for their real answer before running the next 🤖 AGENT step that depends on it.** Never invent a placeholder credential (fake API key, made-up project id, guessed webhook secret) and continue as if it were real. Concretely: don't run `onboard_product(...)` until you have the actual project id and contact email; don't create a destination/sync until the customer confirms the registration script printed real values; don't wire an MCP tool's Authentication token until they've pasted the real `mcp_key`; don't tell them a pillar is "done" until they've confirmed the human-side dashboard step (destination live, MCP tool set to Live, tour published) is actually complete. If a needed answer hasn't been given yet, pause and ask again rather than skipping ahead.
+</Warning>
+
+<Note>
+  **Every step below links to a doc the moment it needs one** — a per-provider recipe, an agent skill, or an Arcade walkthrough — so neither you nor the customer has to guess. If you hit a wall a linked doc doesn't resolve, the fallback is [Discord](https://discord.gg/jCbR2tQA5); say so to the customer rather than guessing past it.
+</Note>
+
+## Install
+
+**🤖 AGENT** — **Prerequisites: Python 3.10+.**
+
+<Tabs>
+  <Tab title="Mac / Linux">
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install autoplay-sdk
+    ```
+  </Tab>
+  <Tab title="Windows (PowerShell)">
+    ```powershell
+    python -m venv .venv
+    .venv\Scripts\Activate.ps1
+    pip install autoplay-sdk
+    ```
+  </Tab>
+</Tabs>
+
+Then install [Agent skills](/get-started/agent-skills) so later edits follow the project's exact wiring pattern instead of generic guesses:
+
+```bash
+autoplay-install-skills
+# or target a specific stack up front, e.g.:
+autoplay-install-skills --chatbot intercom --user-activity posthog
+```
+
+Autoplay has three independent pillars. A customer can adopt one, two, or all three — they don't depend on each other, but Live User Activity is the foundation the other two build on:
+
+1. **Live User Activity** — stream what a user is doing in the product, in real time, into Autoplay.
+2. **AI Support Agent** — let the customer's existing support bot pull that activity on demand so it can answer with context.
+3. **Visual User Tours** — fire an existing tour tool (Userpilot, Chameleon, etc.) at the right moment based on that activity.
+
+See [Overview](/who-we-are/overview) for why this exists, and [Use cases](/who-we-are/use-cases) if the customer asks "what's this for."
+
+---
+
+## Step 0 — Understand the project
+
+**🤖 AGENT**
+
+Before writing any code, determine:
+
+- **Frontend framework** — Next.js (App Router or Pages Router), Nuxt, Angular, Vue/Vite, SvelteKit, plain React, etc.
+- **Auth system** — what library handles login/logout, and how to get the current user's stable id, email, and name at the moment of login.
+- **Env var conventions** — `NEXT_PUBLIC_`, `VITE_`, `NUXT_PUBLIC_`, `NG_APP_`, no prefix, etc. Anything read in browser code needs the framework's *public* prefix; anything server-only does not.
+- **App entry point** — where SDKs get initialized once, as early as possible (`instrumentation-client.ts`, `_app.tsx`, `main.ts`, root layout, a Nuxt client plugin, etc.).
+- **Package manager** — npm, yarn, pnpm, bun.
+- **Existing analytics wrapper** — if you find `@segment/analytics-next` or RudderStack wrapping calls instead of a direct `posthog.init(...)`/`amplitude.init(...)`, **stop and ask the customer where to attach `product_id`** rather than adding a second, competing init call.
+- **Monorepo?** — if there are multiple frontend apps, list them and ask which one to instrument. Never guess.
+
+Do not write code until this is understood — every later step assumes you're patching existing patterns, not scaffolding fresh ones.
+
+---
+
+## Choose Your Path
+
+**🧑 HUMAN** (you ask; they answer — don't infer these from the code)
+
+Ask the customer, in order:
+
+1. **"Which analytics / session-replay tool do you already use — PostHog, Amplitude, or FullStory?"** No strong preference? Default-recommend **PostHog** — it's the only provider with a fully automated destination setup (Path below), so there's less manual dashboard work.
+2. **"Which AI support agent do you want to connect?"** List every option below **individually, one per line**, so the customer picks a specific platform — never compress this into "Intercom, Maven, or something else" or any other shorthand grouping:
+   - **Intercom** — fully built, MCP-native (recommended default)
+   - **Dify** — fully built, MCP-native
+   - **Crisp** — fully built, MCP-native
+   - **Tidio** — fully built, MCP-native (via a Lyro Action)
+   - **Maven** — fully built for reading live activity (MCP-native); proactive triggers not yet supported
+   - **Ada** — fully built, REST-pull via a custom bridge you stand up
+   - **Botpress** — fully built, REST-pull via a custom bridge (a Botpress code node) you build inside the platform
+   - **Rasa** — fully built, REST-pull via a custom bridge you stand up
+   - **Inkeep** — fully built, REST-pull via a custom bridge you stand up
+   - **Landbot** — fully built, REST-pull via a custom bridge you stand up
+   - **Plain** — fully built, REST-pull — a server route writes a note on the thread the moment it opens
+   - **Zendesk** — no step-by-step recipe; a legacy push-based integration exists via the `ZendeskChatbot` SDK helpers if the customer wants to wire it by hand — see [Zendesk integration reference](/integrations/zendesk)
+
+   No strong preference? Default-recommend **Intercom (Fin)** — it's the fastest to stand up (a few dashboard clicks, no bridge service to build and host) and a complete, vendor-native **MCP** integration; Dify, Crisp, Tidio, and Maven are also MCP-native and need no bridge either (Maven additionally needs a signed-JWT identity backend), while Ada/Botpress/Rasa/Inkeep/Landbot/Plain all need a small custom backend of some shape.
+3. **"Do you already use a pop-up tour / onboarding-guidance tool — Userpilot, Chameleon, Userflow, Pendo, Usertour, UserGuiding, or Told? If not, do you want to skip this pillar for now?"** This pillar is optional and additive — most customers start with just Path 1 (+ Path 2).
+
+Then work through the matching path below. Skip paths for pillars the customer didn't pick.
+
+---
+
+## Path 1 — Live User Activity
+
+### What's shared across every provider
+
+**🤖 AGENT**
+
+Regardless of which provider the customer picked, registration always looks like this — only the provider class and product id source change:
+
+```python
+import asyncio
+from autoplay_sdk.admin import onboard_product
+from autoplay_sdk.providers import PostHogProvider  # or AmplitudeProvider — see below
+
+async def main() -> None:
+    result = await onboard_product(
+        "YOUR_PROVIDER_PROJECT_ID",           # the provider's own project id — Autoplay never assigns this
+        contact_email="you@yourcompany.com",  # required on every call, including re-registration
+        user_activity_provider=PostHogProvider(),
+        print_operator_summary=True,
+    )
+
+asyncio.run(main())
+```
+
+<Note>
+  **Re-registering:** a second `onboard_product` call with the same `product_id` returns **409** unless you pass `force=True`. `contact_email` is still required on the overwrite. For PostHog this also **rotates `ingest_secret`** — update the PostHog destination's `X-PostHog-Secret` header with the new value afterward.
+</Note>
+
+The identity rule that applies no matter which provider you pick: **the `user_id` an AI support agent later asks for must be byte-identical to the id the activity provider identifies the user with.** Never key on email — it's unstable. See [Identity](/activity/identity) for the full debugging checklist.
+
+<Warning>
+  **Follow exactly one of the three accordions below — whichever the customer named in Choose Your Path — and skip the other two entirely.** They install different, unrelated frontend SDKs (`posthog-js` vs `@amplitude/unified` vs none for FullStory) and register with a different provider class. Don't install more than one unless the customer explicitly says they're running two activity sources side by side.
+</Warning>
+
+<AccordionGroup>
+
+<Accordion title="PostHog (default recommendation)" icon="/images/recipes/posthog/logo.png" iconType="image">
+
+**🧑 HUMAN — get the Project ID and Project API Key**
+
+Project ID (a.k.a. Team ID) is the number in `https://us.posthog.com/project/YOUR_PROJECT_ID/...` or in Project Settings — this becomes the Autoplay `product_id`. Project API Key (`phc_…` prefix, labelled "Project Token" in the UI) is under **Settings → Projects → [Project] → General**.
+
+> 📺 [How to find your PostHog Project ID and Project API Key](https://app.arcade.software/share/uQizURhG2MTNIxQjiIA1)
+
+<Warning>
+  **Before running anything below, re-check what Step 0 told you.** If PostHog is reached through `@segment/analytics-next` or a RudderStack wrapper rather than a direct `posthog.init(...)` call, do **not** run this install or add a second, competing init — stop and ask the customer where to attach `product_id` in their existing wrapper instead.
+</Warning>
+
+**🤖 AGENT — install and wire the frontend**
+
+```bash
+npm install posthog-js
+```
+
+```javascript
+import posthog from 'posthog-js'
+
+posthog.init('YOUR_POSTHOG_PROJECT_API_KEY', {
+    api_host: 'https://us.i.posthog.com', // must match the host used to create the destination below
+    person_profiles: 'identified_only',
+    session_idle_timeout_seconds: 120,
+    loaded: (posthog) => {
+        posthog.register({ product_id: 'YOUR_POSTHOG_PROJECT_ID' }); // super-property, not an identify call
+    },
+})
+
+// On login — the single most important line in this whole integration:
+posthog.identify(user.id, {   // user's OWN stable id — never posthog.get_distinct_id()
+    product_id: 'YOUR_POSTHOG_PROJECT_ID',
+    email: user.email,
+})
+
+// On logout:
+posthog.reset()
+```
+
+<Warning>
+  Don't call `posthog.identify(posthog.get_distinct_id(), …)` — that re-stamps the anonymous id and never sets a real user id. This is the #1 PostHog integration mistake.
+</Warning>
+
+**🤖 AGENT — register with Autoplay**
+
+```python
+from autoplay_sdk.providers import PostHogProvider
+# onboard_product("YOUR_POSTHOG_PROJECT_ID", contact_email=..., user_activity_provider=PostHogProvider(), print_operator_summary=True)
+```
+
+Prints `ingest_url`, `ingest_secret` (needed next, for the PostHog destination), plus `mcp_url` / `mcp_key` (needed for verification later, and for Path 2's MCP connection).
+
+**🧑 HUMAN — get a Personal API Key, then let the SDK create the destination (automated, unique to PostHog)**
+
+Personal API Key (`phx_…`, different from the Project API Key above) — **Settings → [name] → Personal API keys**, scopes `project:read` + `hog_function:write`.
+
+> 📺 [Generate your PostHog Personal API Key](https://app.arcade.software/share/lOvmHy4FeRDtjD9xBTBb)
+
+```python
+from autoplay_sdk.providers import PostHogProvider
+
+provider = PostHogProvider()
+dest = await provider.create_destination(
+    host="https://us.posthog.com",             # or eu.posthog.com — must match posthog.init's api_host
+    project_id="YOUR_POSTHOG_PROJECT_ID",
+    personal_api_key="YOUR_PERSONAL_API_KEY",
+    webhook_url="YOUR_INGEST_URL",              # ingest_url from onboard_product
+    webhook_secret="YOUR_INGEST_SECRET",        # ingest_secret from onboard_product
+)
+status = await provider.verify(host="https://us.posthog.com", project_id="YOUR_POSTHOG_PROJECT_ID",
+                                personal_api_key="YOUR_PERSONAL_API_KEY", destination_id=dest.id)
+```
+
+Idempotent — safe to re-run. If the customer would rather click through PostHog's UI by hand (or you can't run this), the full manual steps and the Hog event-body script are in the [Quickstart's PostHog section](/quickstart).
+
+**Common mistakes:** `api_host` mismatch between `posthog.init()` and `create_destination()` (silent total failure); forgetting `posthog.reset()` on logout; editing the wrong app in a monorepo.
+
+</Accordion>
+
+<Accordion title="Amplitude" icon="/images/recipes/amplitude/logo.svg" iconType="image">
+
+**🧑 HUMAN — create the project and get the API Key**
+
+If they don't have an account: sign up at [amplitude.com](https://amplitude.com), create a project. The **API Key** shows on the welcome screen (also under **Settings → Projects → [Project] → General**).
+
+<Warning>
+  Amplitude blocks **Data → Destinations** behind a "Waiting for your events…" screen until it receives at least one live event. Complete the init step below, click around the app once, then click **Finish Setup** (or **Skip for now**) before continuing to registration.
+</Warning>
+
+**🤖 AGENT — install and wire the frontend**
+
+```bash
+npm install @amplitude/unified
+```
+
+```typescript
+import * as amplitude from '@amplitude/unified';
+
+amplitude.initAll('YOUR_AMPLITUDE_API_KEY', {
+  analytics: { autocapture: true },   // required — captures clicks/page views/forms
+  sessionReplay: { sampleRate: 1 },   // lower in production if needed
+});
+```
+
+```typescript
+// On login:
+amplitude.setUserId(user.id);
+
+const identifyObj = new amplitude.Identify();
+identifyObj.set('product_id', 'YOUR_AMPLITUDE_PROJECT_ID');
+identifyObj.set('email', user.email);
+identifyObj.set('name', user.name);
+amplitude.identify(identifyObj);
+
+// Also link the session directly — Amplitude has no automated destination-verify step, so this
+// POST is what lets Autoplay resolve session_id -> product_id immediately instead of waiting on the sync:
+const sessionId = amplitude.getSessionId();
+if (sessionId) {
+  fetch('YOUR_CONNECTOR_URL/identify', {           // domain portion of ingest_url from registration
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: user.email, session_id: String(sessionId), product_id: 'YOUR_AMPLITUDE_PROJECT_ID' }),
+  });
+}
+
+// On logout:
+amplitude.reset();
+```
+
+<Warning>
+  `setUserId` alone does not write `user_properties`. Without the explicit `Identify` call above, `product_id`/`email` never populate and Autoplay can't map events to the tenant.
+</Warning>
+
+**🧑 HUMAN — get the Project ID, then register**
+
+**Settings → Projects → [Project] → Project ID.** This becomes the Autoplay `product_id`.
+
+> 📺 [Find your Amplitude Project ID](https://app.arcade.software/share/gbMSMIenMpBYhCWbLFrh)
+
+```python
+from autoplay_sdk.providers import AmplitudeProvider
+# onboard_product("YOUR_AMPLITUDE_PROJECT_ID", contact_email=..., user_activity_provider=AmplitudeProvider(), print_operator_summary=True)
+```
+
+Prints `ingest_url` and `ingest_secret` — needed next, for the destination's `Authorization` header — plus `mcp_url` / `mcp_key` for verification later. **Unlike PostHog, there is no automated destination-creation method** — the dashboard steps below are manual either way.
+
+**🧑 HUMAN — create the Event Streaming destination**
+
+**Data → Destinations → + Add Destination → search "HTTP" → Event Streaming.** URL = `ingest_url`. Auth header `Authorization: ${parameters.apiKey}` where `apiKey` = `Bearer ` + `ingest_secret`. Paste the Freemarker event-body template from the [Quickstart's Amplitude section](/quickstart) exactly — without it, only page views arrive; clicks and form events are silently dropped. Enable **Send Events → All Events**, **Test Connection**, **Release**, then **Add New Sync**.
+
+> 📺 [Create the Amplitude Event Streaming destination](https://app.arcade.software/share/NeCcl6dtC7DQdjOjue28)
+
+**Common mistakes:** pointing the destination at the wrong `ingest_url` or omitting the `Bearer ` prefix on `ingest_secret` (401); `session_id = -1` briefly on first load (normal, resolves in seconds, Autoplay falls back to `device_id`); forgetting the Freemarker template (drops clicks/forms).
+
+</Accordion>
+
+<Accordion title="FullStory" icon="/images/recipes/fullstory/logo.png" iconType="image">
+
+<Note>
+  FullStory is the one provider with **no Python provider class and no frontend code change at all** — it's pure dashboard configuration, assuming FullStory is already installed and capturing (verify with `FS('getSession')`). Requires an **Enterprise/Advanced plan with the "Anywhere: Activation" add-on** and Admin/Architect role. Full reference: [FullStory how-to-setup](/recipes/fullstory/how-to-setup) and the [activity-fullstory agent skill](/get-started/agent-skills/activity-fullstory).
+</Note>
+
+**🧑 HUMAN — get the Autoplay ingest endpoint URL and Bearer token, then create a Stream (Settings → Anywhere → Activation → Create Stream)**
+
+There's no `onboard_product(...)` call for FullStory — get the ingest URL and token from the Autoplay team or dashboard (see the linked how-to-setup doc above) before configuring the Stream below.
+
+- Destination: HTTP Endpoint, `POST`, URL = your Autoplay ingest endpoint (from Autoplay onboarding), Auth = Bearer token.
+- Trigger: event **Element Clicked**, no filters, frequency **On every event** (not "Once per session").
+- Switch to JSON field mapping and paste:
+
+```json
+{
+  "target_text": ["var", "event.0.target_text"],
+  "element_name": ["var", "event.0.element_name"],
+  "page_url": ["var", "event.0.url"],
+  "timestamp": ["var", "event.0.event_time"],
+  "timestamp_unix": ["toUnixTimestamp", ["var", "event.0.event_time"]],
+  "session_replay_url": ["var", "event.0.app_url_event"],
+  "user_id": ["var", "event.0.user_id"],
+  "user_email": ["var", "event.0.user_email"],
+  "session_id": ["concat", ["var", "event.0.device_id"], "%3A", ["var", "event.0.session_id"]]
+}
+```
+
+`session_id` here is a **concatenation** of `device_id` + `%3A` + FullStory's own session id — structurally different from PostHog's/Amplitude's native session ids, but that's fine; it's what everything downstream keys on.
+
+- Click **Send Test**, confirm `200 OK`, **Save**.
+- Allowlist the connector's IP on the Autoplay side if required: US `8.35.195.0/29`, EU `34.89.210.80/29`.
+
+FullStory retries failed deliveries up to 30 times over 5 hours, so a brief outage on the connector side self-heals.
+
+</Accordion>
+
+</AccordionGroup>
+
+### Verify Path 1 before moving on
+
+**🤖 AGENT**
+
+The connector is **pull-based**, not streaming — click around the app as an identified user, then fetch that user's activity with `mcp_url` / `mcp_key` from registration:
+
+```bash
+curl "YOUR_MCP_URL/users/YOUR_PRODUCT_ID/YOUR_USER_ID/live-activity?limit=10" \
+  -H "Authorization: Bearer YOUR_MCP_KEY"
+```
+
+A `200` with a populated `actions` array means events are flowing — this is the exact same data the agent reads over MCP in Path 2. An empty array usually means the frontend identify call hasn't fired yet, not a connector problem.
+
+---
+
+## Path 2 — AI Support Agent
+
+### What's shared across every platform
+
+**🤖 AGENT**
+
+There are two distinct mechanisms in this codebase — pick per platform, they aren't interchangeable:
+
+- **MCP pull, vendor-native (Intercom, Dify, Crisp, Tidio, Maven):** the platform's own agent runtime (or, for Tidio, an Action) calls Autoplay's MCP server mid-conversation to pull live activity on demand — no bridge service to build or host.
+- **REST pull via a bridge you build (Ada, Botpress, Rasa, Inkeep, Landbot, Plain):** these platforms don't speak MCP themselves, so a small backend (or, for Botpress, an in-platform code node) you stand up calls the connector's plain REST endpoint synchronously — same data as the MCP tool, just fetched with a normal HTTP client instead of an MCP client — and hands the result to the platform.
+
+Zendesk has no step-by-step recipe in this pillar yet, but the connector still ships an older push pattern (`BaseChatbotWriter` subclass consuming the SSE stream from Path 1, session-link + internal-note) via `autoplay_sdk.integrations.zendesk` — see [Zendesk integration reference](/integrations/zendesk) if the customer wants to wire it by hand.
+
+The MCP server: endpoint `https://mcp.autoplay.ai/mcp` (no trailing slash — some clients are strict about it), Streamable HTTP transport, `Authorization: Bearer YOUR_MCP_KEY`. One tool, `get_live_user_activity(product_id, user_id, limit?)`, returns `{product_id, user_id, count, as_of, actions[]}` from a 24h/50-action rolling store.
+
+The equivalent plain REST endpoint a bridge calls directly: `GET https://mcp.autoplay.ai/users/{product_id}/{user_id}/live-activity?limit=` — same host as `mcp_url`, just without the `/mcp` path — same `Authorization: Bearer YOUR_MCP_KEY`, same response shape.
+
+`user_id` must be byte-identical to whatever the activity provider identified the user with in Path 1 — this is the single most common failure across every platform ("no recent activity" instead of an error).
+
+<AccordionGroup>
+
+<Accordion title="Intercom (Fin) — MCP, recommended default" icon="/images/recipes/intercom/logo.png" iconType="image">
+
+<Note>Requires a **US-hosted** Intercom workspace — MCP connectors aren't available on EU/AU hosting. Full step-by-step reference with screenshots: [Intercom MCP recipe](/recipes/intercom-tutorial/step-1-connect-real-time-events).</Note>
+
+**🧑 HUMAN — add the MCP connector**
+
+**Settings → Integrations → Data connectors → Custom MCP.** Name it `Autoplay live activity`, URL `https://mcp.autoplay.ai/mcp`. Click **+ New**, check **Get Live User Activity**, add it.
+
+**🧑 HUMAN — configure the tool (Draft → Edit → API tab)**
+
+- `product_id` → **Custom value**, your product id (set the fallback too).
+- `user_id` → **Use an attribute** → the **User ID** people attribute (not Contact ID, not email).
+- `limit` → **Let Fin decide**.
+- **Authentication → New token**: Type `Text`, value = your `mcp_key` (no "Bearer" typed manually), prefix `Bearer`, header key `Authorization`.
+
+**Fin tab:** write a prompt telling Fin when to call this — "user asks what they were just doing," "stuck in a flow," mentions an error. Explicitly note it should *not* fire for billing/account/general how-to questions. Check **"Enable Fin to use this connector directly."**
+
+**🤖 AGENT — wire Messenger identity (JWT)**
+
+```javascript
+// server-side only — never ship this secret to the browser
+const token = jwt.sign(
+  { user_id: req.user.id, email: req.user.email, exp: Math.floor(Date.now() / 1000) + 3600 },
+  process.env.INTERCOM_IDENTITY_SECRET,
+  { algorithm: "HS256" }
+);
+```
+
+```javascript
+window.Intercom("boot", { app_id: "YOUR_INTERCOM_APP_ID", intercom_user_jwt: token });
+// do NOT also set user_id/email directly on boot — the JWT is the sole identity source
+```
+
+`user_id` claim in the JWT must equal the id used in Path 1's identify call. Get the Unified Secret from **Settings → Channels → Messenger → Security**; turn on enforcement there only after testing the token at jwt.io.
+
+**🧑 HUMAN — test and go live:** the tool's **Test** tab with a real `product_id`/`user_id` should return `200` with populated actions. Click **Set live**. Full loop check: log in as a test user, click around, open Messenger as that user, ask Fin "what have I been doing?"
+
+For the older internal-notes push pattern instead of MCP (uses `conv_map` + webhooks + `POST /conversations/{id}/parts`), see [chatbot-intercom skill](/get-started/agent-skills/chatbot-intercom).
+
+</Accordion>
+
+<Accordion title="Ada — REST-pull via a custom bridge" icon="/images/recipes/ada/logo.png" iconType="image">
+
+No MCP — a backend route you add (`GET /context/{user_id}`) calls the REST endpoint above synchronously the moment a user opens Ada, and passes the result into `adaEmbed.start({ metaFields, ... })`. No SSE consumer, no Redis, no background worker — one on-demand REST call, keyed by `user_id` (not `session_id`).
+
+**🧑 HUMAN — create 3 String variables in Build → Variables:** `user_id`, `current_page`, `recent_actions` (no spaces/periods/emojis, case-sensitive).
+
+**🤖 AGENT**
+
+```html
+<script id="__ada" data-handle="YOUR-BOT-HANDLE" data-lazy src="https://static.ada.support/embed2.js"></script>
+```
+
+<Warning>
+  `window.adaEmbed` exists as soon as the script tag loads (because of `data-lazy`) — **before** `.start()` runs. Calling `setMetaFields`/`toggle` before `adaReadyCallback` fires silently no-ops. Track readiness with your own flag.
+</Warning>
+
+Full details including the SPA `pushState` gotcha and Ada lifecycle events: [Ada recipe](/recipes/ada/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Botpress — REST-pull via a custom bridge" icon="/images/recipes/botpress/logo.png" iconType="image">
+
+No MCP, and no Tables/webhook anymore — the current pattern is a single `FetchEventsData` code node that calls the REST endpoint above directly with `fetch()`, synchronously, right before the Autonomous Agent responds. Workflow shape: **Start → FetchEventsData → Autonomous Agent → End**.
+
+<Warning>
+  The embedded walkthrough video in the recipe still shows an older Tables/webhook setup — it's stale. Follow the workflow shape and code node above instead; only the Autonomous Agent configuration in the video is still accurate.
+</Warning>
+
+`FetchEventsData` reads the visitor's stable id off `event.state?.user?.userId` (or `event.userId`, depending on channel) — must match the id your activity source identifies the user with. Store `MCP_KEY` as a Botpress bot/workflow secret where your plan supports it, rather than hardcoding it in the code node.
+
+Full step-by-step, including the fetch code and Autonomous Agent system prompt: [Botpress recipe](/recipes/botpress/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Rasa — REST-pull via a custom bridge" icon="/images/recipes/rasa/logo.png" iconType="image">
+
+No MCP — a two-service architecture: a `bridge/` FastAPI service (pydantic v2) plus a Dockerized `rasa-bot/` (Rasa 3.6.x, pydantic v1 — they can't share a venv, since the two pydantic majors conflict). The bridge does a plain `httpx` `GET` against the REST endpoint above and exposes `GET /reply/{user_id}?query=...` for the bot to call.
+
+**🤖 AGENT**
+
+- Bridge `.env`: `CONNECTOR_URL` (the REST origin above, no `/mcp` path), `MCP_KEY`, `PRODUCT_ID`, `OPENAI_API_KEY`, optional `LLM_MODEL` / `MAX_ACTIONS`.
+- `credentials.yml` needs `metadata_key: customData` — this is the join key between the widget's `customData.userId` and Rasa's tracker metadata; omit it and every reply reads a random socket UUID as `sender_id` instead of the real user.
+
+<Warning>
+  The `rasa/rasa-sdk:3.6.2` base image lacks `httpx` — the action-server container starts but fails at runtime with `ModuleNotFoundError: No module named 'httpx'` unless you build a custom Dockerfile that adds it.
+</Warning>
+
+Use the CDN `rasa-webchat` build, not `@rasahq/rasa-chat` — that package is locked to React 17 and breaks on React 18/Next 14.
+
+Full step-by-step, including the proactive-trigger bridge additions: [Rasa recipe](/recipes/rasa/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Inkeep — REST-pull via a custom bridge" icon="/images/recipes/inkeep/logo.png" iconType="image">
+
+No MCP — this is the **self-hosted, open-source** `@inkeep/agents-ui` framework, not Inkeep's paid CDN widget (a different product with its own cloud API key). A FastAPI bridge with **no LLM key of its own** — the LLM call happens inside Inkeep's agents framework — exposes a single `GET /context/{user_id}` that pulls live activity from the REST endpoint above and returns `{context, has_activity, user_id}`.
+
+**🤖 AGENT**
+
+- Requires Docker (Inkeep's Postgres/Doltgres/SpiceDB services), `pnpm`, and the `inkeep/agents` repo cloned and running via `docker compose up -d`.
+- Bridge `.env`: `CONNECTOR_URL`, `MCP_KEY`, `PRODUCT_ID`, optional `ACTIVITY_LIMIT`.
+- Create the Inkeep project/agent/sub-agent via the management API, then `PATCH` the agent to set `defaultSubAgentId` — a missing default sub-agent surfaces as "Agent does not have a default sub-agent configured."
+- Enable anonymous chat sessions with a direct `psql` update on the `apps` table (`config = jsonb_set(...'{webClient,allowAnonymous}','true'...)`) — there's no UI toggle for this yet.
+- `@inkeep/agents-ui` ships ESM-only — add `transpilePackages: ["@inkeep/agents-ui"]` to `next.config.ts` or the import fails.
+
+<Warning>
+  `InkeepEmbeddedChat` ignores `introMessage` prop changes after mount — force a remount by changing its React `key` whenever you need to update the greeting.
+</Warning>
+
+Full step-by-step, including the proactive SSE listener: [Inkeep recipe](/recipes/inkeep/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Maven — MCP, no bridge needed" icon="/images/recipes/maven/logo.png" iconType="image">
+
+<Note>Reactive reading is fully built via true MCP; **proactive triggers for Maven aren't shipped yet** — point interested customers to [Discord](https://discord.gg/jCbR2tQA5) for early access.</Note>
+
+**🧑 HUMAN — install the MCP app inside the agent, not the global directory**
+
+Maven AGI → your agent → **Apps** → Browse & Install → search "MCP" → install **from inside the agent** (installing from the global app directory fails post-install) → **MCP URL** = `https://mcp.autoplay.ai/mcp`, **MCP auth token** = `mcp_key` → Install. Maven auto-discovers `get_live_user_activity` as a callable tool.
+
+<Warning>
+  Tool definitions are captured **at install time** — if the tool description ever changes upstream, reinstall the MCP app to pick it up; there's no auto-refresh.
+</Warning>
+
+**🤖 AGENT — sign identity for the Chat widget**
+
+Maven needs proof of who's chatting: a signed-then-encrypted JWT (ES256 `SignJWT`, then JWE `EncryptJWT` via `jose`) carrying `{id, firstName, lastName, email}`. The signed `id` **must equal** the exact stable id used in `posthog.identify(...)` / Amplitude `setUserId(...)` — this is the single most common "Maven says there's no recent activity" cause.
+
+```javascript
+Maven.ChatWidget.load({
+  organizationId: 'YOUR_ORG_ID',
+  agentId: 'YOUR_AGENT_ID',
+  signedUserData: token,               // from your backend's sign+encrypt endpoint
+  unsignedUserData: { product_id: 'YOUR_PRODUCT_ID' },
+});
+```
+
+Paste the ES256 **public** key and the encryption secret into the Chat app's Settings → Security — the private key and encryption secret stay server-side only, never shipped to the browser.
+
+Full step-by-step, including the JWT/JWE signing code and CSP config: [Maven recipe](/recipes/maven/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Dify — MCP, vendor-native" icon="/images/recipes/dify/logo.png" iconType="image">
+
+MCP-native — add Autoplay as an MCP server inside your Dify Agent app; the agent calls `get_live_user_activity` directly, no bridge to host.
+
+**🧑 HUMAN — add the MCP server:** Dify workspace → **Tools → MCP tab → Add MCP Server (HTTP)** → Server URL `https://mcp.autoplay.ai/mcp`, Server Identifier `autoplay-live-activity` → **Headers** tab → add `Authorization: Bearer YOUR_MCP_KEY` → **Add & Authorize**.
+
+**🧑 HUMAN — paste the Instructions (system prompt)** into the Agent app's **Instructions** field — this is the exact text to paste:
+
+```text
+Always call get_live_user_activity before responding to any
+user message. Use the returned activity data — features
+visited, actions taken, workflows completed — to understand
+what the user has already done and what they haven't.
+Use this context to better answer their question, surface
+context they didn't mention, and diagnose what they're
+actually stuck on.
+
+When calling get_live_user_activity:
+- product_id is always: YOUR_PRODUCT_ID
+- user_id is: {{user_id}}
+```
+
+Add a String input variable named `user_id` in the Agent's Orchestrate view — `{{user_id}}` above resolves from it. Your frontend must pass a matching `inputs.user_id` on every `chat-messages` API call.
+
+Full step-by-step, including the API call snippet: [Dify recipe](/recipes/dify-tutorial/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Crisp (Hugo) — MCP, vendor-native" icon="/images/recipes/crisp/logo.png" iconType="image">
+
+MCP-native — Crisp's AI agent, Hugo, calls Autoplay's MCP server directly.
+
+**🧑 HUMAN — add the server:** Crisp dashboard → **AI Agent → Integrations & MCP (under Automate) → External MCP servers → Add MCP server** → URL `https://mcp.autoplay.ai/mcp` → **Authentication** → Bearer Token = `mcp_key`.
+
+**🧑 HUMAN — two description fields matter, both on the Manage page — paste real text into both, don't leave either blank:**
+
+Server-level description (Connection details) — tells Hugo when this MCP server is relevant at all:
+
+```text
+Use this server to get a user's recent in-app activity, including
+pages they visited, buttons they clicked, and actions they
+took. Call it when a user seems stuck, asks about something
+they were just doing, or when knowing their recent navigation
+would help you give a better answer.
+```
+
+Tool-level description on the `get_live_user_activity` card (MCP tools selector → edit icon) — tells Hugo exactly when/how to call it, and is also where you hardcode `product_id` since there's no separate fixed-value field:
+
+```text
+Always call this tool before responding to any user message.
+Use the returned user activity data, features visited,
+actions taken, workflows completed, to understand what the
+user has already done and what they haven't. Use this context
+to better answer their question, surface context they didn't
+mention, and diagnose what they're actually stuck on,
+because sometimes users don't phrase what they need in the
+best way since they may be stuck and don't understand the
+product like an expert.
+
+The product_id is always: YOUR_PRODUCT_ID
+```
+
+**🤖 AGENT — identity:** push the stable user id into the Crisp session via `$crisp.push(["set", "session:data", [[["user_id", currentUser.id]]]])` after login — this becomes the attribute Hugo's `user_id` parameter reads from (set that parameter to **Use an attribute**, not **Let Hugo decide**).
+
+Full step-by-step, including the identity tabs per activity source: [Crisp recipe](/recipes/crisp-ai/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Tidio (Lyro) — MCP, vendor-native" icon="/images/recipes/tidio/logo.png" iconType="image">
+
+MCP-native, wired differently — Tidio's Lyro AI Agent has no generic "add MCP server" UI, so the connection is a raw JSON-RPC `POST` to `https://mcp.autoplay.ai/mcp` made from inside a Lyro **Action**.
+
+**🧑 HUMAN — create the Action:** Tidio → **Lyro AI Agent → Actions → + Create Action → Create from scratch**. Name it `Get Live User Activity`.
+
+Paste this into the **Instructions** field (tells Lyro *when* to call it):
+
+```text
+Call this action before responding to any message where
+knowing what the user has recently done in the app would
+help give a better answer. This includes:
+
+- User seems stuck or asks where something is
+- User asks about something they were just doing
+- User mentions an error or unexpected behavior
+- You need to understand their recent navigation to give
+  specific directions instead of a generic walkthrough
+
+No information is required from the user — call this action
+directly. It returns a chronological list of recent in-app
+activity: pages visited, buttons clicked, forms submitted.
+
+Do NOT call this action when:
+- The user is asking about billing or account details
+- The question can be answered without knowing recent activity
+```
+
+Build the Action sequence with one **API call** step — `POST https://mcp.autoplay.ai/mcp`, header `Authorization: Bearer YOUR_MCP_KEY`, body:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "get_live_user_activity",
+    "arguments": {
+      "product_id": "YOUR_PRODUCT_ID",
+      "user_id": "{{contact.user_id}}"
+    }
+  },
+  "id": 1
+}
+```
+
+Then add an **Update session variable** step saving `result.content[0].text` from the response into a variable named `activity`.
+
+**🤖 AGENT — identity:** set `custom.user_id` on the Tidio contact via `tidioChatApi.setVisitorData({ custom: { user_id: currentUser.id } })` after login — this becomes `{{contact.user_id}}` above.
+
+Full step-by-step, including the Guidance-instructions text for using the returned activity: [Tidio recipe](/recipes/tidio/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Landbot — REST-pull via a custom bridge" icon="/images/recipes/landbot/logo.png" iconType="image">
+
+No MCP — a Landbot flow's Webhook block calls a small FastAPI bridge you stand up, which fetches live activity from the REST endpoint above and returns it to the flow.
+
+<Warning>
+  The Webhook block requires a **paid Landbot Pro plan** and has a **60-second timeout** — keep the bridge's response fast (a single synchronous REST call, no chaining).
+</Warning>
+
+Landbot's AI Step also needs an explicit agent prompt describing what the fetched context means and when to reference it, not just the raw JSON.
+
+Full step-by-step, including the bridge code and the full agent prompt: [Landbot recipe](/recipes/landbot/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Plain — REST-pull, note-on-thread" icon="/images/recipes/plain/logo.png" iconType="image">
+
+No MCP — Plain's widget fires `onNewThread` the moment a user opens a thread; your server-side route fetches that user's live activity from the REST endpoint above, resolves the Plain-internal customer id via Plain's GraphQL API, and writes the actions as a note on the thread before Plain's AI agent (Ari) is assigned.
+
+**🤖 AGENT**
+
+- Env vars: `PLAIN_API_KEY` (Machine User key, `Member` role minimum), `CONNECTOR_URL`, `MCP_KEY`, `PRODUCT_ID`.
+- Requires a Plain **Machine User** (Settings → Machine users) to authenticate the server-side GraphQL calls.
+
+<Warning>
+  Order matters: the note must be written **before** Ari is assigned in the Plain workflow — assign Ari first and it won't see it. Also, `upsertCustomTimelineEntry` has been removed from Plain's API; use `createCustomerEvent`/`createThreadEvent` instead, and note these require Plain's paid **Events API** (`FORBIDDEN` on the Foundation plan even with correct permissions).
+</Warning>
+
+Full step-by-step, including the webhook handler and widget script: [Plain recipe](/recipes/plain-tutorial/step-1-connect-real-time-events).
+
+</Accordion>
+
+<Accordion title="Zendesk — no step-by-step recipe">
+
+No guided walkthrough exists for this pillar yet, but the connector isn't starting from zero: `autoplay_sdk.integrations.zendesk` already ships `ZendeskChatbot`, webhook URL builders, auth header helpers, and trigger-payload builders for a push-based session-link + internal-note pattern. If the customer wants Zendesk now, point them to [the Zendesk integration reference](/integrations/zendesk) and expect to wire the trigger/webhook config by hand — flag the missing step-by-step recipe to the Autoplay team via [Discord](https://discord.gg/jCbR2tQA5) so it gets prioritized.
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Path 3 — Visual User Tours
+
+### The one mechanism behind all seven tools
+
+**🤖 AGENT**
+
+<Note>
+  Autoplay does **not** call any tour vendor's API directly — there's no server-to-server integration per vendor, no vendor credentials stored in Autoplay. Instead, Autoplay's [proactive triggers](/sdk/proactive-triggers) decide *when/what* to say, and emit a session-scoped SSE event; **the customer's own frontend** listens for it and calls the vendor's client-side SDK. "Setting up this pillar" means: wire this listener once, then hand it a `flow_id` per vendor.
+</Note>
+
+**🤖 AGENT — one shared listener, regardless of vendor**
+
+```javascript
+const es = new EventSource('YOUR_SERVER_PROXY/stream');  // proxy the connector's SSE stream server-side; keep ingest_secret/mcp_key off the client
+es.addEventListener('usertour_trigger', (event) => {
+  const payload = JSON.parse(event.data); // { type, product_id, session_id, flow_id }
+  if (payload.session_id !== currentSessionId) return; // must match the current activity-provider session
+  // call the vendor's SDK here — see the table below for the exact one-liner
+});
+```
+
+**🧑 HUMAN — per vendor, before the listener works:** they must already have that vendor's own tracking snippet installed (standard vendor onboarding, not an Autoplay step), and must have already built and published the specific tour/flow/guide in that vendor's own dashboard, then copied its id into wherever `flow_id` is set when the trigger fires.
+
+| Tool | Identify call | Where the flow/tour/guide id lives | One-line trigger call |
+|---|---|---|---|
+| [Userpilot](/recipes/userpilot/how-to-setup) | `userpilot.identify(userId, {...})` | "Content ID" in the flow's edit URL | `userpilot.trigger(payload.flow_id)` |
+| [Chameleon](/recipes/chameleon/how-to-setup) | `chmln.identify(userId, {...})` | "Tour ID" shown under the tour name | `chmln.show(payload.flow_id)` |
+| [Userflow](/recipes/userflow/how-to-setup) | `userflow.identify(userId, {...})` | "Flow ID" in the flow's URL | `userflow.start(payload.flow_id)` |
+| [Pendo](/recipes/pendo/how-to-setup) | `pendo.initialize({visitor:{id:userId}, account:{id:...}})` — identify folded into init, needs an account id unlike the others | "Guide ID" in the guide's edit URL | `pendo.showGuideById(payload.flow_id)` |
+| [Usertour](/recipes/usertour/how-to-setup) | `await usertour.identify(userId, {...})` (async) | "Flow ID" in the flow's edit URL | `usertour.start(payload.flow_id)` |
+| [UserGuiding](/recipes/userguiding/how-to-setup) | `window.userGuiding.identify(userId, {...})` | "Guide ID" in the guide's edit URL | `window.userGuiding.previewGuide(payload.flow_id)` |
+| [Told](/recipes/told/how-to-setup) | `told.identify(userId, {...})` | "Tour ID" in the tour's edit URL | `told.startTour(payload.flow_id)` |
+
+<Note>
+  The SSE event is always named `usertour_trigger` even when the vendor isn't the one literally called "Usertour" — don't let that naming coincidence confuse the wiring.
+</Note>
+
+**If the customer uses a tour tool not in this table:** the mechanism only needs a client-side "launch this flow by id" SDK method, so the same listener pattern works — there's just no existing recipe page to link them to. Build the vendor call by hand from that vendor's own docs and consider skipping this pillar for now if it's not a priority.
+
+**No tour tool at all?** Skip this pillar — nothing else in the setup depends on it.
+
+To actually make a trigger fire (rather than just wiring the listener), see [Proactive triggers](/sdk/proactive-triggers) and [Authoring triggers](/sdk/proactive-triggers-authoring) — three built-ins exist (`canonical_url_ping_pong`, `user_page_dwell`, `section_playbook_match`); only the first is on by default.
+
+---
+
+## Final step — verify the whole stack
+
+**🤖 AGENT** (customer triggers real activity)
+
+1. **Path 1:** `curl "YOUR_MCP_URL/users/YOUR_PRODUCT_ID/YOUR_USER_ID/live-activity" -H "Authorization: Bearer YOUR_MCP_KEY"` while the customer clicks around — the `actions` array should populate within seconds.
+2. **Path 2 (MCP platforms — Intercom, Dify, Crisp, Tidio, Maven):** run the connector's Test/Simulator tab with a real `product_id`/`user_id`, then ask a context-dependent question as that same logged-in user in the actual widget.
+3. **Path 2 (bridge platforms — Ada, Botpress, Rasa, Inkeep, Landbot, Plain):** call the bridge's `/reply` or `/context` endpoint directly (or, for Plain, open a new thread) with a real `user_id` and confirm it returns or attaches non-empty activity, then ask a context-dependent question in the actual widget.
+4. **Path 2 (Zendesk, if wired by hand):** trigger the connector's webhook (e.g. open a new ticket) and confirm a session-linked internal note appears within ~10s.
+5. **Path 3:** manually fire (or wait for) a proactive trigger and confirm the vendor's tour actually launches in the browser.
+
+---
+
+## Reference
+
+<CardGroup cols={2}>
+  <Card title="Quickstart (human-facing)" icon="rocket" href="/quickstart">
+    The same three pillars, click-through Mintlify format
+  </Card>
+  <Card title="Agent skills" icon="wand-magic-sparkles" href="/get-started/agent-skills">
+    Per-provider Cursor/Claude skills this script installs
+  </Card>
+  <Card title="MCP server" icon="plug" href="/mcp/server">
+    Full tool schema and auth details for get_live_user_activity
+  </Card>
+  <Card title="Proactive triggers" icon="bolt" href="/sdk/proactive-triggers">
+    The mechanism that decides when Path 2/3 delivery fires
+  </Card>
+  <Card title="Identity" icon="fingerprint" href="/activity/identity">
+    The cross-pillar user_id matching rule and how to debug it
+  </Card>
+  <Card title="Use cases" icon="target" href="/who-we-are/use-cases">
+    Outcome framing if the customer asks "what's this for"
+  </Card>
+</CardGroup>

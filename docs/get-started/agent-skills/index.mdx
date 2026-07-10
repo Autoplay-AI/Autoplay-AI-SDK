@@ -1,0 +1,63 @@
+---
+title: Agent skills
+sidebarTitle: "Agent skills"
+description: Install, browse, and download Autoplay Cursor/Claude agent skills for your stack.
+---
+
+Agent skills add project-local guidance so your assistant follows the correct integration pattern for your stack (session scoping, conversation linking, and field mapping) instead of generating generic setup code.
+
+## Install
+
+After installing the SDK:
+
+```bash
+pip install autoplay-sdk
+autoplay-install-skills
+```
+
+### Target a specific stack
+
+```bash
+autoplay-install-skills --chatbot ada --user-activity fullstory
+autoplay-install-skills --chatbot intercom --user-activity posthog
+autoplay-install-skills --chatbot botpress
+```
+
+### Flags
+
+| Flag | Purpose |
+| --- | --- |
+| `--chatbot NAME` | Install core + one chatbot skill (`ada`, `intercom`, `botpress`, `dify`, `crisp`, `landbot`, `tidio`) |
+| `--user-activity NAME` | Install core + one activity skill (`fullstory`, `posthog`) |
+| `--migrate` | Install core + migration helper only |
+| `--force` | Overwrite existing skill directories in `.cursor/skills/` |
+| `--dest DIR` | Destination directory (default: `.cursor/skills`) |
+
+<Note>
+  **SDK reorganization (v0.7.4+):** run `autoplay-install-skills --migrate` to install the import migration skill. See [Migration 0.7.4](/sdk/migration-0.7.4).
+</Note>
+
+### Just want one skill? Use curl
+
+No need to install the SDK just to grab a skill file. Each skill page below has a one-line curl command — same pattern as [`autoplay-agentic-setup`](/autoplay-agentic-setup/SKILL.md) — that prints its `SKILL.md` straight to stdout, ready to pipe into an agent's context or redirect into `.claude/skills/<name>/SKILL.md` yourself. For example:
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-posthog/SKILL.md
+```
+
+## Bundled skills
+
+Each skill is available as a rendered doc page and a raw `SKILL.md` fetchable by curl.
+
+| Skill | When to use | Docs | Raw |
+| --- | --- | --- | --- |
+| autoplay-core | Any Autoplay integration — install, stream wiring, session scoping | [View](/get-started/agent-skills/autoplay-core) | [`SKILL.md`](/autoplay-core/SKILL.md) |
+| autoplay-migrate-imports | Migrating deprecated import paths to v0.7.4 modules | [View](/get-started/agent-skills/autoplay-migrate-imports) | [`SKILL.md`](/autoplay-migrate-imports/SKILL.md) |
+| chatbot-crisp | Crisp AI integration | [View](/get-started/agent-skills/chatbot-crisp) | [`SKILL.md`](/chatbot-crisp/SKILL.md) |
+| chatbot-dify | Dify integration | [View](/get-started/agent-skills/chatbot-dify) | [`SKILL.md`](/chatbot-dify/SKILL.md) |
+| chatbot-intercom | Intercom integration | [View](/get-started/agent-skills/chatbot-intercom) | [`SKILL.md`](/chatbot-intercom/SKILL.md) |
+| chatbot-tidio | Tidio integration | [View](/get-started/agent-skills/chatbot-tidio) | [`SKILL.md`](/chatbot-tidio/SKILL.md) |
+| activity-amplitude | Amplitude as user activity source | [View](/get-started/agent-skills/activity-amplitude) | [`SKILL.md`](/activity-amplitude/SKILL.md) |
+| activity-posthog | PostHog as user activity source | [View](/get-started/agent-skills/activity-posthog) | [`SKILL.md`](/activity-posthog/SKILL.md) |
+
+Skills are copied into `.cursor/skills/` in your project. Open Cursor or Claude and ask it to set up Autoplay — the agent will follow the wired patterns automatically.

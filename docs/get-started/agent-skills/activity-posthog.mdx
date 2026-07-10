@@ -1,0 +1,45 @@
+---
+title: "Activity Posthog"
+sidebarTitle: "Activity Posthog"
+description: "Wires PostHog as the event source for Autoplay: ensures posthog-js is installed, patches or scaffolds the browser init, and calls posthog.identify() with the app's STABLE user id (not the anonymous id) on login so your user id flows to PostHog and Autoplay. The PostHog session ID is the scoping key. The PostHog→Autoplay destination is created and verified automatically by onboarding code (PostHogProvider), so this skill does NOT add a webhook by hand. Use when the user mentions PostHog, posthog-js, posthog.identify, product_id, or asks how to capture user events for Autoplay."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Install this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Install Activity Posthog into your project in one step.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --user-activity posthog
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/quickstart">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill and start building with Activity Posthog.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-posthog/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-posthog/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
