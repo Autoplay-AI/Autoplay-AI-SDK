@@ -1,0 +1,45 @@
+---
+title: "Autoplay Core"
+sidebarTitle: "Autoplay Core"
+description: "Sets up the shared Autoplay SDK foundation for live user activity in an existing customer stack. Covers installing autoplay-sdk, registering a product to get ingest_url/ingest_secret/mcp_url/mcp_key, the default REST/MCP pull pattern for AI agents, and the legacy push/session-linking path used only where explicitly required. Use when starting any Autoplay integration or when the user mentions autoplay-sdk, mcp_key, onboard_product, live activity, or MCP."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the shared Autoplay SDK foundation skill for credentials and live-activity reads.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/quickstart">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill for Autoplay SDK setup instructions.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/autoplay-core/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/autoplay-core/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

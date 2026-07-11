@@ -1,21 +1,27 @@
 ---
+skill: chatbot-landbot
+family: chatbot
+version: 0.1.0
+sdk_min: 0.7.1
+tags: [landbot, mcp, live-activity]
 name: chatbot-landbot
 description: >-
-  Wires the Autoplay SDK into Landbot for real-time user context. Use when the
-  user mentions Landbot or asks how to give their Landbot chatbot real-time
-  context from Autoplay.
+  Connects an existing Landbot AI support agent to Autoplay live activity. Covers passing a
+  stable user ID through Landbot variables and calling Autoplay live activity at answer
+  time so the bot can use recent in-app behavior. Use when the customer already uses
+  Landbot or asks how to give Landbot real-time Autoplay context.
 disable-model-invocation: true
 ---
 
-# Chatbot — Landbot
+# AI Support Agent — Landbot
 
-> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+> Read `autoplay-core` first for install and credentials (`product_id`, `mcp_url`, `mcp_key`).
 
-## ⚠️ Session scoping — critical
+## Scoping pattern for Landbot
 
-Landbot conversations have a conversation ID. You must link the browser Autoplay `session_id` to the Landbot conversation before context can be delivered — see `autoplay-core` for the `conv_map` + `on_session_linked` pattern.
+Landbot has no native MCP support, so a small backend route pulls a user's live activity on demand and returns it to a Landbot Webhook block — no session-linking, no `conv_map`, no listener process. The read is keyed by `product_id` + `user_id` only; thread the user's stable id into the Webhook URL as a query param (e.g. `?user_id=[@user_id]`) so your route can pass it straight through.
 
-Full tutorial coming soon. See the docs for current status.
+`user_id` must exactly equal the id your activity source identifies the user with. See the full tutorial for the Landbot workflow, the backend route, and identity wiring.
 
 ## Reference
 

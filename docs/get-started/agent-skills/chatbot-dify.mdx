@@ -1,0 +1,45 @@
+---
+title: "Dify skill"
+sidebarTitle: "Dify"
+description: "Connects an existing Dify Agent to Autoplay live activity through the Autoplay MCP server. Covers adding the MCP server under Tools, enabling get_live_user_activity, and passing a stable user_id input that matches the activity source. Use when the customer already uses Dify, Dify Agent, Dify MCP, or asks how to give Dify real-time Autoplay context."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Dify skill for an existing Dify AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot dify
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/dify-tutorial/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Dify and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-dify/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-dify/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

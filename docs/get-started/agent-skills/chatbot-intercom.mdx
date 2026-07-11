@@ -1,0 +1,45 @@
+---
+title: "Intercom Fin skill"
+sidebarTitle: "Intercom Fin"
+description: "Connects an existing Intercom Fin workspace to Autoplay live activity through the Autoplay MCP server. Covers adding the MCP connector, enabling the Get Live User Activity tool, configuring Bearer token authentication, and using Messenger JWT identity so Fin asks for the right user's activity. Use when the customer already uses Intercom, Fin, Custom MCP, Messenger JWT identity, or asks how to give Fin real-time Autoplay context."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Intercom Fin skill for an existing Intercom Fin AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot intercom
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/intercom-tutorial/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Intercom Fin and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-intercom/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-intercom/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

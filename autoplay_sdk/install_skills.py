@@ -29,6 +29,7 @@ CHATBOT_SKILLS: dict[str, str] = {
 }
 
 ACTIVITY_SKILLS: dict[str, str] = {
+    "amplitude": "activity-amplitude",
     "fullstory": "activity-fullstory",
     "posthog": "activity-posthog",
 }

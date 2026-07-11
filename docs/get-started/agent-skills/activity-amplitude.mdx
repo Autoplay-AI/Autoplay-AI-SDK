@@ -1,0 +1,45 @@
+---
+title: "Amplitude skill"
+sidebarTitle: "Amplitude"
+description: "Connects an existing Amplitude project to Autoplay live activity using the @amplitude/unified SDK and Amplitude HTTP Event Streaming. Covers verifying autocapture and stable user IDs, running onboard_product for ingest and MCP credentials, and pointing Amplitude's event stream at Autoplay. Use when the customer already uses Amplitude, @amplitude/unified, amplitude.init, amplitude.setUserId, or asks how to send Amplitude activity to Autoplay."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Amplitude session replay provider skill for an existing Amplitude setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --user-activity amplitude
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/amplitude/how-to-setup">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Amplitude as a session replay provider and wants Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-amplitude/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-amplitude/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

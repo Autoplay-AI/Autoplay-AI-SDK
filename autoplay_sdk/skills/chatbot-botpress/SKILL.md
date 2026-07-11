@@ -1,115 +1,76 @@
 ---
+skill: chatbot-botpress
+family: chatbot
+version: 0.1.0
+sdk_min: 0.7.1
+tags: [botpress, autonomous-agent, mcp]
 name: chatbot-botpress
 description: >-
-  Wires the Autoplay SDK into Botpress by storing real-time user activity in Botpress
-  Tables and injecting it into an Autonomous Agent via agentContext. Covers the dual
-  Webhook + chat flow path, AutoPlayEventsTable, AutoPlayEventsSummaryTable, and the
-  system prompt pattern. Use when the user mentions Botpress, Botpress Studio,
-  Botpress Tables, Autonomous Agent, or asks how to give their Botpress bot real-time context.
+  Connects an existing Botpress agent to Autoplay live activity by fetching the user's
+  recent activity on demand from Autoplay and injecting it into an Autonomous Agent
+  context. Covers the FetchEventsData code node, stable user ID mapping, and the system
+  prompt pattern. Use when the customer already uses Botpress, Botpress Studio, or
+  Autonomous Agent.
 disable-model-invocation: true
 ---
 
-# Chatbot — Botpress
+# AI Support Agent — Botpress
 
-> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+> Read `autoplay-core` first for install and credentials (`product_id`, `mcp_url`, `mcp_key`).
 
 ## Scoping pattern for Botpress
 
-`session_id` is the table key. No `conv_map` needed — Botpress Tables are keyed directly by `session_id`. The Autonomous Agent reads the table on every message.
+The live-activity read is keyed by `product_id` + `user_id` — there is no session concept and no local table to keep in sync. `FetchEventsData` calls the connector directly, synchronously, every time a user sends a message.
 
-**Never mix rows from different `session_id` values** — always filter table queries by `session_id`.
+**`user_id` must exactly equal** the id your activity source identifies the user with (the value passed to `posthog.identify(...)` / `amplitude.setUserId(...)`).
 
 ---
 
-## Architecture: two parallel paths
+## Architecture: one path, no background process
 
 ```
-WebHook → StoreEventsData      (writes every ActionsPayload to AutoPlayEventsTable)
-Start → FetchEventsData → Autonomous Agent → End   (reads table on each user message)
+Start -> FetchEventsData -> Autonomous Agent -> End
 ```
 
----
-
-## Step 1 — Create Botpress Tables
-
-In Botpress Studio create two tables:
-
-**`AutoPlayEventsTable`**
-| Column | Type |
-|--------|------|
-| `title` | String |
-| `description` | String |
-| `canonical_url` | String |
-| `user_id` | String |
-| `product_id` | String |
-| `session_id` | String |
-
-**`AutoPlayEventsSummaryTable`**
-| Column | Type |
-|--------|------|
-| `summary` | String |
-| `session_id` | String |
+`FetchEventsData` pulls the user's recent actions directly from the connector on every message. There is no webhook node, no `AutoPlayEventsTable`, no `AutoPlayEventsSummaryTable`, and no separate listener process to run — the events already live in Autoplay's connector; Botpress just asks for them when it needs them.
 
 ---
 
-## Step 2 — StoreEventsData code node
+## Step 1 — Create the workflow
 
-Webhook fires on every `ActionsPayload`. Write each action as a row:
+In Botpress Studio, create a workflow with two nodes: `FetchEventsData` (Code) and `Autonomous Agent` (AI Agent). Connect `Start -> FetchEventsData -> Autonomous Agent -> End`.
 
-```javascript
-// StoreEventsData code node
-const payload = event.payload;
-const sessionId = payload.session_id;
-
-for (const action of payload.actions) {
-  await client.createTableRow({
-    table: "AutoPlayEventsTable",
-    row: {
-      title: action.title,
-      description: action.description,
-      canonical_url: action.canonical_url ?? "",
-      user_id: payload.user_id ?? "",
-      product_id: payload.product_id,
-      session_id: sessionId,
-    },
-  });
-}
-```
-
----
-
-## Step 3 — FetchEventsData code node
-
-Runs before the Autonomous Agent on every user message. Fetches recent rows for this session:
+## Step 2 — FetchEventsData code node
 
 ```javascript
 // FetchEventsData code node
-const sessionId = event.userId;  // or however you surface session_id in Botpress
+const PRODUCT_ID = "YOUR_PRODUCT_ID"
+const MCP_KEY = "YOUR_MCP_KEY"  // from onboard_product — store as a bot/workflow secret if your plan supports it
 
-const rows = await client.findTableRows({
-  table: "AutoPlayEventsTable",
-  filter: { session_id: sessionId },
-  limit: 20,
-  orderBy: [{ column: "id", direction: "desc" }],
-});
+const userId = event.state?.user?.userId ?? event.userId  // must equal the id your activity source identifies the user with
 
-const summaryRows = await client.findTableRows({
-  table: "AutoPlayEventsSummaryTable",
-  filter: { session_id: sessionId },
-  limit: 1,
-});
+let recentEvents = []
+try {
+  const res = await fetch(
+    `https://mcp.autoplay.ai/users/${PRODUCT_ID}/${userId}/live-activity?limit=10`,
+    { headers: { Authorization: `Bearer ${MCP_KEY}` } },
+  )
+  if (!res.ok) throw new Error(`live-activity ${res.status}`)
+  const data = await res.json()
+  recentEvents = data.actions
+} catch (e) {
+  // Fail open — the Autonomous Agent still answers, just without extra context
+  console.warn('Autoplay live-activity unavailable', e)
+}
 
-workflow.agentContext = [
-  summaryRows[0]?.summary ? `Session summary: ${summaryRows[0].summary}` : "",
-  rows.rows.map(r => `- ${r.title}: ${r.description} (${r.canonical_url})`).join("\n"),
-].filter(Boolean).join("\n\n");
+workflow.agentContext = { recentEvents, summary: null }
 ```
 
----
+`data.actions` comes back already ordered oldest -> newest. `summary` is `null` on purpose — there's no rolling LLM summary anymore, the connector already returns a bounded recent window and the raw actions are passed straight through.
 
-## Step 4 — Autonomous Agent system prompt
+## Step 3 — Autonomous Agent system prompt
 
-Add `{{workflow.agentContext}}` to the agent's system prompt:
+Create a workflow variable `agentContext` (Scope: Workflow, Type: Object), then reference it in the Agent instructions:
 
 ```
 You are a helpful assistant for {{botName}}.
@@ -123,38 +84,7 @@ If context is empty, answer normally without mentioning it.
 
 ---
 
-## Step 5 — Python stream worker (posts to Botpress webhook)
-
-```python
-import httpx
-from autoplay_sdk import AsyncConnectorClient, AsyncSessionSummarizer
-from autoplay_sdk.context.agent_context import AsyncAgentContextWriter
-
-BOTPRESS_WEBHOOK_URL = "https://webhook.botpress.cloud/YOUR_WEBHOOK_ID"
-
-async def write_actions_cb(session_id: str, text: str) -> None:
-    async with httpx.AsyncClient() as http:
-        await http.post(BOTPRESS_WEBHOOK_URL, json={
-            "type": "actions", "session_id": session_id, "text": text
-        })
-
-async def overwrite_cb(session_id: str, summary: str) -> None:
-    async with httpx.AsyncClient() as http:
-        await http.post(BOTPRESS_WEBHOOK_URL, json={
-            "type": "summary", "session_id": session_id, "summary": summary
-        })
-
-agent_writer = AsyncAgentContextWriter(
-    summarizer=AsyncSessionSummarizer(llm=llm, threshold=20),
-    write_actions=write_actions_cb,
-    overwrite_with_summary=overwrite_cb,
-    debounce_ms=0,
-)
-```
-
----
-
 ## Reference
 
 - Full tutorial: https://developers.autoplay.ai/recipes/botpress
-- Botpress Tables API: https://botpress.com/docs/api-reference/tables
+- Botpress code nodes / fetch: https://botpress.com/docs

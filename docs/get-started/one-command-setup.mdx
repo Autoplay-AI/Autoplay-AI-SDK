@@ -1,0 +1,98 @@
+---
+title: "⚡ One-command setup"
+sidebarTitle: "⚡ One-command setup"
+description: "Wire PostHog → Autoplay into your app with a single command — the CLI does the plumbing, the agent only touches your frontend."
+---
+
+The fastest way to connect PostHog to Autoplay. The **`autoplay-setup`** CLI runs
+the deterministic plumbing for you (registers your product, creates and verifies
+the PostHog destination) and only uses an AI agent to wire the small bit of
+**frontend code** — then it shows your events arriving live.
+
+<Note>
+  Prefer to do it by hand, or need to understand each piece? The
+  [Quickstart](/quickstart) walks through the same wiring step by step. This page
+  is the automated equivalent.
+</Note>
+
+## What it does
+
+When you run one command, the CLI walks through:
+
+1. **Finds your project** and confirms the root.
+2. **Collects your PostHog credentials** (host, project id, the `phc_` project
+   key, the `phx_` personal key) and a contact email.
+3. **Provisions the pipeline deterministically — no AI involved:**
+   registers your product with the connector, then calls
+   `PostHogProvider.create_destination()` and `.verify()` to create and confirm
+   the "Autoplay Event Stream" destination in PostHog.
+4. **Hands off to Claude Code for frontend code only** — installs `posthog-js`
+   if missing and adds `posthog.init` + `posthog.identify(...)`, confirming each
+   edit with you. It does **not** create the destination or run smoke tests.
+5. **Shows a live event feed** — start your app, click around, and watch real
+   events land in Autoplay.
+
+## Prerequisites
+
+- The [`claude` CLI](https://docs.claude.com/en/docs/claude-code/overview)
+  installed (the setup launches it to edit your frontend). The command offers to
+  install it for you if it's missing.
+- Your PostHog **project id**, **project API key** (`phc_…`), and a **personal
+  API key** (`phx_…`) with `project:read` + `hog_function:write` scopes.
+- A one-time **setup token** from Autoplay (your Autoplay contact or dashboard).
+
+## Install
+
+```bash
+uv tool install autoplay-setup
+# OR
+pipx install autoplay-setup
+```
+
+## Run
+
+From your app's project root:
+
+```bash
+autoplay-setup --token <YOUR_SETUP_TOKEN>
+```
+
+Then follow the prompts — enter your PostHog credentials and email when asked,
+approve each frontend edit, and `/exit` Claude Code when it reports done. The CLI
+finishes by watching the live stream for your first events.
+
+<AccordionGroup>
+<Accordion title="Useful flags">
+
+- `--contact-email you@company.com` — skip the email prompt.
+- `--connector-url <url>` — point at a non-default event connector.
+- `--model <model>` — pin the model used for the frontend-wiring session.
+
+</Accordion>
+
+<Accordion title="What gets written to your repo">
+
+- `posthog.init` + `posthog.identify(...)` in your frontend (added alongside
+  your existing code — never overwritten).
+- `.autoplay/.env` with your PostHog credentials and the provisioned Autoplay
+  values (webhook, stream URL, secret, token). Keep this out of git — the CLI
+  offers to add `.autoplay/` to your `.gitignore`.
+
+</Accordion>
+</AccordionGroup>
+
+## Identifying logged-in users
+
+The agent wires `posthog.identify()` for you. The one rule that matters: identify
+with **your app's own stable user id** on login (never the anonymous id), so the
+same id you use internally is the one Autoplay receives:
+
+```javascript
+// on login:
+posthog.identify(user.id, { product_id: 'YOUR_PRODUCT_ID', email: user.email })
+// on logout:
+posthog.reset()
+```
+
+See [`activity-posthog`](/get-started/agent-skills/activity-posthog) for the full
+agent skill the CLI follows.

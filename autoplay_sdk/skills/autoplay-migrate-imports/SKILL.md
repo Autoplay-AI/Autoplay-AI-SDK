@@ -1,3 +1,18 @@
+---
+skill: autoplay-migrate-imports
+family: core
+version: 1.0.0
+sdk_min: 0.7.4
+tags: [migration, imports]
+name: autoplay-migrate-imports
+description: >-
+  Migrates autoplay-sdk imports from the pre-0.7.4 flat module layout to the current
+  package structure. Use when the user asks to upgrade Autoplay SDK imports, fix
+  deprecation warnings, or migrate from autoplay_sdk.agent_context,
+  autoplay_sdk.proactive_triggers, autoplay_sdk.models, or related legacy paths.
+disable-model-invocation: true
+---
+
 # autoplay-migrate-imports
 
 Use this skill when asked to migrate autoplay-sdk imports from 0.7.3 to 0.7.4+.

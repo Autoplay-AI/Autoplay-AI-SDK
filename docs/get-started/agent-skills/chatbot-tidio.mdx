@@ -1,0 +1,45 @@
+---
+title: "Tidio Lyro skill"
+sidebarTitle: "Tidio Lyro"
+description: "Connects an existing Tidio Lyro AI agent to Autoplay live activity with a Lyro Action that calls the Autoplay MCP server. Covers creating the action, passing a stable visitor user ID, and letting Lyro pull recent activity on demand. Use when the customer already uses Tidio, Lyro, Tidio Actions, or asks how to give Lyro real-time Autoplay context."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Tidio Lyro skill for an existing Tidio Lyro AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot tidio
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/tidio/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Tidio Lyro and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-tidio/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-tidio/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

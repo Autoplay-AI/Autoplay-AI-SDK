@@ -1,0 +1,45 @@
+---
+title: "Botpress skill"
+sidebarTitle: "Botpress"
+description: "Connects an existing Botpress agent to Autoplay live activity by fetching the user's recent activity on demand from Autoplay and injecting it into an Autonomous Agent context. Covers the FetchEventsData code node, stable user ID mapping, and the system prompt pattern. Use when the customer already uses Botpress, Botpress Studio, or Autonomous Agent."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Botpress skill for an existing Botpress AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot botpress
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/botpress/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Botpress and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-botpress/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-botpress/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

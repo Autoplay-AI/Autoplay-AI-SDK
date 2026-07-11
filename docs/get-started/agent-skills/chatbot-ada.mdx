@@ -1,0 +1,45 @@
+---
+title: "Ada skill"
+sidebarTitle: "Ada"
+description: "Connects an existing Ada bot to Autoplay live activity by pulling a user's recent activity on demand and injecting it through Ada metaFields. Covers Ada variables, a small context endpoint, and matching Ada's user identifier to the activity source. Use when the customer already uses Ada, ada.cx, adaEmbed, metaFields, or asks how to give Ada real-time Autoplay context."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Ada skill for an existing Ada AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot ada
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/ada/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Ada and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-ada/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-ada/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
