@@ -1,14 +1,54 @@
 ---
 title: "Step 1 — Connect real-time events"
 sidebarTitle: "Step 1 — Connect real-time events"
-description: "Set up the Landbot workflow, wire the backend server and listener, and embed the chatbot in your frontend app."
+description: "Set up the Landbot workflow, wire a lightweight backend server, and embed the support AI agent in your frontend app."
 ---
+
+{/* skill-card:start */}
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Landbot skill for an existing Landbot AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot landbot
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/landbot/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Landbot and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-landbot/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-landbot/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
+
+{/* skill-card:end */}
 
 This guide has three parts:
 
 1. **Setup Landbot Workflow** — Build the bot flow with a Webhook node and AI Agent.
-2. **Setup Backend Server and Listener** — Run a FastAPI server and Autoplay SDK listener that feed live context to Landbot.
-3. **Add Chatbot to Frontend** — Embed the Landbot widget in your app.
+2. **Setup Backend Server** — Run a small FastAPI route that pulls a user's live activity from Autoplay on demand, the moment Landbot's webhook fires.
+3. **Add support AI agent to Frontend** — Embed the Landbot widget in your app.
 
 ---
 
@@ -35,7 +75,7 @@ The Landbot flow has five nodes wired together:
 
 **2. Ask a Question** — The bot presents a question to the user and waits for their input. Whatever the user types is passed along to the next blocks. This is how the bot collects the user's actual message or query.
 
-**3. Webhook** — This runs in parallel with the "Ask a Question" block. (Note: 'https requests' is the subtitle Landbot automatically assigns to this block type — it is not something you configure.) It makes an HTTP request to your external server — this is where your FastAPI endpoint gets called to fetch the latest events from the Autoplay SDK. The response (your real-time context) gets stored in a variable like `@context`. The red arrow indicates an error/fallback path in case the request fails. You must connect this output to a fallback block — for example, a message block that says "Sorry, I couldn't load your activity right now." If the red output is left unconnected, the flow will break silently when the webhook fails.
+**3. Webhook** — This runs in parallel with the "Ask a Question" block. (Note: 'https requests' is the subtitle Landbot automatically assigns to this block type — it is not something you configure.) It makes an HTTP request to your external server — this is where your FastAPI endpoint gets called. That route, in turn, pulls the user's live activity from the Autoplay connector **on demand**, at the moment the request comes in — there's no background process feeding it. The response (your real-time context) gets stored in a variable like `@context`. The red arrow indicates an error/fallback path in case the request fails. You must connect this output to a fallback block — for example, a message block that says "Sorry, I couldn't load your activity right now." If the red output is left unconnected, the flow will break silently when the webhook fails.
 
 **4. AI Agent** — This is the brain of the bot. It receives both the user's question (from the Ask a Question block) and the live context fetched by the Webhook block, then generates an intelligent response. You configure its system prompt here to reference `@context` so it answers based on your real-time data.
 
@@ -71,15 +111,64 @@ The Landbot flow has five nodes wired together:
 Webhook URL format:
 
 ```
-https://[YOUR_SERVER_URL]/context?secret=[YOUR_WEBHOOK_SECRET]
+https://[YOUR_SERVER_URL]/context?secret=[YOUR_WEBHOOK_SECRET]&user_id=[@user_id]
 ```
 
+`[@user_id]` is a Landbot variable you set earlier in the flow — see **Identity** below for how to capture it before this block fires.
+
 <Warning>
-  **Timeout limit:** Landbot's webhook block will time out after 60 seconds. If your server or listener is slow to start, the request will fail silently. Make sure your FastAPI server is fully running and your Ngrok tunnel is active before testing the flow.
+  **Timeout limit:** Landbot's webhook block will time out after 60 seconds. If your server is slow to start, the request will fail silently. Make sure your FastAPI server is fully running and your Ngrok tunnel is active before testing the flow.
 </Warning>
 
 <Warning>
   **HTTPS required:** Landbot's webhook block only accepts `https://` URLs. Plain `http://` URLs will return an error. Always use your Ngrok HTTPS URL (e.g. `https://xxxx.ngrok-free.app`), never the local `http://localhost:5000` address.
+</Warning>
+
+### 🔐 Identity — capture the user's id
+
+The live-activity read is keyed by `product_id` **and** `user_id` — there's no session or stream to subscribe to, so every Webhook call must carry a stable user id, not just the shared `WEBHOOK_SECRET`.
+
+Capture it in the flow **before** the Webhook block fires and store it as a Landbot variable (e.g. `@user_id`). A few ways to do that, depending on how your bot is deployed:
+
+- Add an **Ask a Question** block earlier in the flow that asks for an email or account id, and save the answer as `@user_id`.
+- If your bot only ever appears behind a login, use an existing Landbot system variable that already carries the logged-in identity (e.g. `@customer_id` or `@email`), if your integration sets one.
+- If the widget is embedded in a logged-in app, pass the id in via Landbot's URL params when you initialize the widget, and reference it the same way in the flow.
+
+Then interpolate that variable into the Webhook URL exactly like Landbot already does for `[YOUR_WEBHOOK_SECRET]`:
+
+```
+https://[YOUR_SERVER_URL]/context?secret=[YOUR_WEBHOOK_SECRET]&user_id=[@user_id]
+```
+
+The value you capture in `@user_id` **must exactly equal** the id your activity source uses:
+
+<Tabs>
+  <Tab title="PostHog">
+    ```javascript
+    // These two must be identical:
+    posthog.identify(currentUser.id);   // activity source, set on login in your app
+
+    // @user_id in the Landbot flow must resolve to this same currentUser.id —
+    // via an Ask a Question block, a Landbot identity variable, or a URL param
+    // passed in when you initialize the widget for a logged-in user.
+    ```
+  </Tab>
+  <Tab title="Amplitude">
+    ```javascript
+    // These two must be identical:
+    amplitude.setUserId(currentUser.id);   // activity source, set on login in your app
+
+    // @user_id in the Landbot flow must resolve to this same currentUser.id.
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  **How the pieces fit:** your app identifies the user in PostHog/Amplitude → Autoplay stores activity under that id → your Landbot flow captures the same id into `@user_id` → the Webhook block sends it as a query param → your server's `/context` route passes it straight through to the live-activity read → the buckets match.
+</Note>
+
+<Warning>
+  If `@user_id` is empty or doesn't match the id your activity source uses, the live-activity read comes back with an empty `actions` array — `@context` will read "no recent activity" even for an active user.
 </Warning>
 
 ### Map the Webhook Response to a Variable
@@ -226,76 +315,83 @@ To configure the agent instructions in Landbot:
 
 ---
 
-## 🐍 Part 2 — Setup Backend Server and Listener
+## 🐍 Part 2 — Setup Backend Server
+
+There's no background process to run anymore — the connector is **pull-based**. Your server calls the Autoplay live-activity endpoint synchronously, the moment Landbot's webhook fires, and returns the formatted result straight back in the response.
 
 ### Prerequisites
 
 - Python 3.10+
 - A [Landbot](https://landbot.io) account
-- An OpenAI API key
 - `uvicorn` for serving the FastAPI app
 - (Optional) [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) or [Ngrok](https://ngrok.com/docs/guides/share-localhost/quickstart) for local development
 
 Install dependencies:
 
 ```bash
-pip install fastapi httpx openai uvicorn autoplay-sdk
+pip install fastapi httpx uvicorn python-dotenv
 ```
 
 ### Project Structure
 
 ```
 |- .env          # store your env var secrets
-|- listener.py   # the Autoplay SDK event listener
 |- server.py     # server that responds to Landbot webhook requests
 ```
 
 ### Setup your secrets in a `.env` file
 
 ```bash
-EVENTS_FILE_PATH="event_data.txt"
-
-AUTOPLAY_STREAM_URL="YOUR_AUTOPLAY_STREAM_URL"
-AUTOPLAY_UNKEY_API_KEY="YOUR_AUTOPLAY_UNKEY_API_KEY"
+CONNECTOR_URL="https://mcp.autoplay.ai"
+MCP_KEY="YOUR_MCP_KEY"
+PRODUCT_ID="YOUR_PRODUCT_ID"
 
 WEBHOOK_SECRET="YOUR_WEBHOOK_SECRET"
 ```
 
+- `CONNECTOR_URL` — host that serves the live-activity read API, `https://mcp.autoplay.ai` (the origin of your `mcp_url`, without the `/mcp` path)
+- `MCP_KEY` — Bearer token for the live-activity API, the `mcp_key` printed by `onboard_product` in the Quickstart
+- `PRODUCT_ID` — your Autoplay product id, scopes the read to your product
+
 <Info>
-  `WEBHOOK_SECRET` is your own secret value — it can be any string, e.g. `"DKFGEO293KDDA92"`. Use the same value in the webhook URL query param.
+  `WEBHOOK_SECRET` is your own secret value — it can be any string, e.g. `"DKFGEO293KDDA92"`. Use the same value in the webhook URL query param. It's unrelated to `MCP_KEY` — this one only authenticates Landbot's calls to your server.
 </Info>
 
 ### Setup the Webhook Server (`server.py`)
 
+On every incoming Landbot webhook request, this route calls the Autoplay live-activity endpoint for the given `user_id` and formats the result for the AI Agent's `@context` variable — no local file, no cache, no background listener.
+
 ```python
 import os
 from fastapi import FastAPI, Header, Query, HTTPException
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = FastAPI()
 
-EVENTS_FILE = os.getenv("EVENTS_FILE_PATH", "events.txt")
+CONNECTOR_URL = os.getenv("CONNECTOR_URL", "https://mcp.autoplay.ai")
+MCP_KEY = os.getenv("MCP_KEY", "")
+PRODUCT_ID = os.getenv("PRODUCT_ID", "")
 API_SECRET = os.getenv("WEBHOOK_SECRET", "")
 PORT = int(os.getenv("PORT", 5000))
 
 
-def read_events() -> str:
-    if not os.path.exists(EVENTS_FILE):
+def format_actions(actions: list[dict]) -> str:
+    if not actions:
         return "No events recorded yet."
-    with open(EVENTS_FILE, "r", encoding="utf-8") as f:
-        content = f.read().strip()
-    return content or "No events recorded yet."
-
-
-def trim_events(content: str, max_lines: int = 100) -> str:
-    lines = content.splitlines()
-    return "\n".join(lines[-max_lines:])
+    lines = []
+    for i, action in enumerate(actions):
+        lines.append(f"[{i}] Action: {action.get('title', action.get('type', ''))}")
+        lines.append(f"     Details: {action.get('description', '')}")
+        lines.append(f"     Page:    {action.get('canonical_url', '')}")
+    return "\n".join(lines)
 
 
 @app.post("/context")
 def generate_event_context(
+    user_id: str = Query(...),
     secret: str | None = Query(default=None),
     x_secret_key: str | None = Header(default=None),
 ):
@@ -303,8 +399,21 @@ def generate_event_context(
     if API_SECRET and token != API_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    raw = read_events()
-    context = trim_events(raw, max_lines=100)
+    url = f"{CONNECTOR_URL}/users/{PRODUCT_ID}/{user_id}/live-activity"
+    try:
+        resp = httpx.get(
+            url,
+            params={"limit": 10},
+            headers={"Authorization": f"Bearer {MCP_KEY}"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        actions = resp.json().get("actions", [])
+    except httpx.HTTPError as e:
+        print(f"Error fetching live activity for user_id={user_id}: {e}")
+        actions = []
+
+    context = format_actions(actions)
     return {
         "context": context,
         "line_count": len(context.splitlines()),
@@ -323,106 +432,11 @@ if __name__ == "__main__":
     uvicorn.run("server:app", host="0.0.0.0", port=PORT)
 ```
 
-### Setup the Autoplay Event Listener (`listener.py`)
+<Note>
+  `user_id` comes straight from the `[@user_id]` query param wired up in **Identity** above — the route passes it through unchanged to the live-activity read, so whatever Landbot sends is exactly what scopes the lookup.
+</Note>
 
-```python
-import asyncio
-import os
-import time
-
-import dotenv
-import openai
-from autoplay_sdk import (
-    ActionsPayload,
-    AsyncAgentContextWriter,
-    AsyncConnectorClient,
-    AsyncSessionSummarizer,
-)
-
-dotenv.load_dotenv()
-
-STREAM_URL = os.getenv("AUTOPLAY_STREAM_URL")
-UNKEY_API_KEY = os.getenv("AUTOPLAY_UNKEY_API_KEY")
-EVENTS_FILE_PATH = os.getenv("EVENTS_FILE_PATH")
-
-async_openai = openai.AsyncOpenAI()
-
-
-def api_call(func):
-    async def wrapper(*args, **kwargs):
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            print(f"Error in API call: {e}")
-
-    return wrapper
-
-
-@api_call
-async def llm(prompt: str) -> str:
-    r = await async_openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=256,
-    )
-    return r.choices[0].message.content
-
-
-@api_call
-async def write_actions_to_file(payload: ActionsPayload):
-    print("\n=== WRITING ACTIONS TO FILE ===")
-    # Reset file if last modified more than 2 minutes ago (new session)
-    if os.path.exists(EVENTS_FILE_PATH):
-        last_modified_time = os.path.getmtime(EVENTS_FILE_PATH)
-        if time.time() - last_modified_time > 2 * 60:
-            open(EVENTS_FILE_PATH, "w").close()
-    with open(EVENTS_FILE_PATH, "a") as f:
-        for i, action in enumerate(payload.actions):
-            f.write(f"[{i}] Action: {action.title}\n")
-            f.write(f"     Details: {action.description}\n")
-            f.write(f"     Page:    {action.canonical_url}\n")
-
-
-# Raw actions are written directly to file; tell the writer to do nothing for actions
-async def dummy_write_actions(session_id: str, text: str) -> None:
-    pass
-
-
-@api_call
-async def overwrite_summary(session_id: str, summary: str) -> None:
-    print("\n=== OVERWRITING SUMMARY ===")
-    with open(EVENTS_FILE_PATH, "a") as f:
-        f.write(f"\n=== SUMMARY ===\n{summary}\n")
-
-
-summarizer = AsyncSessionSummarizer(llm=llm, threshold=5)
-
-agent_writer = AsyncAgentContextWriter(
-    summarizer=summarizer,
-    write_actions=dummy_write_actions,
-    overwrite_with_summary=overwrite_summary,
-    debounce_ms=0,
-)
-
-
-async def handle_actions_interceptor(payload: ActionsPayload):
-    await write_actions_to_file(payload)
-    await agent_writer.add(payload)
-
-
-async def main():
-    async with AsyncConnectorClient(url=STREAM_URL, token=UNKEY_API_KEY) as client:
-        client.on_actions(handle_actions_interceptor)
-        print("Listening for live website clicks... (Press Ctrl+C to stop)")
-        await client.run()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-### Run the server, listener, and expose to the internet
+### Run the server and expose it to the internet
 
 **Start the webhook server:**
 
@@ -438,15 +452,9 @@ ngrok http 5000
 
 Copy the Ngrok HTTPS URL and use it as `[YOUR_SERVER_URL]` in the Landbot webhook URL.
 
-**Start the listener:**
-
-```bash
-python listener.py
-```
-
 ---
 
-## 🌐 Part 3 — Add Chatbot to your Frontend App
+## 🌐 Part 3 — Add support AI agent to your Frontend App
 
 In Landbot, click **Share** on your bot, then click the **body** button to copy the HTML embed code.
 
@@ -479,16 +487,7 @@ Paste the HTML snippet inside the `<body>` of your frontend app's `index.html`:
 
 ## ✨ Final result
 
-After everything is running, you should see live events flowing through the listener and server, and the Landbot chatbot responding with real-time context.
-
-### Listener
-
-<Frame>
-  <img
-    src="/images/recipes/landbot/landbot_img_09_listener_terminal.png"
-    alt="Terminal showing the Autoplay SDK listener receiving live events"
-  />
-</Frame>
+After everything is running, you should see your server pulling live activity on each webhook call, and the Landbot support AI agent responding with real-time context.
 
 ### Server
 
@@ -499,19 +498,19 @@ After everything is running, you should see live events flowing through the list
   />
 </Frame>
 
-### Chatbot
+### Support AI agent
 
 <Frame>
   <img
     src="/images/recipes/landbot/landbot_img_11_chatbot_terminal.png"
-    alt="Landbot chatbot responding with real-time user context"
+    alt="Landbot support AI agent responding with real-time user context"
   />
 </Frame>
 
 <Frame>
   <img
     src="/images/recipes/landbot/landbot_img_12_final_chatbot.png"
-    alt="Final Landbot chatbot in action with context-aware responses"
+    alt="Final Landbot support AI agent in action with context-aware responses"
   />
 </Frame>
 

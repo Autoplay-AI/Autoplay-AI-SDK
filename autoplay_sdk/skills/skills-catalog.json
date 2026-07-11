@@ -1,0 +1,147 @@
+{
+  "generated_at": "2026-07-11T10:10:40Z",
+  "skills": {
+    "activity-amplitude": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.11.0",
+      "family": "activity",
+      "tags": [
+        "amplitude",
+        "event-streaming",
+        "mcp"
+      ]
+    },
+    "activity-fullstory": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "activity",
+      "tags": [
+        "fullstory",
+        "streams",
+        "mcp"
+      ]
+    },
+    "activity-posthog": {
+      "version": "0.2.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.9.0",
+      "family": "activity",
+      "tags": [
+        "posthog",
+        "identify",
+        "mcp"
+      ]
+    },
+    "autoplay-core": {
+      "version": "1.0.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.11.0",
+      "family": "core",
+      "tags": [
+        "core",
+        "mcp",
+        "live-activity"
+      ]
+    },
+    "autoplay-migrate-imports": {
+      "version": "1.0.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.4",
+      "family": "core",
+      "tags": [
+        "migration",
+        "imports"
+      ]
+    },
+    "chatbot-ada": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "chatbot",
+      "tags": [
+        "ada",
+        "metafields",
+        "mcp"
+      ]
+    },
+    "chatbot-botpress": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "chatbot",
+      "tags": [
+        "botpress",
+        "autonomous-agent",
+        "mcp"
+      ]
+    },
+    "chatbot-crisp": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "chatbot",
+      "tags": [
+        "crisp",
+        "hugo",
+        "mcp"
+      ]
+    },
+    "chatbot-dify": {
+      "version": "0.2.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "chatbot",
+      "tags": [
+        "dify",
+        "mcp",
+        "live-activity"
+      ]
+    },
+    "chatbot-intercom": {
+      "version": "0.5.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.11.0",
+      "family": "chatbot",
+      "tags": [
+        "intercom",
+        "fin",
+        "mcp"
+      ]
+    },
+    "chatbot-landbot": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "chatbot",
+      "tags": [
+        "landbot",
+        "mcp",
+        "live-activity"
+      ]
+    },
+    "chatbot-tidio": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "chatbot",
+      "tags": [
+        "tidio",
+        "lyro",
+        "mcp"
+      ]
+    },
+    "chatbot-zendesk": {
+      "version": "0.1.0",
+      "updated_at": "2026-07-11T14:11:59+05:00",
+      "sdk_min": "0.7.1",
+      "family": "chatbot",
+      "tags": [
+        "zendesk",
+        "notes",
+        "webhooks"
+      ]
+    }
+  }
+}

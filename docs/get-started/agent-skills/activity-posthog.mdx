@@ -1,0 +1,45 @@
+---
+title: "PostHog skill"
+sidebarTitle: "PostHog"
+description: "Connects an existing PostHog project to Autoplay live activity. Covers verifying posthog-js initialization, identifying logged-in users with the app's stable user ID, and using onboard_product/PostHogProvider to create and verify the PostHog to Autoplay destination. Use when the customer already uses PostHog, posthog-js, posthog.identify, product_id, or asks how to send PostHog activity to Autoplay."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay PostHog session replay provider skill for an existing PostHog setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --user-activity posthog
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/posthog/how-to-setup">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses PostHog as a session replay provider and wants Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-posthog/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-posthog/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

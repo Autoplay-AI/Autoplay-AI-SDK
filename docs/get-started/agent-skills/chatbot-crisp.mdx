@@ -1,0 +1,45 @@
+---
+title: "Crisp Hugo skill"
+sidebarTitle: "Crisp Hugo"
+description: "Connects an existing Crisp Hugo AI agent to Autoplay live activity through the Autoplay MCP server. Covers adding the MCP server in Crisp, enabling get_live_user_activity, and passing the same stable user ID used by the activity source. Use when the customer already uses Crisp, Crisp AI, Hugo, or Crisp MCP integrations."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Crisp Hugo skill for an existing Crisp Hugo AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot crisp
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/crisp-ai/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Crisp Hugo and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-crisp/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-crisp/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

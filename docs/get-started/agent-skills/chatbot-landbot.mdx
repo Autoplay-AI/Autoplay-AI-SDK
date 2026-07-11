@@ -1,0 +1,45 @@
+---
+title: "Landbot skill"
+sidebarTitle: "Landbot"
+description: "Connects an existing Landbot AI support agent to Autoplay live activity. Covers passing a stable user ID through Landbot variables and calling Autoplay live activity at answer time so the bot can use recent in-app behavior. Use when the customer already uses Landbot or asks how to give Landbot real-time Autoplay context."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay Landbot skill for an existing Landbot AI support agent setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --chatbot landbot
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/landbot/step-1-connect-real-time-events">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses Landbot and wants its AI support agent to consume Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/chatbot-landbot/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/chatbot-landbot/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>

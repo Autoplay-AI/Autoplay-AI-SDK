@@ -1,15 +1,20 @@
 ---
+skill: activity-fullstory
+family: activity
+version: 0.1.0
+sdk_min: 0.7.1
+tags: [fullstory, streams, mcp]
 name: activity-fullstory
 description: >-
-  Configures a FullStory Stream to fire a webhook to Autoplay on every user click,
-  capturing target text, page URL, timestamp, and session ID. Everything is configured
-  in the FullStory dashboard — no frontend code changes required. Use when the user
-  mentions FullStory, FullStory Streams, Anywhere Activation, or asks how to stream
-  user click events from FullStory into Autoplay.
+  Connects an existing FullStory workspace to Autoplay live activity with a FullStory
+  Stream webhook. Covers mapping FullStory click and page data to Autoplay, using the
+  FullStory session ID as the activity key, and verifying that the user's recent
+  activity can be read back over REST or MCP. Use when the customer already uses
+  FullStory, FullStory Streams, or Anywhere Activation.
 disable-model-invocation: true
 ---
 
-# Activity Source — FullStory Streams
+# Session Replay Provider — FullStory Streams
 
 > Read `autoplay-core` first — the `session_id` in the FullStory payload maps directly
 > to the Autoplay `session_id` used for session scoping.

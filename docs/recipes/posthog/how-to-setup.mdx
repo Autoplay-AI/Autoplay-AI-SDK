@@ -1,12 +1,52 @@
 ---
 title: "PostHog — How to setup"
 sidebarTitle: "How to setup"
-description: "Learn how to set up live user activity from PostHog to feed as context to your chatbot using the Autoplay SDK."
+description: "Learn how to connect existing PostHog live user activity to your support AI agent using the Autoplay SDK."
 icon: "/images/recipes/posthog/logo.png"
 ---
 
-PostHog is the analytics source used throughout the Autoplay SDK. The [Quickstart](/quickstart) walks you through the full setup end-to-end.
+{/* skill-card:start */}
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay PostHog session replay provider skill for an existing PostHog setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --user-activity posthog
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/posthog/how-to-setup">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses PostHog as a session replay provider and wants Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-posthog/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-posthog/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
+
+{/* skill-card:end */}
+
+PostHog is a supported activity source for the Autoplay SDK. The [Quickstart](/quickstart) walks you through connecting an existing PostHog project to Autoplay live activity.
 
 <Card title="Go to Quickstart" icon="rocket" href="/quickstart">
-  Set up PostHog and the Autoplay SDK in minutes.
+  Connect existing PostHog activity to Autoplay in minutes.
 </Card>

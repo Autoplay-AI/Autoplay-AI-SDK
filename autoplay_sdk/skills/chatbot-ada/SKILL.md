@@ -1,27 +1,33 @@
 ---
+skill: chatbot-ada
+family: chatbot
+version: 0.1.0
+sdk_min: 0.7.1
+tags: [ada, metafields, mcp]
 name: chatbot-ada
 description: >-
-  Wires the Autoplay SDK into Ada (ada.cx) by injecting real-time user context via
-  Ada metaFields on web apps. Covers Ada Variables setup, FastAPI context endpoint,
-  and the adaEmbed web SDK integration. Use when the user mentions Ada, ada.cx,
-  adaEmbed, metaFields, or asks how to give their Ada bot real-time context.
+  Connects an existing Ada bot to Autoplay live activity by pulling a user's recent
+  activity on demand and injecting it through Ada metaFields. Covers Ada variables, a
+  small context endpoint, and matching Ada's user identifier to the activity source. Use
+  when the customer already uses Ada, ada.cx, adaEmbed, metaFields, or asks how to give
+  Ada real-time Autoplay context.
 disable-model-invocation: true
 ---
 
-# Chatbot — Ada (ada.cx)
+# AI Support Agent — Ada (ada.cx)
 
-> Read `autoplay-core` first for install, credentials, and the stream wiring pattern.
+> Read `autoplay-core` first for install and credentials (`product_id`, `mcp_url`, `mcp_key`).
 
 ## Scoping pattern for Ada
 
-Ada does not have a persistent server-side `conversation_id` before the chat opens. **No `conv_map` needed.** Instead:
+Ada does not have a persistent server-side `conversation_id` before the chat opens, and the live-activity read has no session concept — it's keyed by `product_id` + `user_id` only.
 
-- Store context in a dict keyed by `session_id`
-- Expose a FastAPI endpoint: `GET /context/{session_id}`
+- Expose a FastAPI endpoint: `GET /context/{user_id}`
+- It calls the Autoplay connector synchronously and returns the result — no local store, no background process
 - Frontend fetches context **before** calling `adaEmbed.start()`
 - Pass the result as `metaFields`
 
-`session_id` = `window.posthog.get_distinct_id()` (Web) or your PostHog distinct ID (mobile).
+`user_id` must be the same stable id your activity source identifies the user with — `posthog.identify(user.id)` / `amplitude.setUserId(user.id)` — not a session id, not email.
 
 ---
 
@@ -31,84 +37,65 @@ In Ada dashboard → **Build → Variables → + New Variable**:
 
 | Variable name | Type   |
 |---------------|--------|
-| `session_id`  | String |
+| `user_id`     | String |
 | `current_page`| String |
 | `recent_actions` | String |
-| `session_summary` | String |
 
-Key rules: no spaces, emojis, or periods. Keys are case-sensitive.
-
----
-
-## Step 2 — Context store + stream callbacks
-
-```python
-# ada_context.py
-from dataclasses import dataclass
-
-context_store: dict[str, "AdaContext"] = {}
-
-@dataclass
-class AdaContext:
-    session_id: str
-    current_page: str = ""
-    recent_actions: str = ""
-    session_summary: str = ""
-
-def get_context(session_id: str) -> AdaContext:
-    return context_store.get(session_id, AdaContext(session_id=session_id))
-
-async def write_actions_cb(session_id: str, text: str) -> None:
-    ctx = context_store.setdefault(session_id, AdaContext(session_id=session_id))
-    ctx.recent_actions = text
-    for line in reversed(text.splitlines()):
-        if "navigated to" in line.lower() or "visited" in line.lower():
-            ctx.current_page = line.strip()
-            break
-
-async def overwrite_cb(session_id: str, summary: str) -> None:
-    ctx = context_store.setdefault(session_id, AdaContext(session_id=session_id))
-    ctx.session_summary = summary
-    ctx.recent_actions = ""
-```
+Key rules: no spaces, emojis, or periods. Keys are case-sensitive. (No `session_summary` variable — the connector already returns a bounded recent window, so there's no separate summary to store.)
 
 ---
 
-## Step 3 — FastAPI context endpoint
+## Step 2 — FastAPI context endpoint
 
 ```python
+# api.py
+import httpx
 from fastapi import FastAPI
-from ada_context import get_context
 
 app = FastAPI()
 
-@app.get("/context/{session_id}")
-async def context_for_session(session_id: str):
-    ctx = get_context(session_id)
-    return {
-        "session_id": ctx.session_id,
-        "current_page": ctx.current_page,
-        "recent_actions": ctx.recent_actions,
-        "session_summary": ctx.session_summary,
-    }
+CONNECTOR_URL = "https://mcp.autoplay.ai"   # origin of mcp_url, without /mcp
+PRODUCT_ID = "YOUR_PRODUCT_ID"              # from onboard_product
+MCP_KEY = "YOUR_MCP_KEY"                    # from onboard_product
+
+@app.get("/context/{user_id}")
+async def context_for_user(user_id: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"{CONNECTOR_URL}/users/{PRODUCT_ID}/{user_id}/live-activity",
+            params={"limit": 10},
+            headers={"Authorization": f"Bearer {MCP_KEY}"},
+        )
+    if res.status_code != 200:
+        # Omit current_page so the frontend's `{ ...meta, ...ctx }` spread
+        # doesn't clobber the real window.location.pathname it already set.
+        return {"user_id": user_id, "recent_actions": ""}
+
+    actions = res.json().get("actions", [])
+    current_page = actions[-1]["canonical_url"] if actions else ""
+    recent_actions = "\n".join(
+        f"[{i + 1}] {a['title']} — {a['description']}" for i, a in enumerate(actions)
+    )
+    return {"user_id": user_id, "current_page": current_page, "recent_actions": recent_actions}
 ```
 
-Protect this endpoint in production — validate with a session cookie or signed token.
+Protect this endpoint in production — validate with a session cookie or signed token, not the raw `user_id` alone.
 
 ---
 
-## Step 4 — Inject metaFields (Web)
+## Step 3 — Inject metaFields (Web)
 
 ```javascript
-const SESSION_ID = window.posthog?.get_distinct_id() ?? "anonymous";
+const USER_ID = window.currentUser?.id ?? null;  // same id passed to posthog.identify(...)
 
 async function openAdaWithContext() {
-  let meta = { session_id: SESSION_ID, current_page: window.location.pathname,
-               recent_actions: "", session_summary: "" };
-  try {
-    const ctx = await fetch(`/context/${SESSION_ID}`).then(r => r.json());
-    meta = { ...meta, ...ctx };
-  } catch (e) { console.warn("Autoplay context unavailable", e); }
+  let meta = { user_id: USER_ID ?? "anonymous", current_page: window.location.pathname, recent_actions: "" };
+  if (USER_ID) {
+    try {
+      const ctx = await fetch(`/context/${USER_ID}`).then(r => r.json());
+      meta = { ...meta, ...ctx };
+    } catch (e) { console.warn("Autoplay context unavailable", e); }
+  }
 
   if (window.adaEmbed) {
     await window.adaEmbed.setMetaFields(meta);
@@ -134,8 +121,6 @@ Ada embed script (add to `<head>`, use `data-lazy`):
 <script id="__ada" data-handle="YOUR-BOT-HANDLE" data-lazy
   src="https://static.ada.support/embed2.js"></script>
 ```
-
----
 
 ---
 

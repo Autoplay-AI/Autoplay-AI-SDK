@@ -1,9 +1,49 @@
 ---
 title: "FullStory — How to setup"
 sidebarTitle: "How to setup"
-description: "Learn how to set up live user activity from FullStory to feed as context to your chatbot using the Autoplay SDK."
+description: "Learn how to set up live user activity from FullStory to feed as context to your support AI agent using the Autoplay SDK."
 icon: "/images/recipes/fullstory/logo.png"
 ---
+
+{/* skill-card:start */}
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay FullStory session replay provider skill for an existing FullStory setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --user-activity fullstory
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/fullstory/how-to-setup">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses FullStory as a session replay provider and wants Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-fullstory/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-fullstory/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
+
+{/* skill-card:end */}
 
 # Streaming every user click to Autoplay via FullStory Streams
 

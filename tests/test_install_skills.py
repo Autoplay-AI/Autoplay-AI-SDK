@@ -3,10 +3,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_SDK_DIR = Path(__file__).parent.parent / "src" / "customer_sdk"
+_SDK_DIR = Path(__file__).parents[1]
 sys.path.insert(0, str(_SDK_DIR))
 
-from autoplay_sdk.install_skills import _copy_skill  # noqa: E402
+from autoplay_sdk.install_skills import ACTIVITY_SKILLS, _copy_skill  # noqa: E402
+
+
+def test_amplitude_activity_skill_is_installable_by_flag() -> None:
+    assert ACTIVITY_SKILLS["amplitude"] == "activity-amplitude"
 
 
 def test_copy_skill_preserves_existing_destination_without_force(

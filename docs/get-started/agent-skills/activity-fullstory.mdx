@@ -1,0 +1,45 @@
+---
+title: "FullStory skill"
+sidebarTitle: "FullStory"
+description: "Connects an existing FullStory workspace to Autoplay live activity with a FullStory Stream webhook. Covers mapping FullStory click and page data to Autoplay, using the FullStory session ID as the activity key, and verifying that the user's recent activity can be read back over REST or MCP. Use when the customer already uses FullStory, FullStory Streams, or Anywhere Activation."
+---
+
+<Note>
+  Auto-generated from `autoplay_sdk/skills/`. Edit the source `SKILL.md` and run `python scripts/sync_skill_docs.py`.
+</Note>
+
+## ⚡ Add this skill
+
+<CardGroup cols={2}>
+
+<Card title="One command" icon="terminal">
+  Add the Autoplay FullStory session replay provider skill for an existing FullStory setup.
+
+  <CodeGroup>
+
+```bash CLI
+uvx --from autoplay-sdk autoplay-install-skills --user-activity fullstory
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="/recipes/fullstory/how-to-setup">View the docs →</a>
+
+</Card>
+
+<Card title="Agent onboarding" icon="robot">
+  Fetch this skill when a customer already uses FullStory as a session replay provider and wants Autoplay live user activity.
+
+  <CodeGroup>
+
+```bash cURL
+curl -s https://developers.autoplay.ai/activity-fullstory/SKILL.md
+```
+
+  </CodeGroup>
+
+  <a className="skill-card-link" href="https://developers.autoplay.ai/activity-fullstory/SKILL.md" target="_blank">View the skill →</a>
+
+</Card>
+
+</CardGroup>
